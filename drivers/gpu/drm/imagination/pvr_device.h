@@ -1,0 +1,776 @@
+/* SPDX-License-Identifier: GPL-2.0 OR MIT */
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#ifndef __PVR_DEVICE_H__
+#define __PVR_DEVICE_H__
+
+#include "pvr_ccb.h"
+#include "pvr_device_info.h"
+#include "pvr_fw_trace.h"
+#include "pvr_vendor.h"
+#include "pvr_vm.h"
+
+#include <drm/drm_device.h>
+#include <drm/drm_file.h>
+#include <drm/drm_mm.h>
+
+#include <linux/bits.h>
+#include <linux/compiler_attributes.h>
+#include <linux/compiler_types.h>
+#include <linux/io.h>
+#include <linux/iopoll.h>
+#include <linux/kernel.h>
+#include <linux/math.h>
+#include <linux/types.h>
+#include <linux/wait.h>
+#include <linux/workqueue.h>
+#include <linux/xarray.h>
+
+/* Forward declaration from <linux/clk.h>. */
+struct clk;
+
+/* Forward declaration from <linux/firmware.h>. */
+struct firmware;
+
+/* Forward declaration from "pvr_fw.h". */
+struct pvr_fw_funcs;
+
+/**
+ * struct pvr_version - Hardware version information for a PowerVR device
+ * @b: Branch ID.
+ * @v: Version ID.
+ * @n: Number of scalable units.
+ * @c: Config ID.
+ */
+struct pvr_version {
+	u16 b, v, n, c;
+};
+
+/**
+ * struct pvr_fw_version - Firmware version information
+ * @major: Major version number.
+ * @minor: Minor version number.
+ */
+struct pvr_fw_version {
+	u16 major, minor;
+};
+
+/**
+ * struct pvr_vendor - Vendor specific data for @pvr_device.
+ */
+struct pvr_vendor {
+	/**
+	 * @callbacks: Callback functions for vendor specific functionality.
+	 *
+	 * May be %NULL.
+	 */
+	const struct pvr_vendor_callbacks *callbacks;
+
+	/** @data: Vendor specific data. */
+	void *data;
+};
+
+/**
+ * struct pvr_device - powervr-specific wrapper for &struct drm_device
+ */
+struct pvr_device {
+	/**
+	 * @base: The underlying &struct drm_device.
+	 *
+	 * Do not access this member directly, instead call
+	 * from_pvr_device().
+	 */
+	struct drm_device base;
+
+	/** @version: Hardware version detected at runtime. */
+	struct pvr_version version;
+
+	/**
+	 * @features: Hardware feature information.
+	 *
+	 * Do not access this member directly, instead use PVR_HAS_FEATURE()
+	 * or PVR_FEATURE_VALUE() macros.
+	 */
+	struct pvr_device_features features;
+
+	/**
+	 * @quirks: Hardware quirk information.
+	 *
+	 * Do not access this member directly, instead use PVR_HAS_QUIRK().
+	 */
+	struct pvr_device_quirks quirks;
+
+	/** @fw_version: Firmware version detected at runtime. */
+	struct pvr_fw_version fw_version;
+
+	/** @regs_resource: Resource representing device control registers. */
+	struct resource *regs_resource;
+
+	/**
+	 * @regs: Device control registers.
+	 *
+	 * These are mapped into memory when the device is initialized; that
+	 * location is where this pointer points.
+	 */
+	void __iomem *regs;
+
+	/** @core_clk: General core clock. */
+	struct clk *core_clk;
+
+	/** @sys_clk: System bus clock. */
+	struct clk *sys_clk;
+
+	/** @mem_clk: Memory clock. */
+	struct clk *mem_clk;
+
+	/** @irq: IRQ number. */
+	int irq;
+
+	/** @irq_wq: Workqueue for actions triggered off the IRQ handler. */
+	struct workqueue_struct *irq_wq;
+
+	/** @kccb_rtn_q: Waitqueue for KCCB command return waiters. */
+	wait_queue_head_t kccb_rtn_q;
+
+	/** @fw: Handle to the firmware loaded into the device. */
+	const struct firmware *fw;
+
+	/** @vendor: Vendor specific device data. */
+	struct pvr_vendor vendor;
+
+	/** @kccb: Kernel CCB. */
+	struct pvr_ccb kccb;
+
+	/** @fwccb: Firmware CCB. */
+	struct pvr_ccb fwccb;
+
+	/** @fwccb_work: Work item for FWCCB processing. */
+	struct work_struct fwccb_work;
+
+	/** @fence_work: Work item for fence processing. */
+	struct work_struct fence_work;
+
+	/** @kccb_rtn_obj: Object representing KCCB return slots. */
+	struct pvr_fw_object *kccb_rtn_obj;
+
+	/**
+	 * @kccb_rtn: Pointer to CPU mapping of KCCB return slots. Must be
+	 *            accessed by READ_ONCE()/WRITE_ONCE().
+	 */
+	u32 *kccb_rtn;
+
+	/** @kernel_vm_ctx: TODO */
+	struct pvr_vm_context *kernel_vm_ctx;
+
+	/** @fw_mm: Firmware address space allocator. */
+	struct drm_mm fw_mm;
+
+	/** @fw_mm_lock: Lock protecting access to &fw_mm. */
+	spinlock_t fw_mm_lock;
+
+	/** @fw_mm_base: Base address of address space managed by @fw_mm. */
+	u64 fw_mm_base;
+
+	/** @fw_code_obj: Object representing firmware code. */
+	struct pvr_fw_object *fw_code_obj;
+
+	/** @fw_data_obj: Object representing firmware data. */
+	struct pvr_fw_object *fw_data_obj;
+
+	/**
+	 * @fw_core_code_obj: Object representing firmware core code. May be
+	 *                    %NULL if firmware does not contain this section.
+	 */
+	struct pvr_fw_object *fw_core_code_obj;
+
+	/**
+	 * @fw_core_data_obj: Object representing firmware core data. May be
+	 *                    %NULL if firmware does not contain this section.
+	 */
+	struct pvr_fw_object *fw_core_data_obj;
+
+	/**
+	 * @fwif_connection_ctl_obj: Object representing FWIF connection control
+	 *                           structure.
+	 */
+	struct pvr_fw_object *fwif_connection_ctl_obj;
+
+	/**
+	 * @fwif_connection_ctl: Pointer to CPU mapping of FWIF connection
+	 *                       control structure.
+	 */
+	struct rogue_fwif_connection_ctl *fwif_connection_ctl;
+
+	/** @fw_osinit_obj: Object representing FW OSINIT structure. */
+	struct pvr_fw_object *fw_osinit_obj;
+
+	/** @fw_osinit: Pointer to CPU mapping of FW OSINIT structure. */
+	struct rogue_fwif_osinit *fw_osinit;
+
+	/** @fw_sysinit_obj: Object representing FW SYSINIT structure. */
+	struct pvr_fw_object *fw_sysinit_obj;
+
+	/** @fw_sysinit: Pointer to CPU mapping of FW SYSINIT structure. */
+	struct rogue_fwif_sysinit *fw_sysinit;
+
+	/** @fw_osdata_obj: Object representing FW OSDATA structure. */
+	struct pvr_fw_object *fw_osdata_obj;
+
+	/** @fw_osdata: Pointer to CPU mapping of FW OSDATA structure. */
+	struct rogue_fwif_osdata *fw_osdata;
+
+	/** @fw_hwrinfobuf_obj: Object representing FW hwrinfobuf structure. */
+	struct pvr_fw_object *fw_hwrinfobuf_obj;
+
+	/** @fw_sysdata_obj: Object representing FW SYSDATA structure. */
+	struct pvr_fw_object *fw_sysdata_obj;
+
+	/** @fw_fault_page_obj: Object representing FW fault page. */
+	struct pvr_fw_object *fw_fault_page_obj;
+
+	/**
+	 * @fw_gpu_util_fwcb_obj: Object representing FW GPU utilisation control
+	 *                        structure.
+	 */
+	struct pvr_fw_object *fw_gpu_util_fwcb_obj;
+
+	/**
+	 * @fw_runtime_cfg_obj: Object representing FW runtime config
+	 *                      structure.
+	 */
+	struct pvr_fw_object *fw_runtime_cfg_obj;
+
+	/** @fw_mmucache_sync_obj: Object used as the sync parameter in an MMU cache operation. */
+	struct pvr_fw_object *fw_mmucache_sync_obj;
+
+	/** @fw_booted: %true if the firmware has been booted, %false otherwise. */
+	bool fw_booted;
+
+	/** @fw_trace: Device firmware trace buffer state. */
+	struct pvr_fw_trace fw_trace;
+
+	/** @fence_list_spinlock: Lock protecting accesses to @fence_list. */
+	spinlock_t fence_list_spinlock;
+
+	/** @fence_list: List of active fences. */
+	struct list_head fence_list;
+
+	/**
+	 * @fw_processor_type: FW processor type for this device. Must be one of
+	 *                     %PVR_FW_PROCESSOR_TYPE_*.
+	 */
+	u16 fw_processor_type;
+
+	/** @fw_funcs: Function table for the FW processor used by this device. */
+	const struct pvr_fw_funcs *fw_funcs;
+
+	/** @fw_data: Pointer to data specific to FW processor. */
+	union {
+		/** @mips_data: Pointer to MIPS-specific data. */
+		struct pvr_fw_mips_data *mips_data;
+	} fw_data;
+
+	/** @fw_heap: Firmware heap information. */
+	struct {
+		/** @gpu_addr: Base address of firmware heap in GPU address space. */
+		u64 gpu_addr;
+
+		/** @size: Size of main area of heap. */
+		u32 size;
+
+		/** @offset_mask: Mask for offsets within FW heap. */
+		u32 offset_mask;
+
+		/** @raw_size: Raw size of heap, including reserved areas. */
+		u32 raw_size;
+
+		/** @log2_size: Log2 of raw size of heap. */
+		u32 log2_size;
+
+		/** @config_offset: Offset of config area within heap. */
+		u32 config_offset;
+
+		/** @reserved_size: Size of reserved area in heap. */
+		u32 reserved_size;
+	} fw_heap_info;
+};
+
+/**
+ * struct pvr_file - powervr-specific data to be assigned to &struct
+ * drm_file.driver_priv
+ */
+struct pvr_file {
+	/**
+	 * @file: A reference to the parent &struct drm_file.
+	 *
+	 * Do not access this member directly, instead call from_pvr_file().
+	 */
+	struct drm_file *file;
+
+	/**
+	 * @pvr_dev: A reference to the powervr-specific wrapper for the
+	 *           associated device. Saves on repeated calls to
+	 *           to_pvr_device().
+	 */
+	struct pvr_device *pvr_dev;
+
+	/**
+	 * @contexts: Array of contexts belonging to this file. Array members
+	 *            are of type "struct pvr_context *".
+	 */
+	struct xarray contexts;
+
+	/**
+	 * @objects: Array of objects belonging to this file. Array members
+	 *           are of type "struct pvr_object *".
+	 */
+	struct xarray objects;
+
+	/** @free_list_id: Next ID to be assigned when creating a free list. */
+	atomic_t free_list_id;
+
+	/** @ctx_id: Next ID to be assigned when creating a context. */
+	atomic_t ctx_id;
+
+	/** @user_vm_ctx: TODO */
+	struct pvr_vm_context *user_vm_ctx;
+
+	/** @fw_mem_ctx_obj: Firmware object representing firmware memory context. */
+	struct pvr_fw_object *fw_mem_ctx_obj;
+};
+
+/**
+ * PVR_HAS_FEATURE() - Tests whether a PowerVR device has a given feature
+ * @pvr_dev: [IN] Target PowerVR device.
+ * @feature: [IN] Hardware feature name.
+ *
+ * Feature names are derived from those found in &struct pvr_device_features by
+ * dropping the 'has_' prefix, which is applied by this macro.
+ *
+ * Return:
+ *  * true if the named feature is present in the hardware
+ *  * false if the named feature is not present in the hardware
+ */
+#define PVR_HAS_FEATURE(pvr_dev, feature) ((pvr_dev)->features.has_##feature)
+
+/**
+ * PVR_FEATURE_VALUE() - Gets a PowerVR device feature value
+ * @pvr_dev: [IN] Target PowerVR device.
+ * @feature: [IN] Feature name.
+ * @value_out: [OUT] Feature value.
+ *
+ * This macro will get a feature value for those features that have values.
+ *
+ * Feature names are derived from those found in &struct pvr_device_features by
+ * dropping the 'has_' prefix.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * -%EINVAL if the named feature is not present in the hardware
+ */
+#define PVR_FEATURE_VALUE(pvr_dev, feature, value_out)              \
+	({                                                          \
+		struct pvr_device *__pvr_dev = pvr_dev;             \
+		int __ret = -EINVAL;                                \
+		if (__pvr_dev->features.has_##feature) {            \
+			*(value_out) = __pvr_dev->features.feature; \
+			__ret = 0;                                  \
+		}                                                   \
+		__ret;                                              \
+	})
+
+/**
+ * PVR_HAS_QUIRK() - Tests whether a physical device has a given quirk
+ * @pvr_dev: [IN] Target PowerVR device.
+ * @quirk: [IN] Hardware quirk name.
+ *
+ * Quirk numbers are derived from those found in #pvr_device_quirks by
+ * dropping the 'has_brn' prefix, which is applied by this macro.
+ *
+ * Returns
+ *  * true if the quirk is present in the hardware, or
+ *  * false if the quirk is not present in the hardware.
+ */
+#define PVR_HAS_QUIRK(pvr_dev, quirk) ((pvr_dev)->quirks.has_brn##quirk)
+
+static __always_inline struct drm_device *
+from_pvr_device(struct pvr_device *pvr_dev)
+{
+	return &pvr_dev->base;
+}
+
+static __always_inline struct pvr_device *
+to_pvr_device(struct drm_device *drm_dev)
+{
+	return container_of(drm_dev, struct pvr_device, base);
+}
+
+static __always_inline struct drm_file *
+from_pvr_file(struct pvr_file *pvr_file)
+{
+	return pvr_file->file;
+}
+
+static __always_inline struct pvr_file *
+to_pvr_file(struct drm_file *file)
+{
+	return file->driver_priv;
+}
+
+/**
+ * PVR_PACKED_BVNC() - Packs B, V, N and C values into a 64-bit unsigned integer
+ * @b: Branch ID.
+ * @v: Version ID.
+ * @n: Number of scalable units.
+ * @c: Config ID.
+ *
+ * The packed layout is as follows:
+ *
+ *    +--------+--------+--------+-------+
+ *    | 63..48 | 47..32 | 31..16 | 15..0 |
+ *    +========+========+========+=======+
+ *    | B      | V      | N      | C     |
+ *    +--------+--------+--------+-------+
+ *
+ * pvr_version_to_packed_bvnc() should be used instead of this macro when a
+ * &struct pvr_version is available in order to ensure proper type checking.
+ *
+ * Return: Packed BVNC.
+ */
+/* clang-format off */
+#define PVR_PACKED_BVNC(b, v, n, c) \
+	((((u64)(b) & GENMASK_ULL(15, 0)) << 48) | \
+	 (((u64)(v) & GENMASK_ULL(15, 0)) << 32) | \
+	 (((u64)(n) & GENMASK_ULL(15, 0)) << 16) | \
+	 (((u64)(c) & GENMASK_ULL(15, 0)) <<  0))
+/* clang-format on */
+
+/**
+ * pvr_version_to_packed_bvnc() - Packs B, V, N and C values into a 64-bit
+ * unsigned integer
+ * @version: Version information.
+ *
+ * The packed layout is as follows:
+ *
+ *    +--------+--------+--------+-------+
+ *    | 63..48 | 47..32 | 31..16 | 15..0 |
+ *    +========+========+========+=======+
+ *    | B      | V      | N      | C     |
+ *    +--------+--------+--------+-------+
+ *
+ * This should be used in preference to PVR_PACKED_BVNC() when a &struct
+ * pvr_version is available in order to ensure proper type checking.
+ *
+ * Return: Packed BVNC.
+ */
+static __always_inline u64
+pvr_version_to_packed_bvnc(struct pvr_version *version)
+{
+	return PVR_PACKED_BVNC(version->b, version->v, version->n, version->c);
+}
+
+static __always_inline void
+packed_bvnc_to_pvr_version(u64 bvnc, struct pvr_version *version)
+{
+	version->b = (bvnc & GENMASK_ULL(63, 48)) >> 48;
+	version->v = (bvnc & GENMASK_ULL(47, 32)) >> 32;
+	version->n = (bvnc & GENMASK_ULL(31, 16)) >> 16;
+	version->c = bvnc & GENMASK_ULL(15, 0);
+}
+
+int pvr_device_init(struct pvr_device *pvr_dev);
+void pvr_device_fini(struct pvr_device *pvr_dev);
+
+int
+pvr_device_clk_core_get_freq(struct pvr_device *pvr_dev, u32 *freq_out);
+
+/**
+ * PVR_CR_READ32() - Read a 32-bit register from a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ *
+ * This macro is a wrapper around __pvr_cr_read32(). It applies ROGUE_CR_ prefix
+ * to the provided @reg name, making it behave comparably to the
+ * PVR_CR_FIELD_GET() macro.
+ *
+ * Return: The value of the requested register.
+ */
+#define PVR_CR_READ32(pvr_dev, reg) __pvr_cr_read32(pvr_dev, ROGUE_CR_##reg)
+
+/**
+ * PVR_CR_READ64() - Read a 64-bit register from a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ *
+ * This macro is a wrapper around __pvr_cr_read64(). It applies ROGUE_CR_ prefix
+ * to the provided @reg name, making it behave comparably to the
+ * PVR_CR_FIELD_GET() macro.
+ *
+ * Return: The value of the requested register.
+ */
+#define PVR_CR_READ64(pvr_dev, reg) __pvr_cr_read64(pvr_dev, ROGUE_CR_##reg)
+
+/**
+ * PVR_CR_WRITE32() - Write to a 32-bit register in a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ * @val: Value to write.
+ *
+ * This macro is a wrapper around __pvr_cr_write32(). It applies ROGUE_CR_
+ * prefix to the provided @reg name, making it behave comparably to the
+ * PVR_CR_FIELD_GET() macro.
+ */
+#define PVR_CR_WRITE32(pvr_dev, reg, val) \
+	__pvr_cr_write32(pvr_dev, ROGUE_CR_##reg, val)
+
+/**
+ * PVR_CR_WRITE64() - Write to a 64-bit register in a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ * @val: Value to write.
+ *
+ * This macro is a wrapper around __pvr_cr_write64(). It applies ROGUE_CR_
+ * prefix to the provided @reg name, making it behave comparably to the
+ * PVR_CR_FIELD_GET() macro.
+ */
+#define PVR_CR_WRITE64(pvr_dev, reg, val) \
+	__pvr_cr_write64(pvr_dev, ROGUE_CR_##reg, val)
+
+/**
+ * PVR_CR_FIELD_GET() - Extract a single field from a PowerVR control register
+ * @val: Value of the target register.
+ * @field: Field specifier, as defined in "pvr_rogue_cr_defs.h".
+ *
+ * Return: The extracted field.
+ */
+#define PVR_CR_FIELD_GET(val, field) FIELD_GET(~ROGUE_CR_##field##_CLRMSK, val)
+
+/**
+ * __pvr_cr_read32() - Read a 32-bit register from a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ *
+ * Do not call this function directly; use the PVR_CR_READ32() macro instead.
+ *
+ * Return: The value of the requested register.
+ */
+static __always_inline u32
+__pvr_cr_read32(struct pvr_device *pvr_dev, u32 reg)
+{
+	return ioread32(pvr_dev->regs + reg);
+}
+
+/**
+ * __pvr_cr_read64() - Read a 64-bit register from a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ *
+ * Do not call this function directly; use the PVR_CR_READ64() macro instead.
+ *
+ * Return: The value of the requested register.
+ */
+static __always_inline u64
+__pvr_cr_read64(struct pvr_device *pvr_dev, u32 reg)
+{
+	return ioread64(pvr_dev->regs + reg);
+}
+
+/**
+ * __pvr_cr_write32() - Write to a 32-bit register in a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ * @val: Value to write.
+ *
+ * Do not call this function directly; use the PVR_CR_WRITE32() macro instead.
+ */
+static __always_inline void
+__pvr_cr_write32(struct pvr_device *pvr_dev, u32 reg, u32 val)
+{
+	iowrite32(val, pvr_dev->regs + reg);
+}
+
+/**
+ * __pvr_cr_write64() - Write to a 64-bit register in a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ * @reg: Target register.
+ * @val: Value to write.
+ *
+ * Do not call this function directly; use the PVR_CR_WRITE64() macro instead.
+ */
+static __always_inline void
+__pvr_cr_write64(struct pvr_device *pvr_dev, u32 reg, u64 val)
+{
+	iowrite64(val, pvr_dev->regs + reg);
+}
+
+/**
+ * pvr_cr_poll_reg32() - Wait for a 32-bit register to match a given value by
+ *                       polling
+ * @pvr_dev: Target PowerVR device.
+ * @reg_addr: Address of register.
+ * @reg_value: Expected register value (after masking).
+ * @reg_mask: Mask of bits valid for comparison with @reg_value.
+ * @timeout_usec: Timeout length, in us.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * -%ETIMEDOUT on timeout.
+ */
+static __always_inline int
+pvr_cr_poll_reg32(struct pvr_device *pvr_dev, u32 reg_addr, u32 reg_value,
+		  u32 reg_mask, u64 timeout_usec)
+{
+	u32 value;
+
+	return readl_poll_timeout(pvr_dev->regs + reg_addr, value,
+		(value & reg_mask) == reg_value, 0, timeout_usec);
+}
+
+/**
+ * pvr_cr_poll_reg64() - Wait for a 64-bit register to match a given value by
+ *                       polling
+ * @pvr_dev: Target PowerVR device.
+ * @reg_addr: Address of register.
+ * @reg_value: Expected register value (after masking).
+ * @reg_mask: Mask of bits valid for comparison with @reg_value.
+ * @timeout_usec: Timeout length, in us.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * -%ETIMEDOUT on timeout.
+ */
+static __always_inline int
+pvr_cr_poll_reg64(struct pvr_device *pvr_dev, u32 reg_addr, u64 reg_value,
+		  u64 reg_mask, u64 timeout_usec)
+{
+	u64 value;
+
+	return readq_poll_timeout(pvr_dev->regs + reg_addr, value,
+		(value & reg_mask) == reg_value, 0, timeout_usec);
+}
+
+/**
+ * pvr_round_up_to_cacheline_size() - Round up a provided size to be cacheline
+ *                                    aligned
+ * @pvr_dev: Target PowerVR device.
+ * @size: Initial size, in bytes.
+ *
+ * Returns:
+ *  * Size aligned to cacheline size.
+ */
+static __always_inline size_t
+pvr_round_up_to_cacheline_size(struct pvr_device *pvr_dev, size_t size)
+{
+	u16 slc_cacheline_size_in_bits = 0;
+	u16 slc_cacheline_size_in_bytes;
+
+	WARN_ON(!PVR_HAS_FEATURE(pvr_dev, slc_cache_line_size_in_bits));
+	PVR_FEATURE_VALUE(pvr_dev, slc_cache_line_size_in_bits,
+			  &slc_cacheline_size_in_bits);
+	slc_cacheline_size_in_bytes = slc_cacheline_size_in_bits / 8;
+
+	return round_up(size, slc_cacheline_size_in_bytes);
+}
+
+/**
+ * DOC: IOCTL validation helpers
+ *
+ * To validate the constraints imposed on IOCTL argument structs, a collection
+ * of macros and helper functions exist in ``pvr_device.h``.
+ *
+ * Of the current helpers, it should only be necessary to call
+ * PVR_IOCTL_UNION_PADDING_CHECK() directly. This macro should be used once in
+ * every code path which extracts a union member from a struct passed from
+ * userspace.
+ */
+
+/**
+ * pvr_ioctl_union_padding_check() - Validate that the implicit padding between
+ * the end of a union member and the end of the union itself is zeroed.
+ * @instance: Pointer to the instance of the struct to validate.
+ * @union_offset: Offset into the type of @instance of the target union. Must
+ * be 64-bit aligned.
+ * @union_size: Size of the target union in the type of @instance. Must be
+ * 64-bit aligned.
+ * @member_size: Size of the target member in the target union specified by
+ * @union_offset and @union_size. It is assumed that the offset of the target
+ * member is zero relative to @union_offset. Must be 64-bit aligned.
+ *
+ * You probably want to use PVR_IOCTL_UNION_PADDING_CHECK() instead of calling
+ * this function directly, since that macro abstracts away much of the setup,
+ * and also provides some static validation. See its docs for details.
+ *
+ * Return:
+ *  * %true if every byte between the end of the used member of the union and
+ *    the end of that union is zeroed, or
+ *  * %false otherwise.
+ */
+static __always_inline bool
+pvr_ioctl_union_padding_check(void *instance, size_t union_offset,
+			      size_t union_size, size_t member_size)
+{
+	/*
+	 * void pointer arithmetic is technically illegal - cast to a byte
+	 * pointer so this addition works safely.
+	 */
+	void *padding_start = ((u8 *)instance) + union_offset + member_size;
+	size_t padding_size = union_size - member_size;
+
+	return !memchr_inv(padding_start, 0, padding_size);
+}
+
+/**
+ * PVR_STATIC_ASSERT_64BIT_ALIGNED() - Inline assertion for 64-bit alignment.
+ * @static_expr_: Target expression to evaluate.
+ *
+ * If @static_expr_ does not evaluate to a constant integer which would be a
+ * 64-bit aligned address (i.e. a multiple of 8), compilation will fail.
+ *
+ * Return:
+ * The value of @static_expr_.
+ */
+#define PVR_STATIC_ASSERT_64BIT_ALIGNED(static_expr_)                     \
+	({                                                                \
+		static_assert(((static_expr_) & (sizeof(u64) - 1)) == 0); \
+		(static_expr_);                                           \
+	})
+
+/**
+ * PVR_IOCTL_UNION_PADDING_CHECK() - Validate that the implicit padding between
+ * the end of a union member and the end of the union itself is zeroed.
+ * @struct_instance_: An expression which evaluates to a pointer to a UAPI data
+ * struct.
+ * @union_: The name of the union member of @struct_instance_ to check. If the
+ * union member is nested within the type of @struct_instance_, this may
+ * contain the member access operator (".").
+ * @member_: The name of the member of @union_ to assess.
+ *
+ * This is a wrapper around pvr_ioctl_union_padding_check() which performs
+ * alignment checks and simplifies things for the caller.
+ *
+ * Return:
+ *  * %true if every byte in @struct_instance_ between the end of @member_ and
+ *    the end of @union_ is zeroed, or
+ *  * %false otherwise.
+ */
+#define PVR_IOCTL_UNION_PADDING_CHECK(struct_instance_, union_, member_)     \
+	({                                                                   \
+		typeof(struct_instance_) __instance = (struct_instance_);    \
+		size_t __union_offset = PVR_STATIC_ASSERT_64BIT_ALIGNED(     \
+			offsetof(typeof(*__instance), union_));              \
+		size_t __union_size = PVR_STATIC_ASSERT_64BIT_ALIGNED(       \
+			sizeof(__instance->union_));                         \
+		size_t __member_size = PVR_STATIC_ASSERT_64BIT_ALIGNED(      \
+			sizeof(__instance->union_.member_));                 \
+		pvr_ioctl_union_padding_check(__instance, __union_offset,    \
+					      __union_size, __member_size);  \
+	})
+
+/** Reserve handle 0 as invalid for xarrays. */
+#define xa_limit_1_32b XA_LIMIT(1, UINT_MAX)
+
+#define PVR_FW_PROCESSOR_TYPE_META  0
+#define PVR_FW_PROCESSOR_TYPE_MIPS  1
+#define PVR_FW_PROCESSOR_TYPE_RISCV 2
+
+#endif /* __PVR_DEVICE_H__ */

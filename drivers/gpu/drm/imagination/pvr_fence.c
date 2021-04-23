@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#include "pvr_device.h"
+#include "pvr_drv.h"
+#include "pvr_fence.h"
+#include "pvr_gem.h"
+#include "pvr_rogue_fwif.h"
+
+#include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+
+/**
+ * pvr_fence_create() - Create a PowerVR fence
+ * @context: Target PowerVR fence context
+ *
+ * The fence will be created with two references; one for the caller, one for the fence worker. The
+ * callers reference (and any other references subsequently taken) should be released with
+ * dma_fence_put(). If the fence will not be signaled (e.g. on an error path) then the fence worker
+ * reference should also be manually dropped.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%ENOMEM on out of memory, or
+ *  * Any error returned by pvr_gem_create_and_map_fw_object().
+ */
+struct dma_fence *
+pvr_fence_create(struct pvr_fence_context *context)
+{
+	struct pvr_device *pvr_dev = context->pvr_dev;
+	struct pvr_fence *pvr_fence;
+	unsigned long flags;
+	int err;
+
+	pvr_fence = kmalloc(sizeof(*pvr_fence), GFP_KERNEL);
+	if (!pvr_fence) {
+		err = -ENOMEM;
+		goto err_out;
+	}
+
+	pvr_fence->context = context;
+	pvr_fence->sync_checkpoint =
+		pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*pvr_fence->sync_checkpoint),
+						 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						 DRM_PVR_BO_CREATE_ZEROED,
+						 &pvr_fence->sync_checkpoint_fw_obj);
+	if (IS_ERR(pvr_fence->sync_checkpoint)) {
+		err = PTR_ERR(pvr_fence->sync_checkpoint);
+		goto err_free;
+	}
+
+	INIT_LIST_HEAD(&pvr_fence->dep_list);
+	INIT_LIST_HEAD(&pvr_fence->dep_head);
+
+	dma_fence_init(&pvr_fence->base, &pvr_fence_ops, &context->fence_spinlock,
+		       context->fence_context, atomic_inc_return(&context->fence_id));
+
+	/*
+	 * The initial reference on this fence will be passed to the fence list as soon as the
+	 * fence is added to that list. Take another reference before then to hand back to the
+	 * caller.
+	 */
+	dma_fence_get(&pvr_fence->base);
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+	list_add_tail(&pvr_fence->head, &pvr_dev->fence_list);
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	return from_pvr_fence(pvr_fence);
+
+err_free:
+	kfree(pvr_fence);
+
+err_out:
+	return ERR_PTR(err);
+}
+
+static void
+pvr_fence_release_dep_fences(struct pvr_fence *pvr_fence)
+{
+	struct pvr_device *pvr_dev = pvr_fence->context->pvr_dev;
+	struct pvr_fence *dep_fence;
+	struct pvr_fence *tmp;
+	unsigned long flags;
+
+	LIST_HEAD(dep_fence_list);
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+
+	list_for_each_entry_safe(dep_fence, tmp, &pvr_fence->dep_list, dep_head)
+		list_move_tail(&dep_fence->dep_head, &dep_fence_list);
+
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	list_for_each_entry_safe(dep_fence, tmp, &dep_fence_list, dep_head) {
+		list_del_init(&dep_fence->dep_head);
+		dma_fence_put(&dep_fence->base);
+	}
+}
+
+static void
+pvr_fence_destroy(struct pvr_fence *pvr_fence)
+{
+	struct pvr_device *pvr_dev = pvr_fence->context->pvr_dev;
+	unsigned long flags;
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+	list_del(&pvr_fence->head);
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	pvr_fence_release_dep_fences(pvr_fence);
+
+	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, pvr_fence->sync_checkpoint, false);
+	pvr_fw_object_release(pvr_fence->sync_checkpoint_fw_obj);
+
+	BUILD_BUG_ON(offsetof(typeof(*pvr_fence), base));
+	dma_fence_free(&pvr_fence->base);
+}
+
+static const char *
+pvr_fence_get_driver_name(struct dma_fence *fence)
+{
+	return PVR_DRIVER_NAME;
+}
+
+static const char *
+pvr_fence_get_timeline_name(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	return (const char *)pvr_fence->context->timeline_name;
+}
+
+static bool
+pvr_fence_is_signaled(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	return (pvr_fence->sync_checkpoint->state == PVR_SYNC_CHECKPOINT_ERRORED) ||
+	       (pvr_fence->sync_checkpoint->state == PVR_SYNC_CHECKPOINT_SIGNALED);
+}
+
+static void
+pvr_fence_release(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	pvr_fence_destroy(pvr_fence);
+}
+
+const struct dma_fence_ops pvr_fence_ops = {
+	.get_driver_name = pvr_fence_get_driver_name,
+	.get_timeline_name = pvr_fence_get_timeline_name,
+	.release = pvr_fence_release,
+	.signaled = pvr_fence_is_signaled,
+};
+
+/**
+ * pvr_fence_process_worker() - Process any completed fences
+ * @pvr_dev: Target PowerVR device.
+ */
+static void
+pvr_fence_process_worker(struct work_struct *work)
+{
+	struct pvr_device *pvr_dev = container_of(work, struct pvr_device, fence_work);
+	struct pvr_fence *pvr_fence;
+	struct pvr_fence *tmp;
+	unsigned long flags;
+
+	LIST_HEAD(signaled_list);
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+
+	/* Move any signaled fences to the signaled list for further processing. */
+	list_for_each_entry_safe(pvr_fence, tmp, &pvr_dev->fence_list, head) {
+		if (pvr_fence_is_signaled(&pvr_fence->base))
+			list_move_tail(&pvr_fence->head, &signaled_list);
+	}
+
+	/* Finished with device fence list, can now drop lock. */
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	list_for_each_entry_safe(pvr_fence, tmp, &signaled_list, head) {
+		list_del_init(&pvr_fence->head);
+
+		/* Signal fence and drop our reference. */
+		dma_fence_signal(&pvr_fence->base);
+		pvr_fence_release_dep_fences(pvr_fence);
+		dma_fence_put(&pvr_fence->base);
+	}
+}
+
+/**
+ * pvr_fence_device_init() - Initialise fence handling for PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ */
+void
+pvr_fence_device_init(struct pvr_device *pvr_dev)
+{
+	spin_lock_init(&pvr_dev->fence_list_spinlock);
+	INIT_LIST_HEAD(&pvr_dev->fence_list);
+	INIT_WORK(&pvr_dev->fence_work, pvr_fence_process_worker);
+}
+
+/**
+ * pvr_fence_context_init() - Initialise fence context
+ * @pvr_dev: Target PowerVR device.
+ * @context: Pointer to fence context to initialise.
+ * @name: Name of timeline this fence context represents.
+ */
+void
+pvr_fence_context_init(struct pvr_device *pvr_dev, struct pvr_fence_context *context,
+		       const char *name)
+{
+	context->pvr_dev = pvr_dev;
+	spin_lock_init(&context->fence_spinlock);
+	atomic_set(&context->fence_id, 0);
+	context->fence_context = dma_fence_context_alloc(1);
+	strncpy(context->timeline_name, name, sizeof(context->timeline_name) - 1);
+}
+
+/**
+ * pvr_fence_to_ufo() - Create a UFO representation of a pvr_fence, for use by firmware
+ * @fence: Pointer to fence to convert.
+ * @ufo: Location to write UFO representation.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%EINVAL if provided fence is not a &struct pvr_fence, or
+ *  * -%ENOMEM if provided fence is not mapped to firmware.
+ */
+int
+pvr_fence_to_ufo(struct dma_fence *fence, struct rogue_fwif_ufo *ufo)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	if (unlikely(!pvr_fence))
+		return -EINVAL;
+
+	if (!pvr_gem_get_fw_addr(pvr_fence->sync_checkpoint_fw_obj, &ufo->addr))
+		return -ENOMEM;
+
+	ufo->addr |= ROGUE_FWIF_UFO_ADDR_IS_SYNC_CHECKPOINT;
+	ufo->value = PVR_SYNC_CHECKPOINT_ACTIVE;
+
+	return 0;
+}
