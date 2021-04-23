@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#include "pvr_device.h"
+#include "pvr_device_info.h"
+
+#include <drm/drm_print.h>
+
+#include <linux/types.h>
+
+const struct pvr_device_features pvr_device_4_V_2_51 = {
+	.has_meta = true,
+	.has_meta_coremem_size = true,
+	.has_num_clusters = true,
+	.has_phys_bus_width = true,
+	.has_slc_cache_line_size_in_bits = true,
+	.has_virtual_address_space_bits = true,
+
+	.meta = true,
+	.meta_coremem_size = 32,
+	.num_clusters = 2,
+	.phys_bus_width = 40,
+	.slc_cache_line_size_in_bits = 512,
+	.virtual_address_space_bits = 40,
+};
+
+const struct pvr_device_quirks pvr_device_quirks_4_40_2_51 = {
+	.has_brn63142 = true,
+};
+
+const struct pvr_device_features pvr_device_33_V_11_3 = {
+	.has_mips = true,
+	.has_num_clusters = true,
+	.has_phys_bus_width = true,
+	.has_slc_cache_line_size_in_bits = true,
+	.has_virtual_address_space_bits = true,
+
+	.mips = true,
+	.num_clusters = 1,
+	.phys_bus_width = 36,
+	.slc_cache_line_size_in_bits = 512,
+	.virtual_address_space_bits = 40,
+};
+
+const struct pvr_device_quirks pvr_device_quirks_33_15_11_3 = {
+};
+
+const struct pvr_device_features pvr_device_36_V_104_796 = {
+	.has_num_clusters = true,
+	.has_phys_bus_width = true,
+	.has_riscv_fw_processor = true,
+	.has_slc_cache_line_size_in_bits = true,
+	.has_virtual_address_space_bits = true,
+
+	.num_clusters = 1,
+	.phys_bus_width = 36,
+	.riscv_fw_processor = true,
+	.slc_cache_line_size_in_bits = 512,
+	.virtual_address_space_bits = 40,
+};
+
+const struct pvr_device_quirks pvr_device_quirks_36_53_104_796 = {
+};
+
+/**
+ * pvr_device_info_init() - Initialize a PowerVR device's hardware features and quirks
+ * @pvr_dev: Target PowerVR device.
+ *
+ * This function relies on &pvr_dev.version having already been initialized. If
+ * PowerVR device version is supported then sets &pvr_dev.features and &pvr_dev.quirks.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * -%ENODEV if the device is not supported.
+ */
+int
+pvr_device_info_init(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct pvr_version *version = &pvr_dev->version;
+	const u64 bvnc = pvr_version_to_packed_bvnc(version);
+
+	/*
+	 * This macro results in a "Macros with multiple statements should be
+	 * enclosed in a do - while loop" checkpatch error. However, following
+	 * this advice would make the macro look a bit odd and isn't necessary
+	 * in this particular case, as the macro has a very specific use and a
+	 * very limited lifetime. The error can therefore be ignored.
+	 */
+#define CASE_PACKED_BVNC_DEVICE_INFO(b, v, n, c)                  \
+	case PVR_PACKED_BVNC(b, v, n, c):                         \
+		pvr_dev->features = pvr_device_##b##_V_##n##_##c; \
+		pvr_dev->quirks = pvr_device_quirks_##b##_##v##_##n##_##c; \
+		return 0
+
+	switch (bvnc) {
+		CASE_PACKED_BVNC_DEVICE_INFO(4, 40, 2, 51);
+		CASE_PACKED_BVNC_DEVICE_INFO(33, 15, 11, 3);
+		CASE_PACKED_BVNC_DEVICE_INFO(36, 53, 104, 796);
+	}
+
+#undef CASE_PACKED_BVNC_DEVICE_INFO
+
+	drm_warn(drm_dev, "Unsupported BVNC: %u.%u.%u.%u\n", version->b,
+		 version->v, version->n, version->c);
+
+	return -ENODEV;
+}

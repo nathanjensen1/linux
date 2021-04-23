@@ -1,0 +1,613 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#include "pvr_device.h"
+#include "pvr_fw.h"
+
+#include "pvr_rogue_cr_defs.h"
+
+#include <drm/drm_print.h>
+
+#include <linux/bitfield.h>
+#include <linux/clk.h>
+#include <linux/compiler_attributes.h>
+#include <linux/compiler_types.h>
+#include <linux/dma-mapping.h>
+#include <linux/err.h>
+#include <linux/firmware.h>
+#include <linux/gfp.h>
+#include <linux/interrupt.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/stddef.h>
+#include <linux/types.h>
+#include <linux/workqueue.h>
+
+/* Major and minor numbers for the supported version of the firmware. */
+#define PVR_FW_VERSION_MAJOR 1
+#define PVR_FW_VERSION_MINOR 14
+
+/**
+ * pvr_device_reg_init() - Initialize kernel access to a PowerVR device's
+ * control registers.
+ * @pvr_dev: Target PowerVR device.
+ *
+ * Sets struct pvr_device->regs.
+ *
+ * This method of mapping the device control registers into memory ensures that
+ * they are unmapped when the driver is detached (i.e. no explicit cleanup is
+ * required).
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * Any error returned by devm_platform_ioremap_resource().
+ */
+static int
+pvr_device_reg_init(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct platform_device *plat_dev = to_platform_device(drm_dev->dev);
+	struct resource *regs_resource;
+	void __iomem *regs;
+	int err;
+
+	pvr_dev->regs_resource = NULL;
+	pvr_dev->regs = NULL;
+
+	regs = devm_platform_get_and_ioremap_resource(plat_dev, 0, &regs_resource);
+	if (IS_ERR(regs)) {
+		err = PTR_ERR(regs);
+		drm_err(drm_dev, "failed to ioremap gpu registers (err=%d)\n",
+			err);
+		return err;
+	}
+
+	pvr_dev->regs = regs;
+	pvr_dev->regs_resource = regs_resource;
+
+	return 0;
+}
+
+/**
+ * pvr_device_reg_fini() - Deinitialize kernel access to a PowerVR device's
+ * control registers.
+ * @pvr_dev: Target PowerVR device.
+ *
+ * This is essentially a no-op, since pvr_device_reg_init() already ensures that
+ * struct pvr_device->regs is unmapped when the device is detached. This
+ * function just sets struct pvr_device->regs to %NULL.
+ */
+static __always_inline void
+pvr_device_reg_fini(struct pvr_device *pvr_dev)
+{
+	pvr_dev->regs = NULL;
+}
+
+/**
+ * pvr_device_clk_init() - Initialize clocks required by a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * Sets struct pvr_device->core_clk, struct pvr_device->sys_clk and
+ * struct pvr_device->mem_clk.
+ *
+ * Three clocks are required by the PowerVR device: core, sys and mem. On
+ * return, this function guarantees that the clocks are in one of the following
+ * states:
+ *
+ *  * All successfully initialized,
+ *  * Core errored, sys and mem uninitialized,
+ *  * Core deinitialized, sys errored, mem uninitialized, or
+ *  * Core and sys deinitialized, mem errored.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error returned by devm_clk_get(), or
+ *  * Any error returned by clk_prepare_enable().
+ */
+static int pvr_device_clk_init(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct clk *core_clk;
+	struct clk *sys_clk;
+	struct clk *mem_clk;
+	int err;
+
+	pvr_dev->core_clk = NULL;
+	pvr_dev->sys_clk = NULL;
+	pvr_dev->mem_clk = NULL;
+
+	core_clk = devm_clk_get(drm_dev->dev, "core_clk");
+	if (IS_ERR(core_clk)) {
+		err = PTR_ERR(core_clk);
+		drm_err(drm_dev, "failed to get core_clk (err=%d)\n", err);
+		goto err_out;
+	}
+
+	sys_clk = devm_clk_get(drm_dev->dev, "sys_clk");
+	if (IS_ERR(sys_clk)) {
+		err = PTR_ERR(sys_clk);
+		drm_err(drm_dev, "failed to get sys_clk (err=%d)\n", err);
+		goto err_out;
+	}
+
+	mem_clk = devm_clk_get(drm_dev->dev, "mem_clk");
+	if (IS_ERR(mem_clk)) {
+		err = PTR_ERR(mem_clk);
+		drm_err(drm_dev, "failed to get mem_clk (err=%d)\n", err);
+		goto err_out;
+	}
+
+	err = clk_prepare_enable(core_clk);
+	if (err)
+		goto err_out;
+
+	err = clk_prepare_enable(sys_clk);
+	if (err)
+		goto err_deinit_core_clk;
+
+	err = clk_prepare_enable(mem_clk);
+	if (err)
+		goto err_deinit_sys_clk;
+
+	pvr_dev->core_clk = core_clk;
+	pvr_dev->sys_clk = sys_clk;
+	pvr_dev->mem_clk = mem_clk;
+
+	return 0;
+
+err_deinit_sys_clk:
+	clk_disable_unprepare(sys_clk);
+err_deinit_core_clk:
+	clk_disable_unprepare(core_clk);
+err_out:
+	return err;
+}
+
+/**
+ * pvr_device_clk_fini() - Deinitialize clocks required by a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ */
+static void
+pvr_device_clk_fini(struct pvr_device *pvr_dev)
+{
+	clk_disable_unprepare(pvr_dev->mem_clk);
+	clk_disable_unprepare(pvr_dev->sys_clk);
+	clk_disable_unprepare(pvr_dev->core_clk);
+
+	pvr_dev->core_clk = NULL;
+	pvr_dev->sys_clk = NULL;
+	pvr_dev->mem_clk = NULL;
+}
+
+/**
+ * pvr_device_clk_core_get_freq - Get current PowerVR device core clock frequency
+ * @pvr_dev: Target PowerVR device.
+ * @freq_out: Pointer to location to store core clock frequency in Hz.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * -%EINVAL if frequency can not be determined.
+ */
+int
+pvr_device_clk_core_get_freq(struct pvr_device *pvr_dev, u32 *freq_out)
+{
+	u32 freq = clk_get_rate(pvr_dev->core_clk);
+
+	if (!freq)
+		return -EINVAL;
+
+	*freq_out = freq;
+	return 0;
+}
+
+static irqreturn_t pvr_meta_irq_handler(int irq, void *data)
+{
+	struct pvr_device *pvr_dev = data;
+	u32 irq_status;
+
+	irq_status = PVR_CR_READ32(pvr_dev, META_SP_MSLVIRQSTATUS);
+
+	if (!(irq_status & ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_EN))
+		return IRQ_NONE; /* Spurious IRQ - ignore. */
+
+	/* Acknowledge IRQ. */
+	PVR_CR_WRITE32(pvr_dev, META_SP_MSLVIRQSTATUS,
+		       ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_CLRMSK);
+
+	/* Only process IRQ work if FW is currently running. */
+	if (pvr_dev->fw_booted) {
+		queue_work(pvr_dev->irq_wq, &pvr_dev->fwccb_work);
+		wake_up(&pvr_dev->kccb_rtn_q);
+		queue_work(pvr_dev->irq_wq, &pvr_dev->fence_work);
+	}
+
+	return IRQ_HANDLED;
+}
+
+/**
+ * pvr_device_irq_init() - Initialise IRQ required by a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * Any error returned by platform_get_irq_byname(), or
+ *  * Any error returned by request_irq().
+ */
+static int
+pvr_device_irq_init(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct platform_device *plat_dev = to_platform_device(drm_dev->dev);
+	int err;
+
+	init_waitqueue_head(&pvr_dev->kccb_rtn_q);
+
+	pvr_dev->irq_wq = alloc_workqueue("powervr-irq", WQ_UNBOUND, 0);
+	if (!pvr_dev->irq_wq) {
+		err = -ENOMEM;
+		goto err_out;
+	}
+
+	pvr_dev->irq = platform_get_irq_byname(plat_dev, "gpu");
+	if (pvr_dev->irq < 0) {
+		err = pvr_dev->irq;
+		goto err_destroy_wq;
+	}
+
+	err = request_irq(pvr_dev->irq, pvr_meta_irq_handler, IRQF_SHARED, NULL, pvr_dev);
+	if (err)
+		goto err_destroy_wq;
+
+	return 0;
+
+err_destroy_wq:
+	destroy_workqueue(pvr_dev->irq_wq);
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_device_irq_fini() - Deinitialise IRQ required by a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ */
+static void
+pvr_device_irq_fini(struct pvr_device *pvr_dev)
+{
+	free_irq(pvr_dev->irq, pvr_dev);
+	destroy_workqueue(pvr_dev->irq_wq);
+}
+
+/**
+ * pvr_build_firmware_filename() - Construct a PowerVR firmware filename
+ * @pvr_dev: Target PowerVR device.
+ * @base: First part of the filename.
+ * @major: Major version number.
+ * @minor: Minor version number.
+ *
+ * A PowerVR firmware filename consists of three parts separated by underscores
+ * (``'_'``) along with a '.fw' file suffix. The first part is the exact value
+ * of @base, the second part is the hardware version string derived from @pvr_fw
+ * and the final part is the firmware version number constructed from @major and
+ * @minor with a 'v' prefix, e.g. powervr/rogue_4.40.2.51_v1.14.fw.
+ *
+ * The returned string will have been slab allocated and must be freed with
+ * kfree().
+ *
+ * Return:
+ *  * The constructed filename on success, or
+ *  * Any error returned by kasprintf().
+ */
+static char *
+pvr_build_firmware_filename(struct pvr_device *pvr_dev, const char *base,
+			    u8 major, u8 minor)
+{
+	struct pvr_version *version = &pvr_dev->version;
+
+	return kasprintf(GFP_KERNEL, "%s_%d.%d.%d.%d_v%d.%d.fw", base, version->b,
+			 version->v, version->n, version->c, major, minor);
+}
+
+/**
+ * pvr_request_firmware() - Load firmware for a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * See pvr_build_firmware_filename() for details on firmware file naming.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error returned by pvr_build_firmware_filename(), or
+ *  * Any error returned by request_firmware().
+ */
+static int
+pvr_request_firmware(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = &pvr_dev->base;
+	char *filename;
+	const struct firmware *fw;
+	int err;
+
+	filename = pvr_build_firmware_filename(pvr_dev, "powervr/rogue",
+					       PVR_FW_VERSION_MAJOR,
+					       PVR_FW_VERSION_MINOR);
+	if (IS_ERR(filename))
+		return PTR_ERR(filename);
+
+	/*
+	 * This function takes a copy of &filename, meaning we can free our
+	 * instance before returning.
+	 */
+	err = request_firmware(&fw, filename, pvr_dev->base.dev);
+	if (err) {
+		drm_err(drm_dev, "failed to load firmware %s (err=%d)\n",
+			filename, err);
+		goto err_free_filename;
+	}
+
+	drm_info(drm_dev, "loaded firmware %s\n", filename);
+	kfree(filename);
+
+	pvr_dev->fw = fw;
+
+	return 0;
+
+err_free_filename:
+	kfree(filename);
+
+	return err;
+}
+
+/**
+ * pvr_load_hw_version() - Load a PowerVR device's hardware version (BVNC) from
+ * control registers.
+ *
+ * Sets struct pvr_dev.version.
+ *
+ * @pvr_dev: Target PowerVR device.
+ */
+static void
+pvr_load_hw_version(struct pvr_device *pvr_dev)
+{
+	struct pvr_version *version = &pvr_dev->version;
+	u64 bvnc;
+
+	/*
+	 * Try reading the BVNC using the newer (cleaner) method first. If the
+	 * B value is zero, fall back to the older method.
+	 */
+	bvnc = PVR_CR_READ64(pvr_dev, CORE_ID__PBVNC);
+
+	version->b = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__BRANCH_ID);
+	if (version->b != 0) {
+		version->v = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__VERSION_ID);
+		version->n = PVR_CR_FIELD_GET(
+			bvnc, CORE_ID__PBVNC__NUMBER_OF_SCALABLE_UNITS);
+		version->c = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__CONFIG_ID);
+	} else {
+		u32 core_rev = PVR_CR_READ32(pvr_dev, CORE_REVISION);
+		u32 core_id = PVR_CR_READ32(pvr_dev, CORE_ID);
+		u16 core_id_config = PVR_CR_FIELD_GET(core_id, CORE_ID_CONFIG);
+
+		version->b = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MAJOR);
+		version->v = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MINOR);
+		version->n = FIELD_GET(0xFF00, core_id_config);
+		version->c = FIELD_GET(0x00FF, core_id_config);
+	}
+}
+
+/**
+ * pvr_set_dma_info() - Set PowerVR device DMA information
+ * @pvr_dev: Target PowerVR device.
+ *
+ * Sets the DMA mask and max segment size for the PowerVR device.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error returned by PVR_FEATURE_VALUE(), or
+ *  * Any error returned by dma_set_mask().
+ */
+
+static int
+pvr_set_dma_info(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	u16 phys_bus_width;
+	int err;
+
+	err = PVR_FEATURE_VALUE(pvr_dev, phys_bus_width, &phys_bus_width);
+	if (err) {
+		drm_err(drm_dev, "Failed to get device physical bus width\n");
+		return err;
+	}
+
+	/*
+	 * See the comment on &pvr_drm_driver.prime_fd_to_handle for an
+	 * explanation of the dma_set_mask function and dma_set_max_seg_size
+	 * calls below.
+	 */
+	err = dma_set_mask(drm_dev->dev, DMA_BIT_MASK(phys_bus_width));
+	if (err) {
+		drm_err(drm_dev, "Failed to set DMA mask (err=%d)\n", err);
+		return err;
+	}
+
+	dma_set_max_seg_size(drm_dev->dev, UINT_MAX);
+
+	return 0;
+}
+
+/**
+ * pvr_device_gpu_init() - GPU-specific initialization for a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * The following steps are taken to ensure the device is ready:
+ *
+ *  1. Read the hardware version information from control registers,
+ *  2. Initialise the hardware feature information,
+ *  3. Setup the device DMA information,
+ *  4. Setup the device-scoped memory context, and
+ *  5. Load firmware into the device.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * -%ENODEV if the GPU is not supported,
+ *  * Any error returned by pvr_set_dma_info(),
+ *  * Any error returned by pvr_memory_context_init(), or
+ *  * Any error returned by pvr_request_firmware().
+ */
+static int
+pvr_device_gpu_init(struct pvr_device *pvr_dev)
+{
+	int err;
+
+	pvr_load_hw_version(pvr_dev);
+
+	err = pvr_device_info_init(pvr_dev);
+	if (err)
+		goto err_out;
+
+	if (PVR_HAS_FEATURE(pvr_dev, meta)) {
+		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_META;
+	} else if (PVR_HAS_FEATURE(pvr_dev, mips)) {
+		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_MIPS;
+	} else if (PVR_HAS_FEATURE(pvr_dev, riscv_fw_processor)) {
+		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_RISCV;
+	} else {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	err = pvr_set_dma_info(pvr_dev);
+	if (err)
+		goto err_out;
+
+	pvr_dev->kernel_vm_ctx = pvr_vm_create_context(pvr_dev);
+	if (IS_ERR(pvr_dev->kernel_vm_ctx)) {
+		err = PTR_ERR(pvr_dev->kernel_vm_ctx);
+		goto err_out;
+	}
+
+	err = pvr_request_firmware(pvr_dev);
+	if (err)
+		goto err_vm_ctx_destroy;
+
+	err = pvr_fw_init(pvr_dev);
+	if (err)
+		goto err_release_firmware;
+
+	return 0;
+
+err_release_firmware:
+	release_firmware(pvr_dev->fw);
+
+err_vm_ctx_destroy:
+	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
+	pvr_dev->kernel_vm_ctx = NULL;
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_device_gpu_fini() - GPU-specific deinitialization for a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ */
+static void
+pvr_device_gpu_fini(struct pvr_device *pvr_dev)
+{
+	pvr_fw_fini(pvr_dev);
+	release_firmware(pvr_dev->fw);
+
+	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
+}
+
+/**
+ * pvr_device_init() - Initialize a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * If this function returns successfully, the device will have been fully
+ * initialized. Otherwise, any parts of the device initialized before an error
+ * occurs will be de-initialized before returning.
+ *
+ * NOTE: The initialization steps currently taken are the bare minimum required
+ *       to read from the control registers. The device is unlikely to function
+ *       until further initialization steps are added. [This note should be
+ *       removed when that happens.]
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error returned by pvr_device_reg_init(),
+ *  * Any error returned by pvr_device_clk_init(), or
+ *  * Any error returned by pvr_device_gpu_init().
+ */
+int
+pvr_device_init(struct pvr_device *pvr_dev)
+{
+	int err;
+
+	/* Map the control registers into memory. */
+	err = pvr_device_reg_init(pvr_dev);
+	if (err)
+		return err;
+
+	/* Enable and initialize clocks required for the device to operate. */
+	err = pvr_device_clk_init(pvr_dev);
+	if (err)
+		goto err_device_reg_fini;
+
+	if (pvr_dev->vendor.callbacks &&
+	    pvr_dev->vendor.callbacks->power_enable) {
+		err = pvr_dev->vendor.callbacks->power_enable(pvr_dev);
+		if (err)
+			goto err_device_clk_fini;
+	}
+
+	err = pvr_device_irq_init(pvr_dev);
+	if (err)
+		goto err_vendor_power_disable;
+
+	/* Perform GPU-specific initialization steps. */
+	err = pvr_device_gpu_init(pvr_dev);
+	if (err)
+		goto err_device_irq_fini;
+
+	return 0;
+
+err_device_irq_fini:
+	pvr_device_irq_fini(pvr_dev);
+
+err_vendor_power_disable:
+	if (pvr_dev->vendor.callbacks &&
+	    pvr_dev->vendor.callbacks->power_disable)
+		pvr_dev->vendor.callbacks->power_disable(pvr_dev);
+
+err_device_clk_fini:
+	pvr_device_clk_fini(pvr_dev);
+
+err_device_reg_fini:
+	pvr_device_reg_fini(pvr_dev);
+
+	return err;
+}
+
+/**
+ * pvr_device_fini() - Deinitialize a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ */
+void
+pvr_device_fini(struct pvr_device *pvr_dev)
+{
+	/*
+	 * Deinitialization stages are performed in reverse order compared to
+	 * the initialization stages in pvr_device_init().
+	 */
+	pvr_device_gpu_fini(pvr_dev);
+	pvr_device_irq_fini(pvr_dev);
+	if (pvr_dev->vendor.callbacks &&
+	    pvr_dev->vendor.callbacks->power_disable)
+		pvr_dev->vendor.callbacks->power_disable(pvr_dev);
+	pvr_device_clk_fini(pvr_dev);
+	pvr_device_reg_fini(pvr_dev);
+
+	/* TODO: Remaining deinitialization steps */
+}

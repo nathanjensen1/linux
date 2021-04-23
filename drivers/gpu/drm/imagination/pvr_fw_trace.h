@@ -1,0 +1,70 @@
+/* SPDX-License-Identifier: GPL-2.0 OR MIT */
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#ifndef __PVR_FW_TRACE_H__
+#define __PVR_FW_TRACE_H__
+
+#include <drm/drm_file.h>
+#include <linux/types.h>
+
+/* Forward declaration from pvr_device.h. */
+struct pvr_device;
+
+/* Forward declaration from pvr_gem.h. */
+struct pvr_fw_object;
+
+/* Forward declarations from pvr_rogue_fwif.h */
+struct rogue_fwif_tracebuf;
+struct rogue_fwif_tracebuf_space;
+
+/**
+ * struct pvr_fw_trace_buffer - Structure representing a trace buffer
+ */
+struct pvr_fw_trace_buffer {
+	/** @buf_obj: FW buffer object representing trace buffer. */
+	struct pvr_fw_object *buf_obj;
+
+	/** @buf: Pointer to CPU mapping of trace buffer. */
+	u32 *buf;
+
+	/**
+	 * @tracebuf_space: Pointer to FW tracebuf_space structure for this
+	 *                  trace buffer.
+	 */
+	struct rogue_fwif_tracebuf_space *tracebuf_space;
+};
+
+/**
+ * struct pvr_fw_trace - Device firmware trace data
+ */
+struct pvr_fw_trace {
+	/**
+	 * @tracebuf_ctrl_obj: Object representing FW trace buffer control
+	 *                     structure.
+	 */
+	struct pvr_fw_object *tracebuf_ctrl_obj;
+
+	/**
+	 * @tracebuf_ctrl: Pointer to CPU mapping of FW trace buffer control
+	 *                 structure.
+	 */
+	struct rogue_fwif_tracebuf *tracebuf_ctrl;
+
+	/**
+	 * @buffers: Array representing the actual trace buffers owned by this
+	 *           device.
+	 */
+	struct pvr_fw_trace_buffer buffers[ROGUE_FW_THREAD_NUM];
+
+	/** @group_mask: Mask of enabled trace groups. */
+	u32 group_mask;
+};
+
+extern bool pvr_fw_trace_enable;
+
+int pvr_fw_trace_init(struct pvr_device *pvr_dev);
+void pvr_fw_trace_fini(struct pvr_device *pvr_dev);
+
+void pvr_fw_trace_debugfs_init(struct drm_minor *minor);
+
+#endif /* __PVR_FW_TRACE_H__ */
