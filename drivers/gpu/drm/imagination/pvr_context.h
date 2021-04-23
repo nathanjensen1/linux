@@ -1,0 +1,181 @@
+/* SPDX-License-Identifier: GPL-2.0 OR MIT */
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#ifndef __PVR_CONTEXT_H__
+#define __PVR_CONTEXT_H__
+
+#include <linux/compiler_attributes.h>
+#include <linux/kref.h>
+#include <linux/types.h>
+#include <linux/xarray.h>
+#include <uapi/drm/pvr_drm.h>
+
+#include "pvr_cccb.h"
+#include "pvr_device.h"
+
+/* Forward declaration from pvr_gem.h. */
+struct pvr_fw_object;
+
+/**
+ * struct pvr_context_geom - Geometry render context data
+ */
+struct pvr_context_geom {
+	/** @ctx_id: FW context ID. */
+	u32 ctx_id;
+
+	/**
+	 * @ctx_state_obj: FW object representing context register state.
+	 */
+	struct pvr_fw_object *ctx_state_obj;
+
+	/** @cccb: Client Circular Command Buffer. */
+	struct pvr_cccb cccb;
+};
+
+/**
+ * struct pvr_context_frag - Fragment render context data
+ */
+struct pvr_context_frag {
+	/** @ctx_id: FW context ID. */
+	u32 ctx_id;
+
+	/**
+	 * @ctx_state_obj: FW object representing context register state.
+	 */
+	struct pvr_fw_object *ctx_state_obj;
+
+	/** @cccb: Client Circular Command Buffer. */
+	struct pvr_cccb cccb;
+};
+
+enum pvr_context_priority {
+	PVR_CTX_PRIORITY_LOW = 0,
+	PVR_CTX_PRIORITY_MEDIUM,
+	PVR_CTX_PRIORITY_HIGH,
+};
+
+/**
+ * struct pvr_context - Context data
+ */
+struct pvr_context {
+	/** @ref_count: Refcount for context. */
+	struct kref ref_count;
+
+	/** @pvr_dev: Pointer to owning device. */
+	struct pvr_device *pvr_dev;
+
+	/** @pvr_file: Pointer to owning file. */
+	struct pvr_file *pvr_file;
+
+	/** @type: Type of context. */
+	enum drm_pvr_ctx_type type;
+
+	/** @flags: Context flags. */
+	u32 flags;
+
+	/** @priority: Context priority*/
+	enum pvr_context_priority priority;
+
+	/** @reset_framework_obj: FW object representing reset framework. */
+	struct pvr_fw_object *reset_framework_obj;
+};
+
+/**
+ * struct pvr_context_render - Render context data
+ */
+struct pvr_context_render {
+	/** @base: Base context structure. */
+	struct pvr_context base;
+
+	/** @ctx_geom: Geometry context data. */
+	struct pvr_context_geom ctx_geom;
+
+	/** @ctx_frag: Fragment context data. */
+	struct pvr_context_frag ctx_frag;
+
+	/** @fw_obj: FW object representing FW-side context data. */
+	struct pvr_fw_object *fw_obj;
+};
+
+/**
+ * struct pvr_context_compute - Compute context data
+ */
+struct pvr_context_compute {
+	/** @base: Base context structure. */
+	struct pvr_context base;
+
+	/** @fw_obj: FW object representing FW-side context data. */
+	struct pvr_fw_object *fw_obj;
+
+	/** @ctx_id: Compute context ID. */
+	u32 ctx_id;
+
+	/**
+	 * @ctx_state_obj: FW object representing context register state.
+	 */
+	struct pvr_fw_object *ctx_state_obj;
+
+	/** @cccb: Client Circular Command Buffer. */
+	struct pvr_cccb cccb;
+};
+
+int pvr_create_render_context(struct pvr_file *pvr_file,
+			      struct drm_pvr_ioctl_create_context_args *args,
+			      struct drm_pvr_ioctl_create_render_context_args *render_ctx_args,
+			      u32 *handle_out);
+int pvr_create_compute_context(struct pvr_file *pvr_file,
+			       struct drm_pvr_ioctl_create_context_args *args,
+			       struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args,
+			       u32 *handle_out);
+
+static __always_inline struct pvr_context *
+from_pvr_context_render(struct pvr_context_render *ctx_render)
+{
+	return &ctx_render->base;
+};
+
+static __always_inline struct pvr_context_render *
+to_pvr_context_render(struct pvr_context *ctx)
+{
+	return container_of(ctx, struct pvr_context_render, base);
+}
+
+static __always_inline struct pvr_context *
+from_pvr_context_compute(struct pvr_context_compute *ctx_context)
+{
+	return &ctx_context->base;
+};
+
+static __always_inline struct pvr_context_compute *
+to_pvr_context_compute(struct pvr_context *ctx)
+{
+	return container_of(ctx, struct pvr_context_compute, base);
+}
+
+/**
+ * pvr_context_get() - Get context pointer from handle.
+ * @pvr_file: Pointer to pvr_file structure.
+ * @handle: Context handle.
+ *
+ * Takes reference on context. Call pvr_context_put() to release.
+ *
+ * Return:
+ *  * The requested context on success, or
+ *  * %NULL on failure.
+ */
+static __always_inline struct pvr_context *
+pvr_context_get(struct pvr_file *pvr_file, u32 handle)
+{
+	struct pvr_context *ctx = xa_load(&pvr_file->contexts, handle);
+
+	if (ctx)
+		kref_get(&ctx->ref_count);
+
+	return ctx;
+}
+
+void pvr_context_put(struct pvr_context *ctx);
+
+int pvr_context_destroy(struct pvr_file *pvr_file, u32 handle);
+
+#endif /* __PVR_CONTEXT_H__ */
