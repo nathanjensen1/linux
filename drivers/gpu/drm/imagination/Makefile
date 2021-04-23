@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0 OR MIT
+# Copyright (c) 2022 Imagination Technologies Ltd.
+
+subdir-cc-flags-y := -I$(srctree)/$(src)
+
+powervr-y := \
+	pvr_ccb.o \
+	pvr_cccb.o \
+	pvr_context.o \
+	pvr_device.o \
+	pvr_device_info.o \
+	pvr_drv.o \
+	pvr_fence.o \
+	pvr_free_list.o \
+	pvr_fw.o \
+	pvr_fw_meta.o \
+	pvr_fw_mips.o \
+	pvr_fw_trace.o \
+	pvr_gem.o \
+	pvr_hwrt.o \
+	pvr_job.o \
+	pvr_object.o \
+	pvr_vm.o \
+	pvr_vm_mips.o
+
+powervr-y += \
+	vendor/pvr_mt8173.o
+
+obj-$(CONFIG_DRM_POWERVR) += powervr.o
