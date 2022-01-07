@@ -310,6 +310,12 @@
 							  THERMAL_NO_LIMIT>;
 					contribution = <1024>;
 				};
+				map2 {
+					trip = <&target>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT
+							  THERMAL_NO_LIMIT>;
+					contribution = <2048>;
+				};
 			};
 		};
 	};
@@ -984,6 +990,24 @@
 				#phy-cells = <1>;
 				status = "okay";
 			};
+		};
+
+		gpu: mfgsys-gpu@13000000 {
+			compatible = "mediatek,mt8173-gpu", "img,powervr-series6xt";
+			reg = <0 0x13000000 0 0xffff>, <0 0x13fff000 0 0x1000>;
+			power-domains =	<&spm MT8173_POWER_DOMAIN_MFG>;
+			clocks = <&topckgen CLK_TOP_MFG_SEL>,
+				<&topckgen CLK_TOP_MEM_MFG_IN_SEL>,
+				<&topckgen CLK_TOP_AXI_MFG_IN_SEL>;
+			clock-names = "core_clk",
+				"mem_clk",
+				"sys_clk";
+			interrupts = <GIC_SPI 217 IRQ_TYPE_LEVEL_LOW>;
+			interrupt-names = "gpu";
+			status = "disabled";
+			#cooling-cells = <2>;
+			#cooling-min-level = <0>;
+			#cooling-max-level = <3>;
 		};
 
 		mmsys: syscon@14000000 {
