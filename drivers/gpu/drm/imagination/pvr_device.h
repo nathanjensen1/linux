@@ -249,11 +249,16 @@ struct pvr_device {
 	/** @fw_trace: Device firmware trace buffer state. */
 	struct pvr_fw_trace fw_trace;
 
-	/** @fence_list_spinlock: Lock protecting accesses to @fence_list. */
+	/**
+	 * @fence_list_spinlock: Lock protecting accesses to @fence_list and @imported_fence_list.
+	 */
 	spinlock_t fence_list_spinlock;
 
 	/** @fence_list: List of active fences. */
 	struct list_head fence_list;
+
+	/** @fence_list: List of active imported fences. */
+	struct list_head imported_fence_list;
 
 	/**
 	 * @fw_processor_type: FW processor type for this device. Must be one of

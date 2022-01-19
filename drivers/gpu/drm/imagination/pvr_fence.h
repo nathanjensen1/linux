@@ -19,6 +19,8 @@ struct pvr_fw_object;
 struct rogue_fwif_sync_checkpoint;
 struct rogue_fwif_ufo;
 
+#define PVR_FENCE_FLAGS_IMPORTED BIT(0)
+
 /**
  * &struct pvr_fence_context - PowerVR fence context
  */
@@ -69,9 +71,22 @@ struct pvr_fence {
 
 	/** @dep_head: Dependency list head for this fence. */
 	struct list_head dep_head;
+
+	/** @imported_fence: Imported fence. Only valid if %PVR_FENCE_FLAGS_IMPORTED is set. */
+	struct dma_fence *imported_fence;
+
+	/** @cb: Signal callback for imported fence. */
+	struct dma_fence_cb cb;
+
+	/** @signal_work: Work item for imported fence signalling. */
+	struct work_struct signal_work;
+
+	/** @flags: Flags for this fence. Must be a combination of %PVR_FENCE_FLAGS_*. */
+	u32 flags;
 };
 
 extern const struct dma_fence_ops pvr_fence_ops;
+extern const struct dma_fence_ops pvr_fence_imported_ops;
 
 void
 pvr_fence_device_init(struct pvr_device *pvr_dev);
@@ -82,6 +97,10 @@ struct dma_fence *
 pvr_fence_create(struct pvr_fence_context *context);
 int
 pvr_fence_to_ufo(struct dma_fence *fence, struct rogue_fwif_ufo *ufo);
+struct dma_fence *
+pvr_fence_import(struct pvr_fence_context *pvr_fence_context, struct dma_fence *imported_fence);
+void
+pvr_fence_deactivate_and_put(struct dma_fence *fence);
 
 static __always_inline struct dma_fence *
 from_pvr_fence(struct pvr_fence *pvr_fence)
@@ -92,7 +111,7 @@ from_pvr_fence(struct pvr_fence *pvr_fence)
 static __always_inline struct pvr_fence *
 to_pvr_fence(struct dma_fence *fence)
 {
-	if (fence->ops == &pvr_fence_ops)
+	if (fence->ops == &pvr_fence_ops || fence->ops == &pvr_fence_imported_ops)
 		return container_of(fence, struct pvr_fence, base);
 
 	return NULL;
@@ -132,6 +151,7 @@ pvr_fence_add_fence_dependency(struct dma_fence *fence, struct dma_fence *dep_fe
 		goto err_unlock;
 	}
 
+	dma_fence_get(dep_fence);
 	list_add_tail(&pvr_dep_fence->dep_head, &pvr_fence->dep_list);
 
 	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
