@@ -19,7 +19,7 @@
 
 static int
 import_fences(struct pvr_file *pvr_file, u32 num_in_syncobj_handles,
-	      u64 in_syncobj_handles_p, struct xarray *in_fences)
+	      u64 in_syncobj_handles_p, struct xarray *in_fences, struct pvr_fence_context *context)
 {
 	const void __user *uptr = u64_to_user_ptr(in_syncobj_handles_p);
 	u32 *in_syncobj_handles;
@@ -42,12 +42,21 @@ import_fences(struct pvr_file *pvr_file, u32 num_in_syncobj_handles,
 	}
 
 	for (i = 0; i < num_in_syncobj_handles; i++) {
+		struct dma_fence *pvr_fence;
+
 		err = drm_syncobj_find_fence(from_pvr_file(pvr_file),
 					     in_syncobj_handles[i], 0, 0, &fence);
 		if (err)
 			goto err_release_fences;
 
-		err = drm_gem_fence_array_add(in_fences, fence);
+		pvr_fence = pvr_fence_import(context, fence);
+		if (IS_ERR(pvr_fence)) {
+			err = PTR_ERR(pvr_fence);
+			dma_fence_put(fence);
+			goto err_release_fences;
+		}
+
+		err = drm_gem_fence_array_add(in_fences, pvr_fence);
 		if (err)
 			goto err_release_fences;
 	}
@@ -56,6 +65,7 @@ import_fences(struct pvr_file *pvr_file, u32 num_in_syncobj_handles,
 
 err_release_fences:
 	xa_for_each(in_fences, id, fence) {
+		pvr_fence_deactivate_and_put(fence);
 		dma_fence_put(fence);
 	}
 	xa_destroy(in_fences);
@@ -67,12 +77,14 @@ err_out:
 	return err;
 }
 
-static void release_fences(struct xarray *in_fences)
+static void release_fences(struct xarray *in_fences, bool deactivate_fences)
 {
 	struct dma_fence *fence;
 	unsigned long id;
 
 	xa_for_each(in_fences, id, fence) {
+		if (deactivate_fences)
+			pvr_fence_deactivate_and_put(fence);
 		dma_fence_put(fence);
 	}
 	xa_destroy(in_fences);
@@ -174,8 +186,10 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct rogue_fwif_cmd_geom *cmd_geom, struct dma_fence **out_fence_out)
 {
 	struct rogue_fwif_cmd_geom_frag_shared *cmd_shared = &cmd_geom->cmd_shared;
+	u32 num_in_syncobj_handles = render_args->num_in_syncobj_handles_geom;
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
 	struct drm_syncobj *out_syncobj;
+	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
 	struct dma_fence *out_fence;
 	struct xarray in_fences;
@@ -207,15 +221,44 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
 
-	err = import_fences(pvr_file, render_args->num_in_syncobj_handles_geom,
-			    render_args->in_syncobj_handles_geom, &in_fences);
-	if (err)
-		goto err_put_out_syncobj;
+	if (num_in_syncobj_handles) {
+		struct dma_fence *fence;
+		unsigned long id;
+		u32 ufo_nr = 0;
 
-	/* Wait on fences */
-	wait_fences(&in_fences);
+		err = import_fences(pvr_file, num_in_syncobj_handles,
+				    render_args->in_syncobj_handles_geom, &in_fences,
+				    &ctx_geom->cccb.pvr_fence_context);
+		if (err)
+			goto err_put_out_syncobj;
+
+		in_ufos = kcalloc(num_in_syncobj_handles, sizeof(*in_ufos), GFP_KERNEL);
+		if (!in_ufos) {
+			err = -EINVAL;
+			goto err_release_fences;
+		}
+
+		xa_for_each(&in_fences, id, fence) {
+			pvr_fence_add_fence_dependency(out_fence, fence);
+
+			err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
+			if (err)
+				goto err_kfree_in_ufos;
+
+			ufo_nr++;
+		}
+	}
 
 	pvr_cccb_lock(&ctx_geom->cccb);
+
+	if (num_in_syncobj_handles) {
+		err = pvr_cccb_write_command_with_header(&ctx_geom->cccb,
+							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+							 num_in_syncobj_handles * sizeof(*in_ufos),
+							 in_ufos, args->ext_job_ref, 0);
+		if (err)
+			goto err_cccb_unlock_rollback;
+	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_geom->cccb, ROGUE_FWIF_CCB_CMD_TYPE_GEOM,
@@ -240,14 +283,22 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	/* Write out fence to be used as input by fragment job. */
 	*out_fence_out = out_fence;
-	release_fences(&in_fences);
+	release_fences(&in_fences, false);
+
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
 
 	return 0;
 
 err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_geom->cccb);
 
-	release_fences(&in_fences);
+err_kfree_in_ufos:
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
+
+err_release_fences:
+	release_fences(&in_fences, true);
 
 err_put_out_syncobj:
 	if (render_args->out_syncobj_geom)
@@ -255,7 +306,7 @@ err_put_out_syncobj:
 
 err_put_out_fence:
 	/* As out_fence will now never be signaled, we need to drop two references here. */
-	dma_fence_put(out_fence);
+	pvr_fence_deactivate_and_put(out_fence);
 	dma_fence_put(out_fence);
 
 err_out:
@@ -270,8 +321,10 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct rogue_fwif_cmd_frag *cmd_frag, struct dma_fence *geom_in_fence)
 {
 	struct rogue_fwif_cmd_geom_frag_shared *cmd_shared = &cmd_frag->cmd_shared;
+	u32 num_in_syncobj_handles = render_args->num_in_syncobj_handles_frag;
 	struct pvr_context_frag *ctx_frag = &ctx_render->ctx_frag;
 	struct drm_syncobj *out_syncobj;
+	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
 	struct dma_fence *out_fence;
 	struct xarray in_fences;
@@ -298,7 +351,6 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		 * Add dependency on geometry fence to the out fence, to ensure the former doesn't
 		 * get freed while it's still being waited on.
 		 */
-		dma_fence_get(geom_in_fence);
 		pvr_fence_add_fence_dependency(out_fence, geom_in_fence);
 	}
 
@@ -313,15 +365,44 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
 
-	err = import_fences(pvr_file, render_args->num_in_syncobj_handles_frag,
-			    render_args->in_syncobj_handles_frag, &in_fences);
-	if (err)
-		goto err_put_out_syncobj;
+	if (num_in_syncobj_handles) {
+		struct dma_fence *fence;
+		unsigned long id;
+		u32 ufo_nr = 0;
 
-	/* Wait on fences */
-	wait_fences(&in_fences);
+		err = import_fences(pvr_file, num_in_syncobj_handles,
+				    render_args->in_syncobj_handles_frag, &in_fences,
+				    &ctx_frag->cccb.pvr_fence_context);
+		if (err)
+			goto err_put_out_syncobj;
+
+		in_ufos = kcalloc(num_in_syncobj_handles, sizeof(*in_ufos), GFP_KERNEL);
+		if (!in_ufos) {
+			err = -EINVAL;
+			goto err_release_fences;
+		}
+
+		xa_for_each(&in_fences, id, fence) {
+			pvr_fence_add_fence_dependency(out_fence, fence);
+
+			err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
+			if (err)
+				goto err_kfree_in_ufos;
+
+			ufo_nr++;
+		}
+	}
 
 	pvr_cccb_lock(&ctx_frag->cccb);
+
+	if (num_in_syncobj_handles) {
+		err = pvr_cccb_write_command_with_header(&ctx_frag->cccb,
+							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+							 num_in_syncobj_handles * sizeof(*in_ufos),
+							 in_ufos, args->ext_job_ref, 0);
+		if (err)
+			goto err_cccb_unlock_rollback;
+	}
 
 	if (geom_in_fence) {
 		struct rogue_fwif_ufo geom_in_ufo;
@@ -360,14 +441,22 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	}
 
 	dma_fence_put(out_fence);
-	release_fences(&in_fences);
+	release_fences(&in_fences, false);
+
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
 
 	return 0;
 
 err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_frag->cccb);
 
-	release_fences(&in_fences);
+err_kfree_in_ufos:
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
+
+err_release_fences:
+	release_fences(&in_fences, true);
 
 err_put_out_syncobj:
 	if (render_args->out_syncobj_frag)
@@ -375,7 +464,7 @@ err_put_out_syncobj:
 
 err_put_out_fence:
 	/* As out_fence will now never be signaled, we need to drop two references here. */
-	dma_fence_put(out_fence);
+	pvr_fence_deactivate_and_put(out_fence);
 	dma_fence_put(out_fence);
 
 err_out:
@@ -389,7 +478,9 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		   struct drm_pvr_job_compute_args *compute_args,
 		   struct rogue_fwif_cmd_compute *cmd_compute)
 {
+	u32 num_in_syncobj_handles = compute_args->num_in_syncobj_handles;
 	struct drm_syncobj *out_syncobj;
+	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
 	struct dma_fence *out_fence;
 	struct xarray in_fences;
@@ -419,15 +510,44 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
 
-	err = import_fences(pvr_file, compute_args->num_in_syncobj_handles,
-			    compute_args->in_syncobj_handles, &in_fences);
-	if (err)
-		goto err_put_out_syncobj;
+	if (num_in_syncobj_handles) {
+		struct dma_fence *fence;
+		unsigned long id;
+		u32 ufo_nr = 0;
 
-	/* Wait on fences */
-	wait_fences(&in_fences);
+		err = import_fences(pvr_file, num_in_syncobj_handles,
+				    compute_args->in_syncobj_handles, &in_fences,
+				    &ctx_compute->cccb.pvr_fence_context);
+		if (err)
+			goto err_put_out_syncobj;
+
+		in_ufos = kcalloc(num_in_syncobj_handles, sizeof(*in_ufos), GFP_KERNEL);
+		if (!in_ufos) {
+			err = -EINVAL;
+			goto err_release_fences;
+		}
+
+		xa_for_each(&in_fences, id, fence) {
+			pvr_fence_add_fence_dependency(out_fence, fence);
+
+			err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
+			if (err)
+				goto err_kfree_in_ufos;
+
+			ufo_nr++;
+		}
+	}
 
 	pvr_cccb_lock(&ctx_compute->cccb);
+
+	if (num_in_syncobj_handles) {
+		err = pvr_cccb_write_command_with_header(&ctx_compute->cccb,
+							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+							 num_in_syncobj_handles * sizeof(*in_ufos),
+							 in_ufos, args->ext_job_ref, 0);
+		if (err)
+			goto err_cccb_unlock_rollback;
+	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_compute->cccb, ROGUE_FWIF_CCB_CMD_TYPE_CDM,
@@ -452,14 +572,22 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	}
 
 	dma_fence_put(out_fence);
-	release_fences(&in_fences);
+	release_fences(&in_fences, false);
+
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
 
 	return 0;
 
 err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_compute->cccb);
 
-	release_fences(&in_fences);
+err_kfree_in_ufos:
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
+
+err_release_fences:
+	release_fences(&in_fences, true);
 
 err_put_out_syncobj:
 	if (compute_args->out_syncobj)
@@ -467,7 +595,7 @@ err_put_out_syncobj:
 
 err_put_out_fence:
 	/* As out_fence will now never be signaled, we need to drop two references here. */
-	dma_fence_put(out_fence);
+	pvr_fence_deactivate_and_put(out_fence);
 	dma_fence_put(out_fence);
 
 err_out:

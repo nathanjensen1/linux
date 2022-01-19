@@ -5,6 +5,7 @@
 #include "pvr_drv.h"
 #include "pvr_fence.h"
 #include "pvr_gem.h"
+#include "pvr_rogue_cr_defs.h"
 #include "pvr_rogue_fwif.h"
 
 #include <linux/errno.h>
@@ -13,6 +14,8 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
+#define PVR_IMPORTED_TIMELINE_NAME "imported"
+
 /**
  * pvr_fence_create() - Create a PowerVR fence
  * @context: Target PowerVR fence context
@@ -20,7 +23,7 @@
  * The fence will be created with two references; one for the caller, one for the fence worker. The
  * callers reference (and any other references subsequently taken) should be released with
  * dma_fence_put(). If the fence will not be signaled (e.g. on an error path) then the fence worker
- * reference should also be manually dropped.
+ * reference should be manually dropped via pvr_fence_deactivate_and_put().
  *
  * Returns:
  *  * 0 on success,
@@ -51,6 +54,8 @@ pvr_fence_create(struct pvr_fence_context *context)
 		err = PTR_ERR(pvr_fence->sync_checkpoint);
 		goto err_free;
 	}
+
+	pvr_fence->sync_checkpoint->state = PVR_SYNC_CHECKPOINT_ACTIVE;
 
 	INIT_LIST_HEAD(&pvr_fence->dep_list);
 	INIT_LIST_HEAD(&pvr_fence->dep_head);
@@ -202,6 +207,7 @@ pvr_fence_device_init(struct pvr_device *pvr_dev)
 {
 	spin_lock_init(&pvr_dev->fence_list_spinlock);
 	INIT_LIST_HEAD(&pvr_dev->fence_list);
+	INIT_LIST_HEAD(&pvr_dev->imported_fence_list);
 	INIT_WORK(&pvr_dev->fence_work, pvr_fence_process_worker);
 }
 
@@ -247,4 +253,188 @@ pvr_fence_to_ufo(struct dma_fence *fence, struct rogue_fwif_ufo *ufo)
 	ufo->value = PVR_SYNC_CHECKPOINT_ACTIVE;
 
 	return 0;
+}
+
+static const char *
+pvr_fence_imported_get_timeline_name(struct dma_fence *fence)
+{
+	return PVR_IMPORTED_TIMELINE_NAME;
+}
+
+static void
+pvr_fence_imported_release(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	if (pvr_fence) {
+		dma_fence_put(pvr_fence->imported_fence);
+		pvr_fence_destroy(pvr_fence);
+	}
+}
+
+const struct dma_fence_ops pvr_fence_imported_ops = {
+	.get_driver_name = pvr_fence_get_driver_name,
+	.get_timeline_name = pvr_fence_imported_get_timeline_name,
+	.release = pvr_fence_imported_release,
+	.signaled = pvr_fence_is_signaled,
+};
+
+static void pvr_fence_imported_signal_worker(struct work_struct *work)
+{
+	struct pvr_fence *pvr_fence = container_of(work, struct pvr_fence, signal_work);
+	struct pvr_device *pvr_dev = pvr_fence->context->pvr_dev;
+	unsigned long flags;
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+	list_del_init(&pvr_fence->head);
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	pvr_fence->sync_checkpoint->state = PVR_SYNC_CHECKPOINT_SIGNALED;
+
+	/* Signal fence and drop our reference. */
+	dma_fence_signal(&pvr_fence->base);
+	pvr_fence_release_dep_fences(pvr_fence);
+	dma_fence_put(&pvr_fence->base);
+
+	/* Sent uncounted kick to FW. */
+	pvr_fw_mts_schedule(pvr_dev, (PVR_FWIF_DM_GP & ~ROGUE_CR_MTS_SCHEDULE_DM_CLRMSK) |
+				     ROGUE_CR_MTS_SCHEDULE_TASK_NON_COUNTED);
+}
+
+static void pvr_fence_imported_signal(struct dma_fence *fence, struct dma_fence_cb *cb)
+{
+	struct pvr_fence *pvr_fence = container_of(cb, struct pvr_fence, cb);
+	struct pvr_device *pvr_dev = pvr_fence->context->pvr_dev;
+
+	/* Callback might be called from atomic context, so handle signal in workqueue. */
+	queue_work(pvr_dev->irq_wq, &pvr_fence->signal_work);
+}
+
+/**
+ * pvr_fence_import() - Create a PowerVR fence from an existing dma_fence
+ * @context: Target PowerVR fence context.
+ * @imported_fence: Existing fence to create the new fence from.
+ *
+ * The fence will be created with two references; one for the caller, one for the fence worker. The
+ * callers reference (and any other references subsequently taken) should be released with
+ * dma_fence_put(). If the fence is not subsequently used (e.g. on an error path) then the fence
+ * worker reference should be manually dropped via pvr_fence_deactivate_and_put(); this prevents any
+ * race conditions due to uncertainty about whether the fence will be signaled or not.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%ENOMEM on out of memory, or
+ *  * Any error returned by pvr_gem_create_and_map_fw_object().
+ */
+struct dma_fence *
+pvr_fence_import(struct pvr_fence_context *context, struct dma_fence *imported_fence)
+{
+	struct pvr_device *pvr_dev = context->pvr_dev;
+	struct pvr_fence *pvr_fence;
+	unsigned long flags;
+	int err;
+
+	pvr_fence = kzalloc(sizeof(*pvr_fence), GFP_KERNEL);
+	if (!pvr_fence) {
+		err = -ENOMEM;
+		goto err_out;
+	}
+
+	pvr_fence->flags = PVR_FENCE_FLAGS_IMPORTED;
+	pvr_fence->imported_fence = imported_fence;
+	pvr_fence->context = context;
+	pvr_fence->sync_checkpoint =
+		pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*pvr_fence->sync_checkpoint),
+						 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						 DRM_PVR_BO_CREATE_ZEROED,
+						 &pvr_fence->sync_checkpoint_fw_obj);
+	if (IS_ERR(pvr_fence->sync_checkpoint)) {
+		err = PTR_ERR(pvr_fence->sync_checkpoint);
+		goto err_free;
+	}
+
+	pvr_fence->sync_checkpoint->state = PVR_SYNC_CHECKPOINT_ACTIVE;
+
+	INIT_LIST_HEAD(&pvr_fence->dep_list);
+	INIT_LIST_HEAD(&pvr_fence->dep_head);
+	INIT_WORK(&pvr_fence->signal_work, pvr_fence_imported_signal_worker);
+
+	dma_fence_init(&pvr_fence->base, &pvr_fence_imported_ops, &context->fence_spinlock,
+		       context->fence_context, atomic_inc_return(&context->fence_id));
+
+	/*
+	 * The initial reference on this fence will be passed to the fence list as soon as the
+	 * fence is added to that list. Take another reference before then to hand back to the
+	 * caller.
+	 */
+	dma_fence_get(&pvr_fence->base);
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+	list_add_tail(&pvr_fence->head, &pvr_dev->imported_fence_list);
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	err = dma_fence_add_callback(imported_fence, &pvr_fence->cb, pvr_fence_imported_signal);
+	if (err == -ENOENT) {
+		/* Fence has already signaled. Call callback directly. */
+		pvr_fence_imported_signal(imported_fence, &pvr_fence->cb);
+	} else if (err) {
+		goto err_fw_obj_release;
+	}
+
+	return from_pvr_fence(pvr_fence);
+
+err_fw_obj_release:
+	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, pvr_fence->sync_checkpoint, false);
+	pvr_fw_object_release(pvr_fence->sync_checkpoint_fw_obj);
+
+err_free:
+	kfree(pvr_fence);
+
+err_out:
+	return ERR_PTR(err);
+}
+
+/**
+ * pvr_fence_deactivate_and_put() - Deactivate a fence and drop the fence worker's reference
+ * @fence: Pointer to fence to deactivate.
+ *
+ * As it is possible that the fence has already signaled and fence worker reference has been
+ * dropped, the caller should hold an additional reference on the fence.
+ */
+void
+pvr_fence_deactivate_and_put(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+	struct pvr_device *pvr_dev;
+	unsigned long flags;
+
+	if (!pvr_fence)
+		return;
+
+	pvr_dev = pvr_fence->context->pvr_dev;
+
+	/* Remove from the global fence list. */
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+	list_del_init(&pvr_fence->head);
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	if (pvr_fence->flags & PVR_FENCE_FLAGS_IMPORTED) {
+		if (!dma_fence_remove_callback(pvr_fence->imported_fence, &pvr_fence->cb)) {
+			/*
+			 * Parent fence has already signaled. Flush the signal work; the
+			 * reference will be released by the worker.
+			 */
+			flush_work(&pvr_fence->signal_work);
+		} else {
+			/* Parent fence has not signaled, we can drop the reference now. */
+			dma_fence_put(fence);
+		}
+	} else {
+		/*
+		 * For native fences, this function should only be called if it is known
+		 * that the fence will never be signaled (eg the update command for this
+		 * fence was never submitted). Just drop the reference.
+		 */
+		dma_fence_put(fence);
+	}
 }
