@@ -19,7 +19,9 @@ struct pvr_device_features {
 	bool has_phys_bus_width : 1;
 	bool has_riscv_fw_processor : 1;
 	bool has_slc_cache_line_size_in_bits : 1;
+	bool has_sys_bus_secure_reset : 1;
 	bool has_virtual_address_space_bits : 1;
+	bool has_xt_top_infrastructure : 1;
 
 	bool meta;
 	u32 meta_coremem_size;
@@ -36,6 +38,7 @@ struct pvr_device_features {
  */
 struct pvr_device_quirks {
 	bool has_brn63142 : 1;
+	bool has_brn63553 : 1;
 };
 
 int pvr_device_info_init(struct pvr_device *pvr_dev);

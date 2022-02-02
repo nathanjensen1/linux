@@ -28,7 +28,7 @@
  *  * 0 on success, or
  *  * Any error returned by pvr_cr_poll_reg32().
  */
-static int
+int
 pvr_meta_cr_read32(struct pvr_device *pvr_dev, u32 reg_addr, u32 *reg_value_out)
 {
 	int err;
@@ -66,10 +66,13 @@ err_out:
 	return err;
 }
 
-static void
-rogue_meta_proc_wrapper_init(struct pvr_device *pvr_dev)
+static int
+pvr_meta_wrapper_init(struct pvr_device *pvr_dev)
 {
 	u64 garten_config;
+
+	/* Configure META to Master boot. */
+	PVR_CR_WRITE64(pvr_dev, META_BOOT, ROGUE_CR_META_BOOT_MODE_EN);
 
 	/* Set Garten IDLE to META idle and Set the Garten Wrapper BIF Fence address. */
 
@@ -90,258 +93,8 @@ rogue_meta_proc_wrapper_init(struct pvr_device *pvr_dev)
 			 << ROGUE_CR_MTS_GARTEN_WRAPPER_CONFIG_FENCE_DM_SHIFT;
 
 	PVR_CR_WRITE64(pvr_dev, MTS_GARTEN_WRAPPER_CONFIG, garten_config);
-}
-
-static void
-rogue_axi_ace_list_init(struct pvr_device *pvr_dev)
-{
-	/* Setup AXI-ACE config. Set everything to outer cache. */
-	u64 reg_val =
-		(3U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_AWDOMAIN_NON_SNOOPING_SHIFT) |
-		(3U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARDOMAIN_NON_SNOOPING_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARDOMAIN_CACHE_MAINTENANCE_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_AWDOMAIN_COHERENT_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARDOMAIN_COHERENT_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_AWCACHE_COHERENT_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARCACHE_COHERENT_SHIFT) |
-		(2U
-		 << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARCACHE_CACHE_MAINTENANCE_SHIFT);
-
-	PVR_CR_WRITE64(pvr_dev, AXI_ACE_LITE_CONFIGURATION, reg_val);
-}
-
-static void
-rogue_bif_init(struct pvr_device *pvr_dev)
-{
-	dma_addr_t pt_dma_addr;
-	u64 pt_addr;
-
-	/* Acquire the address of the Kernel Page Table root. */
-	pt_dma_addr = pvr_vm_get_page_table_root_addr(pvr_dev->kernel_vm_ctx);
-
-	/* Write the kernel catalogue base. */
-	pt_addr = ((((u64)pt_dma_addr >> ROGUE_CR_BIF_CAT_BASE0_ADDR_ALIGNSHIFT)
-		    << ROGUE_CR_BIF_CAT_BASE0_ADDR_SHIFT) &
-		   ~ROGUE_CR_BIF_CAT_BASE0_ADDR_CLRMSK);
-
-	__pvr_cr_write64(pvr_dev, BIF_CAT_BASEX(MMU_CONTEXT_MAPPING_FWPRIV),
-			 pt_addr);
-}
-
-static int
-rogue_slc_init(struct pvr_device *pvr_dev)
-{
-	u16 slc_cache_line_size_in_bits;
-	u32 reg_val;
-	int err;
-
-	/*
-	 * SLC Misc control.
-	 *
-	 * Note: This is a 64bit register and we set only the lower 32bits
-	 *       leaving the top 32bits (ROGUE_CR_SLC_CTRL_MISC_SCRAMBLE_BITS)
-	 *       unchanged from the HW default.
-	 */
-	reg_val = (PVR_CR_READ32(pvr_dev, SLC_CTRL_MISC) &
-		      ROGUE_CR_SLC_CTRL_MISC_ENABLE_PSG_HAZARD_CHECK_EN) |
-		     ROGUE_CR_SLC_CTRL_MISC_ADDR_DECODE_MODE_PVR_HASH1;
-
-	err = PVR_FEATURE_VALUE(pvr_dev, slc_cache_line_size_in_bits,
-				&slc_cache_line_size_in_bits);
-	if (err)
-		return err;
-
-	/* Bypass burst combiner if SLC line size is smaller than 1024 bits. */
-	if (slc_cache_line_size_in_bits < 1024)
-		reg_val |= ROGUE_CR_SLC_CTRL_MISC_BYPASS_BURST_COMBINER_EN;
-
-	PVR_CR_WRITE32(pvr_dev, SLC_CTRL_MISC, reg_val);
 
 	return 0;
-}
-
-/**
- * pvr_meta_start() - Start META processor and boot firmware
- * @pvr_dev: Target PowerVR device.
- *
- * Returns:
- *  * 0 on success.
- */
-static int
-pvr_meta_start(struct pvr_device *pvr_dev)
-{
-	int err;
-
-	/* Set Rogue in soft-reset. */
-	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, ROGUE_CR_SOFT_RESET_MASKFULL);
-
-	/* Read soft-reset to fence previous write in order to clear the SOCIF pipeline. */
-	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
-
-	/* Take Rascal and Dust out of reset. */
-	PVR_CR_WRITE64(pvr_dev, SOFT_RESET,
-		       ROGUE_CR_SOFT_RESET_MASKFULL ^
-			       ROGUE_CR_SOFT_RESET_RASCALDUSTS_EN);
-
-	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
-
-	/* Take everything out of reset but the FW processor. */
-	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, ROGUE_CR_SOFT_RESET_GARTEN_EN);
-
-	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
-
-	err = rogue_slc_init(pvr_dev);
-	if (err)
-		goto err_reset;
-
-	/* Configure META to Master boot */
-	PVR_CR_WRITE64(pvr_dev, META_BOOT, ROGUE_CR_META_BOOT_MODE_EN);
-
-	/* Initialise Firmware wrapper. */
-	rogue_meta_proc_wrapper_init(pvr_dev);
-
-	/* We must init the AXI-ACE interface before first BIF transaction. */
-	rogue_axi_ace_list_init(pvr_dev);
-
-	/* Initialise BIF. */
-	rogue_bif_init(pvr_dev);
-
-	/* Need to wait for at least 16 cycles before taking the FW processor out of reset ... */
-	udelay(3);
-
-	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, 0x0);
-	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
-
-	/* ... and afterwards. */
-	udelay(3);
-
-	return 0;
-
-err_reset:
-	/* Put everything back into soft-reset. */
-	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, ROGUE_CR_SOFT_RESET_MASKFULL);
-
-	return err;
-}
-
-/**
- * pvr_meta_stop() - Stop META processor
- * @pvr_dev: Target PowerVR device.
- *
- * Returns:
- *  * 0 on success, or
- *  * Any error returned by pvr_cr_poll_reg32().
- */
-static int
-pvr_meta_stop(struct pvr_device *pvr_dev)
-{
-	const u32 sidekick_idle_mask = ROGUE_CR_SIDEKICK_IDLE_MASKFULL &
-				       ~(ROGUE_CR_SIDEKICK_IDLE_GARTEN_EN |
-					 ROGUE_CR_SIDEKICK_IDLE_SOCIF_EN |
-					 ROGUE_CR_SIDEKICK_IDLE_HOSTIF_EN);
-	u32 reg_value;
-	int err;
-
-	/* Acknowledge any pending IRQs. */
-	PVR_CR_WRITE32(pvr_dev, META_SP_MSLVIRQSTATUS,
-		       ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_CLRMSK);
-
-	/*
-	 * Wait for Sidekick/Jones to signal IDLE except for the Garten Wrapper.
-	 * For LAYOUT_MARS = 1, SIDEKICK would have been powered down by FW.
-	 */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE, sidekick_idle_mask,
-				sidekick_idle_mask, POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	/* Unset MTS DM association with threads. */
-	PVR_CR_WRITE32(pvr_dev, MTS_INTCTX_THREAD0_DM_ASSOC,
-		       ROGUE_CR_MTS_INTCTX_THREAD0_DM_ASSOC_MASKFULL &
-		       ROGUE_CR_MTS_INTCTX_THREAD0_DM_ASSOC_DM_ASSOC_CLRMSK);
-	PVR_CR_WRITE32(pvr_dev, MTS_BGCTX_THREAD0_DM_ASSOC,
-		       ROGUE_CR_MTS_BGCTX_THREAD0_DM_ASSOC_MASKFULL &
-		       ROGUE_CR_MTS_BGCTX_THREAD0_DM_ASSOC_DM_ASSOC_CLRMSK);
-	PVR_CR_WRITE32(pvr_dev, MTS_INTCTX_THREAD1_DM_ASSOC,
-		       ROGUE_CR_MTS_INTCTX_THREAD1_DM_ASSOC_MASKFULL &
-		       ROGUE_CR_MTS_INTCTX_THREAD1_DM_ASSOC_DM_ASSOC_CLRMSK);
-	PVR_CR_WRITE32(pvr_dev, MTS_BGCTX_THREAD1_DM_ASSOC,
-		       ROGUE_CR_MTS_BGCTX_THREAD1_DM_ASSOC_MASKFULL &
-		       ROGUE_CR_MTS_BGCTX_THREAD1_DM_ASSOC_DM_ASSOC_CLRMSK);
-
-	/* Extra Idle checks. */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_BIF_STATUS_MMU, 0,
-				ROGUE_CR_BIF_STATUS_MMU_MASKFULL,
-				POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_BIFPM_STATUS_MMU, 0,
-				ROGUE_CR_BIFPM_STATUS_MMU_MASKFULL,
-				POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_BIFPM_READS_EXT_STATUS, 0,
-				ROGUE_CR_BIFPM_READS_EXT_STATUS_MASKFULL,
-				POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	err = pvr_cr_poll_reg64(pvr_dev, ROGUE_CR_SLC_STATUS1, 0,
-				ROGUE_CR_SLC_STATUS1_MASKFULL,
-				POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	/*
-	 * Wait for SLC to signal IDLE.
-	 * For LAYOUT_MARS = 1, SLC would have been powered down by FW.
-	 */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SLC_IDLE,
-				ROGUE_CR_SLC_IDLE_MASKFULL,
-				ROGUE_CR_SLC_IDLE_MASKFULL, POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	/*
-	 * Wait for Sidekick/Jones to signal IDLE except for the Garten Wrapper.
-	 * For LAYOUT_MARS = 1, SIDEKICK would have been powered down by FW.
-	 */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE, sidekick_idle_mask,
-				sidekick_idle_mask, POLL_TIMEOUT_USEC);
-	if (err)
-		goto err_out;
-
-	err = pvr_meta_cr_read32(pvr_dev, META_CR_TxVECINT_BHALT, &reg_value);
-	if (err)
-		goto err_out;
-
-	if (!reg_value) {
-		/*
-		 * Wait for Sidekick/Jones to signal IDLE including the Garten
-		 * Wrapper if there is no debugger attached (TxVECINT_BHALT =
-		 * 0x0).
-		 */
-		err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE,
-					ROGUE_CR_SIDEKICK_IDLE_GARTEN_EN,
-					ROGUE_CR_SIDEKICK_IDLE_GARTEN_EN,
-					POLL_TIMEOUT_USEC);
-		if (err)
-			goto err_out;
-	}
-
-	return 0;
-
-err_out:
-	return err;
 }
 
 static __always_inline void
@@ -808,12 +561,34 @@ pvr_meta_vm_unmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 	pvr_vm_unmap(pvr_dev->kernel_vm_ctx, fw_obj->fw_mm_node.start);
 }
 
+static bool
+pvr_meta_check_and_ack_irq(struct pvr_device *pvr_dev)
+{
+	u32 irq_status = PVR_CR_READ32(pvr_dev, META_SP_MSLVIRQSTATUS);
+
+	if (!(irq_status & ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_EN))
+		return false; /* Spurious IRQ - ignore. */
+
+	/* Acknowledge IRQ. */
+	PVR_CR_WRITE32(pvr_dev, META_SP_MSLVIRQSTATUS,
+		       ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_CLRMSK);
+
+	return true;
+}
+
+static bool
+pvr_meta_has_fixed_data_addr(void)
+{
+	return false;
+}
+
 const struct pvr_fw_funcs pvr_fw_funcs_meta = {
 	.init = pvr_meta_init,
 	.fw_process = pvr_meta_fw_process,
 	.vm_map = pvr_meta_vm_map,
 	.vm_unmap = pvr_meta_vm_unmap,
 	.get_fw_addr_with_offset = pvr_meta_get_fw_addr_with_offset,
-	.start = pvr_meta_start,
-	.stop = pvr_meta_stop,
+	.wrapper_init = pvr_meta_wrapper_init,
+	.check_and_ack_irq = pvr_meta_check_and_ack_irq,
+	.has_fixed_data_addr = pvr_meta_has_fixed_data_addr,
 };

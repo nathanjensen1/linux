@@ -242,16 +242,9 @@ pvr_device_clk_core_get_freq(struct pvr_device *pvr_dev, u32 *freq_out)
 static irqreturn_t pvr_meta_irq_handler(int irq, void *data)
 {
 	struct pvr_device *pvr_dev = data;
-	u32 irq_status;
 
-	irq_status = PVR_CR_READ32(pvr_dev, META_SP_MSLVIRQSTATUS);
-
-	if (!(irq_status & ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_EN))
+	if (!pvr_dev->fw_funcs->check_and_ack_irq(pvr_dev))
 		return IRQ_NONE; /* Spurious IRQ - ignore. */
-
-	/* Acknowledge IRQ. */
-	PVR_CR_WRITE32(pvr_dev, META_SP_MSLVIRQSTATUS,
-		       ROGUE_CR_META_SP_MSLVIRQSTATUS_TRIGVECT2_CLRMSK);
 
 	/* Only process IRQ work if FW is currently running. */
 	if (pvr_dev->fw_booted) {

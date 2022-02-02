@@ -3,6 +3,7 @@
 
 #include "pvr_device.h"
 #include "pvr_fw.h"
+#include "pvr_fw_startstop.h"
 #include "pvr_power.h"
 #include "pvr_rogue_fwif.h"
 
@@ -107,7 +108,7 @@ pvr_power_set_state(struct pvr_device *pvr_dev, enum pvr_power_state new_state)
 		if (err)
 			goto err_out;
 
-		err = pvr_dev->fw_funcs->stop(pvr_dev);
+		err = pvr_fw_stop(pvr_dev);
 		if (err)
 			goto err_out;
 
@@ -120,7 +121,7 @@ pvr_power_set_state(struct pvr_device *pvr_dev, enum pvr_power_state new_state)
 			goto err_out;
 
 		/* Restart FW */
-		err = pvr_dev->fw_funcs->start(pvr_dev);
+		err = pvr_fw_start(pvr_dev);
 		if (err)
 			goto err_out;
 

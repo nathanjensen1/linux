@@ -113,9 +113,9 @@ struct pvr_fw_funcs {
 	u32 (*get_fw_addr_with_offset)(struct pvr_fw_object *fw_obj, u32 offset);
 
 	/**
-	 * @start:
+	 * @wrapper_init:
 	 *
-	 * Called to start FW processor and boot firmware.
+	 * Called to initialise FW wrapper.
 	 * @pvr_dev: Target PowerVR device.
 	 *
 	 * This function is mandatory.
@@ -124,21 +124,36 @@ struct pvr_fw_funcs {
 	 *  * 0 on success.
 	 *  * Any appropriate error on failure.
 	 */
-	int (*start)(struct pvr_device *pvr_dev);
+	int (*wrapper_init)(struct pvr_device *pvr_dev);
 
 	/**
-	 * @stop:
+	 * @check_and_ack_irq:
 	 *
-	 * Called to stop FW processor execution.
+	 * Called to check if a GPU interrupt has occurred, and to acknowledge if it has.
 	 * @pvr_dev: Target PowerVR device.
 	 *
 	 * This function is mandatory.
 	 *
 	 * Returns:
-	 *  * 0 on success.
-	 *  * Any appropriate error on failure.
+	 *  * %true if an interrupt has occurred, or
+	 *  * %false if no interrupt has occurred.
 	 */
-	int (*stop)(struct pvr_device *pvr_dev);
+	bool (*check_and_ack_irq)(struct pvr_device *pvr_dev);
+
+	/**
+	 * @has_fixed_data_addr:
+	 *
+	 * Called to check if firmware fixed data must be loaded at the address given by the
+	 * firmware layout table.
+	 *
+	 * This function is mandatory.
+	 *
+	 * Returns:
+	 *  * %true if firmware fixed data must be loaded at the address given by the firmware
+	 *    layout table.
+	 *  * %false otherwise.
+	 */
+	bool (*has_fixed_data_addr)(void);
 };
 
 extern const struct pvr_fw_funcs pvr_fw_funcs_meta;
