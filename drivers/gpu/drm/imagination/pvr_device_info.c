@@ -15,6 +15,7 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.has_phys_bus_width = true,
 	.has_slc_cache_line_size_in_bits = true,
 	.has_virtual_address_space_bits = true,
+	.has_xt_top_infrastructure = true,
 
 	.meta = true,
 	.meta_coremem_size = 32,
@@ -33,6 +34,7 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
 	.has_slc_cache_line_size_in_bits = true,
+	.has_sys_bus_secure_reset = true,
 	.has_virtual_address_space_bits = true,
 
 	.mips = true,
@@ -43,6 +45,7 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 };
 
 const struct pvr_device_quirks pvr_device_quirks_33_15_11_3 = {
+	.has_brn63553 = true,
 };
 
 const struct pvr_device_features pvr_device_36_V_104_796 = {
@@ -50,6 +53,7 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_phys_bus_width = true,
 	.has_riscv_fw_processor = true,
 	.has_slc_cache_line_size_in_bits = true,
+	.has_sys_bus_secure_reset = true,
 	.has_virtual_address_space_bits = true,
 
 	.num_clusters = 1,
