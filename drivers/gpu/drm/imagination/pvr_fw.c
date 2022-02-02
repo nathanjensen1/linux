@@ -5,6 +5,8 @@
 #include "pvr_device.h"
 #include "pvr_fw.h"
 #include "pvr_fw_info.h"
+#include "pvr_rogue_mips.h"
+#include "pvr_fw_startstop.h"
 #include "pvr_fw_trace.h"
 #include "pvr_gem.h"
 #include "pvr_power.h"
@@ -43,6 +45,21 @@ pvr_fw_find_layout_entry(const struct pvr_fw_layout_entry *layout_entries, u32 n
 
 	for (entry = 0; entry < num_layout_entries; entry++) {
 		if (layout_entries[entry].id == id)
+			return &layout_entries[entry];
+	}
+
+	return NULL;
+}
+
+const struct pvr_fw_layout_entry *
+pvr_fw_find_private_data(const struct pvr_fw_layout_entry *layout_entries, u32 num_layout_entries)
+{
+	u32 entry;
+
+	for (entry = 0; entry < num_layout_entries; entry++) {
+		if (layout_entries[entry].id == META_PRIVATE_DATA ||
+		    layout_entries[entry].id == MIPS_PRIVATE_DATA ||
+		    layout_entries[entry].id == RISCV_PRIVATE_DATA)
 			return &layout_entries[entry];
 	}
 
@@ -577,6 +594,7 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	const u8 *fw = pvr_dev->fw->data;
 	const struct pvr_fw_info_header *header;
 	const struct pvr_fw_layout_entry *layout_entries;
+	const struct pvr_fw_layout_entry *private_data;
 	u32 code_alloc_size;
 	u32 data_alloc_size;
 	u32 core_code_alloc_size;
@@ -595,6 +613,12 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 			 &code_alloc_size, &data_alloc_size,
 			 &core_code_alloc_size, &core_data_alloc_size);
 
+	private_data = pvr_fw_find_private_data(layout_entries, header->layout_entry_num);
+	if (!private_data) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
 	/* Allocate and map memory for firmware sections. */
 
 	/*
@@ -612,8 +636,17 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 		goto err_out;
 	}
 
-	fw_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, data_alloc_size,
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED, &pvr_dev->fw_data_obj);
+	if (pvr_dev->fw_funcs->has_fixed_data_addr) {
+		fw_data_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+			private_data->base_addr & pvr_dev->fw_heap_info.offset_mask,
+			data_alloc_size,
+			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+			&pvr_dev->fw_data_obj);
+	} else {
+		fw_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, data_alloc_size,
+			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+			&pvr_dev->fw_data_obj);
+	}
 	if (IS_ERR(fw_data_ptr)) {
 		drm_err(drm_dev, "Unable to allocate FW data memory\n");
 		err = PTR_ERR(fw_data_ptr);
