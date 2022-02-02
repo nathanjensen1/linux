@@ -99,7 +99,9 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 		    u32 core_code_alloc_size)
 {
 	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	const struct pvr_fw_layout_entry *boot_code_entry;
 	const struct pvr_fw_layout_entry *boot_data_entry;
+	const struct pvr_fw_layout_entry *exception_code_entry;
 	const struct pvr_fw_layout_entry *stack_entry;
 	struct rogue_mipsfw_boot_data *boot_data;
 	dma_addr_t dma_addr;
@@ -112,12 +114,24 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 	if (err)
 		goto err_out;
 
+	boot_code_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries,
+						   MIPS_BOOT_CODE);
 	boot_data_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries,
 						   MIPS_BOOT_DATA);
-	if (!boot_data_entry) {
+	exception_code_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries,
+						   MIPS_EXCEPTIONS_CODE);
+	if (!boot_code_entry || !boot_data_entry || !exception_code_entry) {
 		err = -EINVAL;
 		goto err_out;
 	}
+
+	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_code_obj->base, boot_code_entry->alloc_offset,
+				     &mips_data->boot_code_dma_addr));
+	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_data_obj->base, boot_data_entry->alloc_offset,
+				     &mips_data->boot_data_dma_addr));
+	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_code_obj->base,
+				     exception_code_entry->alloc_offset,
+				     &mips_data->exception_code_dma_addr));
 
 	stack_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries, MIPS_STACK);
 	if (!stack_entry) {
@@ -152,15 +166,71 @@ err_out:
 }
 
 static int
-pvr_mips_start(struct pvr_device *pvr_dev)
+pvr_mips_wrapper_init(struct pvr_device *pvr_dev)
 {
-	return -ENODEV;
-}
+	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	u64 remap_settings = ROGUE_MIPSFW_BOOT_REMAP_LOG2_SEGMENT_SIZE;
+	u32 phys_bus_width;
 
-static int
-pvr_mips_stop(struct pvr_device *pvr_dev)
-{
-	return -ENODEV;
+	drm_info(drm_dev, "Configure MIPS wrapper");
+
+	WARN_ON(PVR_FEATURE_VALUE(pvr_dev, phys_bus_width, &phys_bus_width));
+	/* Currently MIPS FW only supported with physical bus width > 32 bits. */
+	if (WARN_ON(phys_bus_width <= 32))
+		return -EINVAL;
+
+	PVR_CR_WRITE32(pvr_dev, MIPS_WRAPPER_CONFIG,
+		       (ROGUE_MIPSFW_REGISTERS_VIRTUAL_BASE >>
+			ROGUE_MIPSFW_WRAPPER_CONFIG_REGBANK_ADDR_ALIGN) |
+		       ROGUE_CR_MIPS_WRAPPER_CONFIG_BOOT_ISA_MODE_MICROMIPS);
+
+	/* Configure remap for boot code, boot data and exceptions code areas. */
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP1_CONFIG1,
+		       ROGUE_MIPSFW_BOOT_REMAP_PHYS_ADDR_IN |
+		       ROGUE_CR_MIPS_ADDR_REMAP1_CONFIG1_MODE_ENABLE_EN);
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP1_CONFIG2,
+		       (mips_data->boot_code_dma_addr &
+			~ROGUE_CR_MIPS_ADDR_REMAP1_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
+
+	if (PVR_HAS_QUIRK(pvr_dev, 63553)) {
+		/*
+		 * WA always required on 36 bit cores, to avoid continuous unmapped memory accesses
+		 * to address 0x0.
+		 */
+		WARN_ON(phys_bus_width != 36);
+
+		PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP5_CONFIG1,
+			       ROGUE_CR_MIPS_ADDR_REMAP5_CONFIG1_MODE_ENABLE_EN);
+		PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP5_CONFIG2,
+			       (mips_data->boot_code_dma_addr &
+				~ROGUE_CR_MIPS_ADDR_REMAP5_CONFIG2_ADDR_OUT_CLRMSK) |
+			       remap_settings);
+	}
+
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP2_CONFIG1,
+		       ROGUE_MIPSFW_DATA_REMAP_PHYS_ADDR_IN |
+		       ROGUE_CR_MIPS_ADDR_REMAP2_CONFIG1_MODE_ENABLE_EN);
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP2_CONFIG2,
+		       (mips_data->boot_data_dma_addr &
+			~ROGUE_CR_MIPS_ADDR_REMAP2_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
+
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP3_CONFIG1,
+		       ROGUE_MIPSFW_CODE_REMAP_PHYS_ADDR_IN |
+		       ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG1_MODE_ENABLE_EN);
+	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP3_CONFIG2,
+		      (mips_data->exception_code_dma_addr &
+		       ~ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
+
+	/* Garten IDLE bit controlled by MIPS. */
+	drm_info(drm_dev, "RGXStart: Set GARTEN_IDLE type to MIPS");
+	PVR_CR_WRITE64(pvr_dev, MTS_GARTEN_WRAPPER_CONFIG,
+		       ROGUE_CR_MTS_GARTEN_WRAPPER_CONFIG_IDLE_CTRL_META);
+
+	/* Turn on the EJTAG probe. */
+	PVR_CR_WRITE32(pvr_dev, MIPS_DEBUG_CONFIG, 0);
+
+	return 0;
 }
 
 static u32
@@ -173,6 +243,27 @@ pvr_mips_get_fw_addr_with_offset(struct pvr_fw_object *fw_obj, u32 offset)
 	       ROGUE_FW_HEAP_MIPS_BASE;
 }
 
+static bool
+pvr_mips_check_and_ack_irq(struct pvr_device *pvr_dev)
+{
+	u32 irq_status = PVR_CR_READ32(pvr_dev, MIPS_WRAPPER_IRQ_STATUS);
+
+	if (!(irq_status & ROGUE_CR_MIPS_WRAPPER_IRQ_STATUS_EVENT_EN))
+		return false; /* Spurious IRQ - ignore. */
+
+	/* Acknowledge IRQ. */
+	PVR_CR_WRITE32(pvr_dev, MIPS_WRAPPER_IRQ_CLEAR,
+		       ROGUE_CR_MIPS_WRAPPER_IRQ_CLEAR_EVENT_EN);
+
+	return true;
+}
+
+static bool
+pvr_mips_has_fixed_data_addr(void)
+{
+	return true;
+}
+
 const struct pvr_fw_funcs pvr_fw_funcs_mips = {
 	.init = pvr_mips_init,
 	.fini = pvr_mips_fini,
@@ -180,6 +271,7 @@ const struct pvr_fw_funcs pvr_fw_funcs_mips = {
 	.vm_map = pvr_vm_mips_map,
 	.vm_unmap = pvr_vm_mips_unmap,
 	.get_fw_addr_with_offset = pvr_mips_get_fw_addr_with_offset,
-	.start = pvr_mips_start,
-	.stop = pvr_mips_stop,
+	.wrapper_init = pvr_mips_wrapper_init,
+	.check_and_ack_irq = pvr_mips_check_and_ack_irq,
+	.has_fixed_data_addr = pvr_mips_has_fixed_data_addr,
 };

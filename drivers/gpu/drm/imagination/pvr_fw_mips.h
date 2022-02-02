@@ -19,6 +19,15 @@ struct pvr_fw_mips_data {
 	/** @pt: Pointer to CPU mapping of MIPS pagetable. */
 	u32 *pt;
 
+	/** @boot_code_dma_addr: DMA address of MIPS boot code. */
+	dma_addr_t boot_code_dma_addr;
+
+	/** @boot_data_dma_addr: DMA address of MIPS boot data. */
+	dma_addr_t boot_data_dma_addr;
+
+	/** @exception_code_dma_addr: DMA address of MIPS exception code. */
+	dma_addr_t exception_code_dma_addr;
+
 	/** @cache_policy: Cache policy for this processor. */
 	u32 cache_policy;
 
