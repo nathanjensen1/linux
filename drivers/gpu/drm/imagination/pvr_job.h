@@ -24,6 +24,8 @@ struct pvr_job {
 
 	u32 num_bos;
 	struct drm_gem_object **bos;
+
+	struct drm_pvr_bo_ref *bo_refs;
 };
 
 int pvr_submit_job(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
