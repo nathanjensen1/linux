@@ -45,8 +45,8 @@ free_list_create_kernel_structure(
 
 	free_list_obj = pvr_vm_find_gem_object(pvr_file->user_vm_ctx, args->free_list_gpu_addr,
 					       NULL, &free_list_size);
-	if (IS_ERR(free_list_obj)) {
-		err = PTR_ERR(free_list_obj);
+	if (!free_list_obj) {
+		err = -EINVAL;
 		goto err_out;
 	}
 
