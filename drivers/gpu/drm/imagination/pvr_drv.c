@@ -5,6 +5,7 @@
 #include "pvr_device.h"
 #include "pvr_drv.h"
 #include "pvr_gem.h"
+#include "pvr_fw.h"
 #include "pvr_job.h"
 #include "pvr_object.h"
 #include "pvr_power.h"
@@ -701,7 +702,7 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 		goto err_xa_destroy;
 	}
 
-	err = pvr_vm_fw_mem_context_create(pvr_file);
+	err = pvr_fw_mem_context_create(pvr_file);
 	if (err)
 		goto err_vm_ctx_destroy;
 
@@ -745,7 +746,7 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 	struct pvr_object *obj;
 	unsigned long id;
 
-	pvr_vm_fw_mem_context_destroy(pvr_file);
+	pvr_fw_mem_context_destroy(pvr_file);
 	pvr_vm_destroy_context(pvr_file->user_vm_ctx, false);
 
 	/* clang-format off */

@@ -918,3 +918,46 @@ pvr_fw_mts_schedule(struct pvr_device *pvr_dev, u32 val)
 	/* Ensure the MTS kick goes through before continuing. */
 	mb();
 }
+
+/**
+ * pvr_fw_mem_context_create() - Create firmware memory context
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * Any error returned by pvr_gem_create_and_map_fw_object().
+ */
+int pvr_fw_mem_context_create(struct pvr_file *pvr_file)
+{
+	struct rogue_fwif_fwmemcontext *fw_mem_ctx;
+	int err;
+
+	fw_mem_ctx = pvr_gem_create_and_map_fw_object(
+		pvr_file->pvr_dev, sizeof(*fw_mem_ctx),
+		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+		&pvr_file->fw_mem_ctx_obj);
+	if (IS_ERR(fw_mem_ctx)) {
+		err = PTR_ERR(fw_mem_ctx);
+		goto err_out;
+	}
+
+	fw_mem_ctx->pc_dev_paddr =
+		pvr_vm_get_page_table_root_addr(pvr_file->user_vm_ctx);
+	fw_mem_ctx->page_cat_base_reg_id = ROGUE_FW_BIF_INVALID_PCREG;
+
+	pvr_fw_object_vunmap(pvr_file->fw_mem_ctx_obj, fw_mem_ctx, true);
+
+	return 0;
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_fw_mem_context_destroy() - Destroy firmware memory context
+ * @pvr_file: Pointer to pvr_file structure.
+ */
+void pvr_fw_mem_context_destroy(struct pvr_file *pvr_file)
+{
+	pvr_fw_object_release(pvr_file->fw_mem_ctx_obj);
+}
