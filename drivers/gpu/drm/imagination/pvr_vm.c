@@ -4103,7 +4103,7 @@ pvr_find_heap_containing(struct pvr_device *pvr_dev, u64 start, u64 size)
  *
  * Return:
  *  * The PowerVR buffer object mapped at @device_addr if one exists, or
- *  * -%EINVAL otherwise.
+ *  * %NULL otherwise.
  */
 struct pvr_gem_object *
 pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx, u64 device_addr,
@@ -4111,22 +4111,17 @@ pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx, u64 device_addr,
 {
 	struct pvr_vm_mapping *mapping;
 	struct pvr_gem_object *pvr_obj;
-	int err;
 
 	mutex_lock(&vm_ctx->lock);
 
 	mapping = pvr_vm_mapping_tree_iter_first(&vm_ctx->mappings,
 						 device_addr, 0);
-	if (!mapping || pvr_vm_mapping_start(mapping) != device_addr) {
-		err = -EINVAL;
+	if (!mapping || pvr_vm_mapping_start(mapping) != device_addr)
 		goto err_unlock;
-	}
 
 	pvr_obj = mapping->pvr_obj;
-	if (WARN_ON(!pvr_obj)) {
-		err = -EINVAL;
+	if (WARN_ON(!pvr_obj))
 		goto err_unlock;
-	}
 
 	pvr_gem_object_get(pvr_obj);
 
@@ -4142,5 +4137,5 @@ pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx, u64 device_addr,
 err_unlock:
 	mutex_unlock(&vm_ctx->lock);
 
-	return ERR_PTR(err);
+	return NULL;
 }
