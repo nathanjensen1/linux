@@ -8,8 +8,9 @@
 
 #include <linux/types.h>
 
-/* Forward declaration from pvr_device.h. */
+/* Forward declarations from "pvr_device.h". */
 struct pvr_device;
+struct pvr_file;
 
 #define ROGUE_FWIF_FWCCB_NUMCMDS_LOG2 5
 
@@ -149,6 +150,9 @@ void pvr_fw_fini(struct pvr_device *pvr_dev);
 int pvr_wait_for_fw_boot(struct pvr_device *pvr_dev);
 
 void pvr_fw_mts_schedule(struct pvr_device *pvr_dev, u32 val);
+
+int pvr_fw_mem_context_create(struct pvr_file *pvr_file);
+void pvr_fw_mem_context_destroy(struct pvr_file *pvr_file);
 
 void
 pvr_fw_heap_info_init(struct pvr_device *pvr_dev, u32 log2_size, u32 reserved_size);

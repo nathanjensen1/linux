@@ -183,8 +183,6 @@ pvr_find_heap_containing(struct pvr_device *pvr_dev, u64 addr, u64 size);
 struct pvr_gem_object *
 pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx, u64 device_addr,
 		       u64 *mapped_offset_out, u64 *mapped_size_out);
-int pvr_vm_fw_mem_context_create(struct pvr_file *pvr_file);
-void pvr_vm_fw_mem_context_destroy(struct pvr_file *pvr_file);
 
 int
 pvr_vm_mmu_flush(struct pvr_device *pvr_dev);
