@@ -126,21 +126,21 @@ static void
 rogue_bif_init(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	dma_addr_t pc_dma_addr;
-	u64 pc_addr;
+	dma_addr_t pt_dma_addr;
+	u64 pt_addr;
 
-	/* Acquire the address of the Kernel Page Catalogue. */
-	pc_dma_addr = pvr_vm_get_page_catalogue_addr(pvr_dev->kernel_vm_ctx);
+	/* Acquire the address of the Kernel Page Table root. */
+	pt_dma_addr = pvr_vm_get_page_table_root_addr(pvr_dev->kernel_vm_ctx);
 
 	/* Write the kernel catalogue base. */
-	drm_info(drm_dev, "Rogue firmware MMU Page Catalogue");
+	drm_info(drm_dev, "Rogue firmware MMU Page Table");
 
-	pc_addr = ((((u64)pc_dma_addr >> ROGUE_CR_BIF_CAT_BASE0_ADDR_ALIGNSHIFT)
+	pt_addr = ((((u64)pt_dma_addr >> ROGUE_CR_BIF_CAT_BASE0_ADDR_ALIGNSHIFT)
 		    << ROGUE_CR_BIF_CAT_BASE0_ADDR_SHIFT) &
 		   ~ROGUE_CR_BIF_CAT_BASE0_ADDR_CLRMSK);
 
 	__pvr_cr_write64(pvr_dev, BIF_CAT_BASEX(MMU_CONTEXT_MAPPING_FWPRIV),
-			 pc_addr);
+			 pt_addr);
 }
 
 static int

@@ -2737,7 +2737,7 @@ struct pvr_vm_context {
 	struct mutex lock;
 };
 
-dma_addr_t pvr_vm_get_page_catalogue_addr(struct pvr_vm_context *vm_ctx)
+dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx)
 {
 	return vm_ctx->root_table.backing_page.dma_addr;
 }

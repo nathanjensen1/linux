@@ -172,7 +172,7 @@ int pvr_vm_map_partial(struct pvr_vm_context *vm_ctx,
 		       u64 device_addr, u64 size);
 int pvr_vm_unmap(struct pvr_vm_context *vm_ctx, u64 device_addr);
 
-dma_addr_t pvr_vm_get_page_catalogue_addr(struct pvr_vm_context *vm_ctx);
+dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx);
 
 int
 pvr_get_heap_info(struct pvr_device *pvr_dev, struct drm_pvr_ioctl_get_heap_info_args *args);
