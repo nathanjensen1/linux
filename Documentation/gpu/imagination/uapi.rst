@@ -61,9 +61,6 @@ CREATE_CONTEXT
                  drm_pvr_reset_framework
                  drm_pvr_reset_framework_format
 
-.. kernel-doc:: include/uapi/drm/pvr_drm.h
-   :doc: Flags for CREATE_CONTEXT
-
 DESTROY_CONTEXT
 ---------------
 .. kernel-doc:: include/uapi/drm/pvr_drm.h
@@ -123,7 +120,7 @@ VM_OP
 
 Internal notes
 ==============
-.. kernel-doc:: include/gpu/drm/imagination/pvr_device.h
+.. kernel-doc:: drivers/gpu/drm/imagination/pvr_device.h
    :doc: IOCTL validation helpers
 
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_device.h
