@@ -85,14 +85,14 @@ extern "C" {
  * CPU and GPU in some fonts.
  *
  * Creation options
- *    These use the prefix DRM_PVR_BO_CREATE_.
+ *    These use the prefix ``DRM_PVR_BO_CREATE_``.
  *
  *    :ZEROED: Require the allocated buffer to be zeroed before returning. Note
  *      that this is an active operation, and is never zero cost. Unless it is
  *      explicitly required, this option should not be set.
  *
  * Device mapping options
- *    These use the prefix DRM_PVR_BO_DEVICE_.
+ *    These use the prefix ``DRM_PVR_BO_DEVICE_``.
  *
  *    :BYPASS_CACHE: There are very few situations where this flag is useful.
  *       By default, the device flushes its memory caches after every job.
@@ -102,7 +102,7 @@ extern "C" {
  *       CPU_ALLOW_USERSPACE_ACCESS.
  *
  * CPU mapping options
- *    These use the prefix DRM_PVR_BO_CPU_.
+ *    These use the prefix ``DRM_PVR_BO_CPU_``.
  *
  *    :ALLOW_USERSPACE_ACCESS: Allow userspace to map and access the contents
  *       of this memory. It is not valid to specify this flag with
