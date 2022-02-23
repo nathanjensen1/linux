@@ -798,6 +798,8 @@ enum drm_pvr_heap_id {
 	DRM_PVR_HEAP_USC_CODE,
 	/** @DRM_PVR_HEAP_RGNHDR: Region header heap. Only used if GPU has BRN63142. */
 	DRM_PVR_HEAP_RGNHDR,
+	/** @DRM_PVR_HEAP_VIS_TEST: Visibility test heap. */
+	DRM_PVR_HEAP_VIS_TEST,
 };
 
 struct drm_pvr_heap {
