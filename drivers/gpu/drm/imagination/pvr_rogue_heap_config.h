@@ -89,8 +89,13 @@
 /* 0xE2_0000_0000 - 0xE3_FFFF_FFFF */
 /* 904 GiB to 912 GiB, size of 8 GiB : FREE */
 
-/* 0xE4_0000_0000 - 0xF2_001F_FFFF */
-/* 912 GiB to 969 GiB, size of 57 GiB : RESERVED */
+/* 0xE4_0000_0000 - 0xF1_FFFF_FFFF */
+/* 912 GiB to 968 GiB, size of 56 GiB : RESERVED */
+
+/* 0xF2_0000_0000 - 0xF2_001F_FFFF **/
+/* 968 GiB to 969 GiB, size of 2 MiB : VISTEST_HEAP */
+#define ROGUE_VISTEST_HEAP_BASE 0xF200000000ull
+#define ROGUE_VISTEST_HEAP_SIZE SZ_2M
 
 /* 0xF2_4000_0000 - 0xF2_FFFF_FFFF */
 /* 969 GiB to 972 GiB, size of 3 GiB : FREE */
