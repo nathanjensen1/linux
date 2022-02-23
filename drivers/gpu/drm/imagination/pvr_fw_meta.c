@@ -257,10 +257,10 @@ err_reset:
 static int
 pvr_meta_stop(struct pvr_device *pvr_dev)
 {
-	const u32 jones_sidekick_idle_mask = ROGUE_CR_JONES_IDLE_MASKFULL &
-					~(ROGUE_CR_JONES_IDLE_GARTEN_EN |
-					 ROGUE_CR_JONES_IDLE_SOCIF_EN |
-					 ROGUE_CR_JONES_IDLE_HOSTIF_EN);
+	const u32 sidekick_idle_mask = ROGUE_CR_SIDEKICK_IDLE_MASKFULL &
+				       ~(ROGUE_CR_SIDEKICK_IDLE_GARTEN_EN |
+					 ROGUE_CR_SIDEKICK_IDLE_SOCIF_EN |
+					 ROGUE_CR_SIDEKICK_IDLE_HOSTIF_EN);
 	u32 reg_value;
 	int err;
 
@@ -268,10 +268,8 @@ pvr_meta_stop(struct pvr_device *pvr_dev)
 	 * Wait for Sidekick/Jones to signal IDLE except for the Garten Wrapper.
 	 * For LAYOUT_MARS = 1, SIDEKICK would have been powered down by FW.
 	 */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_JONES_IDLE,
-				jones_sidekick_idle_mask,
-				jones_sidekick_idle_mask,
-				POLL_TIMEOUT_USEC);
+	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE, sidekick_idle_mask,
+				sidekick_idle_mask, POLL_TIMEOUT_USEC);
 	if (err)
 		goto err_out;
 
@@ -328,10 +326,8 @@ pvr_meta_stop(struct pvr_device *pvr_dev)
 	 * Wait for Sidekick/Jones to signal IDLE except for the Garten Wrapper.
 	 * For LAYOUT_MARS = 1, SIDEKICK would have been powered down by FW.
 	 */
-	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE,
-				jones_sidekick_idle_mask,
-				jones_sidekick_idle_mask,
-				POLL_TIMEOUT_USEC);
+	err = pvr_cr_poll_reg32(pvr_dev, ROGUE_CR_SIDEKICK_IDLE, sidekick_idle_mask,
+				sidekick_idle_mask, POLL_TIMEOUT_USEC);
 	if (err)
 		goto err_out;
 
