@@ -3913,6 +3913,17 @@ static const struct pvr_heap pvr_heaps[] = {
 		.static_data_areas = usc_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(usc_static_data_areas),
 	},
+	{
+		.id = DRM_PVR_HEAP_VIS_TEST,
+		.flags = 0,
+		.base = ROGUE_VISTEST_HEAP_BASE,
+		.size = ROGUE_VISTEST_HEAP_SIZE,
+		.reserved_base = 0,
+		.reserved_size = 0,
+		.page_size_log2 = 12,
+		.static_data_areas = NULL,
+		.nr_static_data_areas = 0,
+	},
 };
 
 static const struct pvr_heap rgnhdr_heap = {
