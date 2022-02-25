@@ -20,6 +20,7 @@ powervr-y := \
 	pvr_hwrt.o \
 	pvr_job.o \
 	pvr_object.o \
+	pvr_power.o \
 	pvr_vm.o \
 	pvr_vm_mips.o
 

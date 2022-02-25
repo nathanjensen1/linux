@@ -7,6 +7,7 @@
 #include "pvr_fw_info.h"
 #include "pvr_fw_trace.h"
 #include "pvr_gem.h"
+#include "pvr_power.h"
 #include "pvr_rogue_heap_config.h"
 
 #include <drm/drm_mm.h>
@@ -290,6 +291,16 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 		goto err_release_osinit;
 	}
 
+	pvr_dev->fw_power_sync = pvr_gem_create_and_map_fw_object(
+		pvr_dev, sizeof(*pvr_dev->fw_power_sync),
+		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+		&pvr_dev->fw_power_sync_obj);
+	if (IS_ERR(pvr_dev->fw_power_sync)) {
+		drm_err(drm_dev, "Unable to allocate FW power_sync structure\n");
+		err = PTR_ERR(pvr_dev->fw_power_sync);
+		goto err_release_osdata;
+	}
+
 	hwrinfobuf = pvr_gem_create_and_map_fw_object(
 		pvr_dev, sizeof(*hwrinfobuf),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
@@ -298,7 +309,7 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 		drm_err(drm_dev,
 			"Unable to allocate FW hwrinfobuf structure\n");
 		err = PTR_ERR(hwrinfobuf);
-		goto err_release_osdata;
+		goto err_release_power_sync;
 	}
 
 	err = pvr_gem_create_fw_object(pvr_dev, PVR_SYNC_OBJ_SIZE,
@@ -310,6 +321,9 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 			"Unable to allocate MMU cache sync object\n");
 		goto err_release_hwrinfobuf;
 	}
+
+	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_power_sync_obj,
+				     &pvr_dev->fw_osdata->power_sync_fw_addr));
 
 	pvr_dev->fw_osinit->kernel_ccbctl_fw_addr =
 		pvr_dev->kccb.ctrl_fw_addr;
@@ -338,12 +352,15 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 		pvr_dev->fw_osinit->rogue_comp_checks.fw_bvnc);
 
 	pvr_fw_object_vunmap(pvr_dev->fw_hwrinfobuf_obj, hwrinfobuf, false);
-	/* fw_osinit_obj and fw_osdata_obj remain mapped on the CPU. */
 	return 0;
 
 err_release_hwrinfobuf:
 	pvr_fw_object_vunmap(pvr_dev->fw_hwrinfobuf_obj, hwrinfobuf, false);
 	pvr_fw_object_release(pvr_dev->fw_hwrinfobuf_obj);
+
+err_release_power_sync:
+	pvr_fw_object_vunmap(pvr_dev->fw_power_sync_obj, pvr_dev->fw_power_sync, false);
+	pvr_fw_object_release(pvr_dev->fw_power_sync_obj);
 
 err_release_osdata:
 	pvr_fw_object_vunmap(pvr_dev->fw_osdata_obj, pvr_dev->fw_osdata, false);
@@ -362,6 +379,8 @@ pvr_fw_destroy_os_structures(struct pvr_device *pvr_dev)
 {
 	pvr_fw_object_release(pvr_dev->fw_mmucache_sync_obj);
 	pvr_fw_object_release(pvr_dev->fw_hwrinfobuf_obj);
+	pvr_fw_object_vunmap(pvr_dev->fw_power_sync_obj, pvr_dev->fw_power_sync, false);
+	pvr_fw_object_release(pvr_dev->fw_power_sync_obj);
 	pvr_fw_object_vunmap(pvr_dev->fw_osdata_obj, pvr_dev->fw_osdata, false);
 	pvr_fw_object_release(pvr_dev->fw_osdata_obj);
 	pvr_fw_object_vunmap(pvr_dev->fw_osinit_obj, pvr_dev->fw_osinit, false);
@@ -372,7 +391,6 @@ static int
 pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	struct rogue_fwif_sysdata *sysdata;
 	struct rogue_fwif_gpu_util_fwcb *gpu_util_fwcb;
 	struct rogue_fwif_runtime_cfg *runtime_cfg;
 	u32 clock_speed_hz;
@@ -392,18 +410,17 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 		goto err_out;
 	}
 
-	sysdata = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*sysdata),
-						   PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-						   DRM_PVR_BO_CREATE_ZEROED,
-						   &pvr_dev->fw_sysdata_obj);
-	if (IS_ERR(sysdata)) {
+	pvr_dev->fw_sysdata = pvr_gem_create_and_map_fw_object(pvr_dev,
+		sizeof(*pvr_dev->fw_sysdata),
+		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+		&pvr_dev->fw_sysdata_obj);
+	if (IS_ERR(pvr_dev->fw_sysdata)) {
 		drm_err(drm_dev, "Unable to allocate FW SYSDATA structure\n");
-		err = PTR_ERR(sysdata);
+		err = PTR_ERR(pvr_dev->fw_sysdata);
 		goto err_release_sysinit;
 	}
-	sysdata->config_flags = 0;
-	sysdata->config_flags_ext = 0;
-	pvr_fw_object_vunmap(pvr_dev->fw_sysdata_obj, sysdata, false);
+	pvr_dev->fw_sysdata->config_flags = 0;
+	pvr_dev->fw_sysdata->config_flags_ext = 0;
 
 	fault_page = pvr_gem_create_and_map_fw_object(pvr_dev, PVR_ROGUE_FAULT_PAGE_SIZE,
 						      PVR_BO_FW_FLAGS_DEVICE_UNCACHED,
@@ -519,6 +536,7 @@ err_release_fault_page:
 	pvr_fw_object_release(pvr_dev->fw_fault_page_obj);
 
 err_release_sysdata:
+	pvr_fw_object_vunmap(pvr_dev->fw_sysdata_obj, pvr_dev->fw_sysdata, false);
 	pvr_fw_object_release(pvr_dev->fw_sysdata_obj);
 
 err_release_sysinit:
@@ -536,6 +554,7 @@ pvr_fw_destroy_dev_structures(struct pvr_device *pvr_dev)
 	pvr_fw_object_release(pvr_dev->fw_runtime_cfg_obj);
 	pvr_fw_object_release(pvr_dev->fw_gpu_util_fwcb_obj);
 	pvr_fw_object_release(pvr_dev->fw_fault_page_obj);
+	pvr_fw_object_vunmap(pvr_dev->fw_sysdata_obj, pvr_dev->fw_sysdata, false);
 	pvr_fw_object_release(pvr_dev->fw_sysdata_obj);
 	pvr_fw_object_vunmap(pvr_dev->fw_sysinit_obj, pvr_dev->fw_sysinit, false);
 	pvr_fw_object_release(pvr_dev->fw_sysinit_obj);
@@ -749,7 +768,6 @@ pvr_fw_heap_info_init(struct pvr_device *pvr_dev, u32 log2_size, u32 reserved_si
 int
 pvr_fw_init(struct pvr_device *pvr_dev)
 {
-	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	u32 kccb_size_log2 = ROGUE_FWIF_KCCB_NUMCMDS_LOG2_DEFAULT;
 	u32 kccb_rtn_size = (1 << kccb_size_log2) * sizeof(*pvr_dev->kccb_rtn);
 	u32 ddk_version;
@@ -803,15 +821,11 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_destroy_os_structures;
 
-	err = pvr_dev->fw_funcs->start(pvr_dev);
-	if (err)
-		goto err_destroy_dev_structures;
+	pvr_power_lock(pvr_dev);
 
-	err = pvr_wait_for_fw_boot(pvr_dev);
-	if (err) {
-		drm_err(drm_dev, "Firmware failed to boot\n");
-		goto err_fw_stop;
-	}
+	err = pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON);
+	if (err)
+		goto err_power_unlock;
 
 	pvr_dev->fw_booted = true;
 
@@ -820,12 +834,13 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 	pvr_dev->fw_version.major = ddk_version >> 16;
 	pvr_dev->fw_version.minor = ddk_version & 0xffff;
 
+	pvr_power_unlock(pvr_dev);
+
 	return 0;
 
-err_fw_stop:
-	pvr_dev->fw_funcs->stop(pvr_dev);
+err_power_unlock:
+	pvr_power_unlock(pvr_dev);
 
-err_destroy_dev_structures:
 	pvr_fw_destroy_dev_structures(pvr_dev);
 
 err_destroy_os_structures:
@@ -861,8 +876,13 @@ err_out:
 void
 pvr_fw_fini(struct pvr_device *pvr_dev)
 {
-	pvr_dev->fw_funcs->stop(pvr_dev);
+	pvr_power_lock(pvr_dev);
+
 	pvr_dev->fw_booted = false;
+	pvr_power_set_state(pvr_dev, PVR_POWER_STATE_OFF);
+
+	pvr_power_unlock(pvr_dev);
+
 	pvr_fw_destroy_dev_structures(pvr_dev);
 	pvr_fw_destroy_os_structures(pvr_dev);
 	pvr_fw_object_vunmap(pvr_dev->kccb_rtn_obj, (void *)pvr_dev->kccb_rtn, false);
