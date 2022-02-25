@@ -21,6 +21,7 @@
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/math.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
@@ -68,6 +69,11 @@ struct pvr_vendor {
 
 	/** @data: Vendor specific data. */
 	void *data;
+};
+
+enum pvr_power_state {
+	PVR_POWER_STATE_OFF = 0,
+	PVR_POWER_STATE_ON
 };
 
 /**
@@ -225,6 +231,15 @@ struct pvr_device {
 	/** @fw_sysdata_obj: Object representing FW SYSDATA structure. */
 	struct pvr_fw_object *fw_sysdata_obj;
 
+	/** @fw_sysdata: Pointer to CPU mapping of FW SYSDATA structure. */
+	struct rogue_fwif_sysdata *fw_sysdata;
+
+	/** @fw_power_sync_obj: Object representing power sync state. */
+	struct pvr_fw_object *fw_power_sync_obj;
+
+	/** @fw_power_sync: Pointer to CPU mapping of power sync state. */
+	u32 *fw_power_sync;
+
 	/** @fw_fault_page_obj: Object representing FW fault page. */
 	struct pvr_fw_object *fw_fault_page_obj;
 
@@ -298,6 +313,12 @@ struct pvr_device {
 		/** @reserved_size: Size of reserved area in heap. */
 		u32 reserved_size;
 	} fw_heap_info;
+
+	/** @power_state: Current GPU power state. */
+	enum pvr_power_state power_state;
+
+	/** @power_lock: Mutex protecting power state. */
+	struct mutex power_lock;
 };
 
 /**
