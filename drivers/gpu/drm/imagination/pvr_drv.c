@@ -7,6 +7,7 @@
 #include "pvr_gem.h"
 #include "pvr_job.h"
 #include "pvr_object.h"
+#include "pvr_power.h"
 #include "pvr_rogue_fwif_shared.h"
 #include "pvr_fw_trace.h"
 
@@ -818,6 +819,8 @@ pvr_probe(struct platform_device *plat_dev)
 	platform_set_drvdata(plat_dev, drm_dev);
 
 	pvr_fence_device_init(pvr_dev);
+
+	pvr_power_init(pvr_dev);
 
 	pvr_dev->vendor.callbacks = of_device_get_match_data(&plat_dev->dev);
 

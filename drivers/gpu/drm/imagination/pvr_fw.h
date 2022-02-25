@@ -146,6 +146,8 @@ extern const struct pvr_fw_funcs pvr_fw_funcs_mips;
 int pvr_fw_init(struct pvr_device *pvr_dev);
 void pvr_fw_fini(struct pvr_device *pvr_dev);
 
+int pvr_wait_for_fw_boot(struct pvr_device *pvr_dev);
+
 void pvr_fw_mts_schedule(struct pvr_device *pvr_dev, u32 val);
 
 void

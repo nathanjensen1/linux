@@ -3,8 +3,10 @@
 
 #include "pvr_ccb.h"
 #include "pvr_device.h"
+#include "pvr_fence.h"
 #include "pvr_fw.h"
 #include "pvr_gem.h"
+#include "pvr_power.h"
 
 #include <linux/compiler.h>
 #include <linux/delay.h>
@@ -147,6 +149,33 @@ pvr_ccb_acquire_slot_locked(struct pvr_ccb *pvr_ccb, u32 *write_offset)
 	return -EBUSY;
 }
 
+static void
+process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *cmd)
+{
+	switch (cmd->cmd_type) {
+	case ROGUE_FWIF_FWCCB_CMD_REQUEST_GPU_RESTART:
+		pvr_power_lock(pvr_dev);
+
+		/* Stop FW. */
+		WARN_ON(pvr_power_set_state(pvr_dev, PVR_POWER_STATE_OFF));
+
+		/* Clear the FW faulted flags. */
+		pvr_dev->fw_sysdata->hwr_state_flags &= ~(ROGUE_FWIF_HWR_FW_FAULT |
+							  ROGUE_FWIF_HWR_RESTART_REQUESTED);
+
+		/* Start FW again. */
+		WARN_ON(pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON));
+
+		pvr_power_unlock(pvr_dev);
+		break;
+
+	default:
+		drm_info(from_pvr_device(pvr_dev), "Received unknown FWCCB command %x\n",
+			 cmd->cmd_type);
+		break;
+	}
+}
+
 /**
  * pvr_fwccb_process_worker() - Process any pending FWCCB commands
  * @pvr_dev: Target PowerVR device.
@@ -164,17 +193,23 @@ pvr_fwccb_process_worker(struct work_struct *work)
 	mutex_lock(&pvr_dev->fwccb.lock);
 
 	while (ctrl->read_offset != ctrl->write_offset) {
-		drm_info(from_pvr_device(pvr_dev), "Received FWCCB command %x\n",
-			 fwccb[ctrl->read_offset].cmd_type);
+		struct rogue_fwif_fwccb_cmd cmd = fwccb[ctrl->read_offset];
 
 		ctrl->read_offset = (ctrl->read_offset + 1) & ctrl->wrap_mask;
+
+		/* Drop FWCCB lock while we process command. */
+		mutex_unlock(&pvr_dev->fwccb.lock);
+
+		process_fwccb_command(pvr_dev, &cmd);
+
+		mutex_lock(&pvr_dev->fwccb.lock);
 	}
 
 	mutex_unlock(&pvr_dev->fwccb.lock);
 }
 
 /**
- * pvr_kccb_send_cmd() - Send command to the KCCB
+ * pvr_kccb_send_cmd_power_locked() - Send command to the KCCB, with the power lock held
  * @pvr_dev: Device pointer.
  * @cmd: Command to sent.
  * @kccb_slot: Address to store the KCCB slot for this command. May be %NULL.
@@ -184,8 +219,8 @@ pvr_fwccb_process_worker(struct work_struct *work)
  *  * -EBUSY if timeout while waiting for a free KCCB slot.
  */
 int
-pvr_kccb_send_cmd(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
-		  u32 *kccb_slot)
+pvr_kccb_send_cmd_power_locked(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
+			       u32 *kccb_slot)
 {
 	struct pvr_ccb *pvr_ccb = &pvr_dev->kccb;
 	struct rogue_fwif_kccb_cmd *kccb = pvr_ccb->ccb;
@@ -193,6 +228,12 @@ pvr_kccb_send_cmd(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
 	u32 old_write_offset;
 	u32 new_write_offset;
 	int err;
+
+	lockdep_assert_held(&pvr_dev->power_lock);
+
+	err = pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON);
+	if (err)
+		goto err_out;
 
 	mutex_lock(&pvr_ccb->lock);
 
@@ -223,6 +264,30 @@ pvr_kccb_send_cmd(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
 
 err_unlock:
 	mutex_unlock(&pvr_ccb->lock);
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_kccb_send_cmd() - Send command to the KCCB
+ * @pvr_dev: Device pointer.
+ * @cmd: Command to sent.
+ * @kccb_slot: Address to store the KCCB slot for this command. May be %NULL.
+ *
+ * Returns:
+ *  * Zero on success, or
+ *  * -EBUSY if timeout while waiting for a free KCCB slot.
+ */
+int
+pvr_kccb_send_cmd(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
+		  u32 *kccb_slot)
+{
+	int err;
+
+	pvr_power_lock(pvr_dev);
+	err = pvr_kccb_send_cmd_power_locked(pvr_dev, cmd, kccb_slot);
+	pvr_power_unlock(pvr_dev);
 
 	return err;
 }
