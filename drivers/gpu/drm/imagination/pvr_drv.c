@@ -2,6 +2,7 @@
 /* Copyright (c) 2022 Imagination Technologies Ltd. */
 
 #include "pvr_context.h"
+#include "pvr_debugfs.h"
 #include "pvr_device.h"
 #include "pvr_drv.h"
 #include "pvr_gem.h"
@@ -10,7 +11,6 @@
 #include "pvr_object.h"
 #include "pvr_power.h"
 #include "pvr_rogue_fwif_shared.h"
-#include "pvr_fw_trace.h"
 
 #include <uapi/drm/pvr_drm.h>
 
@@ -43,10 +43,6 @@
  *
  * * GX6250 (found in MediaTek MT8173)
  */
-
-bool pvr_fw_trace_enable;
-module_param(pvr_fw_trace_enable, bool, 0);
-MODULE_PARM_DESC(pvr_fw_trace_enable, "Enable FW trace at module startup");
 
 /**
  * pvr_ioctl_create_bo() - IOCTL to create a GEM buffer object.
@@ -716,7 +712,7 @@ static struct drm_driver pvr_drm_driver = {
 	.num_ioctls = ARRAY_SIZE(pvr_drm_driver_ioctls),
 	.fops = &pvr_drm_driver_fops,
 #if defined(CONFIG_DEBUG_FS)
-	.debugfs_init = pvr_fw_trace_debugfs_init,
+	.debugfs_init = pvr_debugfs_init,
 #endif
 
 	.name = PVR_DRIVER_NAME,

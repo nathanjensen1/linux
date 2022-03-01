@@ -2,11 +2,11 @@
 /* Copyright (c) 2022 Imagination Technologies Ltd. */
 
 #include "pvr_device.h"
+
 #include "pvr_fw.h"
-
-#include "pvr_rogue_cr_defs.h"
-
+#include "pvr_params.h"
 #include "pvr_power.h"
+#include "pvr_rogue_cr_defs.h"
 
 #include <drm/drm_print.h>
 
@@ -579,6 +579,14 @@ pvr_device_init(struct pvr_device *pvr_dev)
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	struct device *dev = drm_dev->dev;
 	int err;
+
+	/*
+	 * Setup device parameters. We do this first in case other steps
+	 * depend on them.
+	 */
+	err = pvr_device_params_init(&pvr_dev->params);
+	if (err)
+		return err;
 
 	/* Enable and initialize clocks required for the device to operate. */
 	err = pvr_device_clk_init(pvr_dev);

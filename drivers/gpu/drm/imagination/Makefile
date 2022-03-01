@@ -21,11 +21,15 @@ powervr-y := \
 	pvr_hwrt.o \
 	pvr_job.o \
 	pvr_object.o \
+	pvr_params.o \
 	pvr_power.o \
 	pvr_vm.o \
 	pvr_vm_mips.o
 
 powervr-y += \
 	vendor/pvr_mt8173.o
+
+powervr-$(CONFIG_DEBUG_FS) += \
+	pvr_debugfs.o
 
 obj-$(CONFIG_DRM_POWERVR) += powervr.o
