@@ -7,6 +7,7 @@
 #include "pvr_ccb.h"
 #include "pvr_device_info.h"
 #include "pvr_fw.h"
+#include "pvr_params.h"
 #include "pvr_vendor.h"
 #include "pvr_vm.h"
 
@@ -193,6 +194,15 @@ struct pvr_device {
 
 	/** @power_lock: Mutex protecting power state. */
 	struct mutex power_lock;
+
+	/**
+	 * @params: Device-specific parameters.
+	 *
+	 *          The values of these parameters are initialized from the
+	 *          defaults specified as module parameters. They may be
+	 *          modified at runtime via debugfs (if enabled).
+	 */
+	struct pvr_device_params params;
 };
 
 /**
