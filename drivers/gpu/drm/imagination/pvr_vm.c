@@ -2008,12 +2008,8 @@ pvr_page_table_ptr_set(struct pvr_page_table_ptr *ptr, u64 device_addr,
  * @should_create: Specify whether new page tables should be created when
  * empty page table entries are encountered during traversal.
  *
- * If @should_create is %true, the L0 page table will be flagged for
- *
- * It is expected that @ptr be zeroed (e.g. from kzalloc()) before calling this
- * function. Since &struct pvr_page_table_ptr is small-ish (4-5 words), it is
- * intended to be allocated on the stack. By default, this is zeroed memory
- * so this warning is essentially just a formality.
+ * This function zeroes @ptr; it must not be a valid page table pointer when it
+ * is called.
  *
  * Return:
  *  * 0 on success, or
@@ -2025,6 +2021,8 @@ pvr_page_table_ptr_init(struct pvr_page_table_ptr *ptr,
 			struct pvr_page_table_l2 *root_table, u64 device_addr,
 			bool should_create)
 {
+	memset(ptr, 0, sizeof(*ptr));
+
 	ptr->pvr_dev = pvr_dev;
 	ptr->l2_table = root_table;
 	ptr->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
