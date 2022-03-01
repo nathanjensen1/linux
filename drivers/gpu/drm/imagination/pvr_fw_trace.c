@@ -8,6 +8,9 @@
 #include "pvr_fw_trace.h"
 
 #include <drm/drm_file.h>
+
+#include <linux/build_bug.h>
+#include <linux/dcache.h>
 #include <linux/sysfs.h>
 #include <linux/types.h>
 
@@ -74,14 +77,12 @@ int pvr_fw_trace_init(struct pvr_device *pvr_dev)
 		ROGUE_FW_TRACE_BUF_DEFAULT_SIZE_IN_DWORDS;
 	fw_trace->tracebuf_ctrl->tracebuf_flags = 0;
 
-	if (pvr_fw_trace_enable) {
-		fw_trace->group_mask = ROGUE_FWIF_LOG_TYPE_GROUP_MASK;
-		fw_trace->tracebuf_ctrl->log_type = ROGUE_FWIF_LOG_TYPE_TRACE |
-			fw_trace->group_mask;
-	} else {
-		fw_trace->group_mask = 0;
+	fw_trace->group_mask = pvr_dev->params.fw_trace_mask;
+	if (fw_trace->group_mask)
+		fw_trace->tracebuf_ctrl->log_type = fw_trace->group_mask |
+						    ROGUE_FWIF_LOG_TYPE_TRACE;
+	else
 		fw_trace->tracebuf_ctrl->log_type = ROGUE_FWIF_LOG_TYPE_NONE;
-	}
 
 	return 0;
 
@@ -142,6 +143,8 @@ update_logtype(struct pvr_device *pvr_dev, u32 group_mask)
 
 	return pvr_kccb_send_cmd(pvr_dev, &cmd, NULL);
 }
+
+#if defined(CONFIG_DEBUG_FS)
 
 static int fw_trace_group_mask_show(struct seq_file *m, void *data)
 {
@@ -473,20 +476,30 @@ static const struct file_operations pvr_fw_trace_fops = {
 	.release = fw_trace_release,
 };
 
-void pvr_fw_trace_debugfs_init(struct drm_minor *minor)
+void
+pvr_fw_trace_mask_update(struct pvr_device *pvr_dev, u32 old_mask, u32 new_mask)
 {
-	struct pvr_device *pvr_dev = to_pvr_device(minor->dev);
+	if (old_mask != new_mask)
+		update_logtype(pvr_dev, new_mask);
+}
+
+void
+pvr_fw_trace_debugfs_init(struct pvr_device *pvr_dev, struct dentry *dir)
+{
 	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_dev.fw_trace;
 	u32 thread_nr;
 
-	for (thread_nr = 0; thread_nr < ARRAY_SIZE(fw_trace->buffers); thread_nr++) {
-		char fn[14];
+	static_assert(ARRAY_SIZE(fw_trace->buffers) <= 10,
+		      "The filename buffer is only large enough for a "
+		      "single-digit thread count");
 
-		sprintf(fn, "pvr_fw_trace%u", thread_nr);
-		debugfs_create_file(fn, 0444, minor->debugfs_root,
-				    &fw_trace->buffers[thread_nr], &pvr_fw_trace_fops);
+	for (thread_nr = 0; thread_nr < ARRAY_SIZE(fw_trace->buffers); ++thread_nr) {
+		char filename[8];
+
+		snprintf(filename, ARRAY_SIZE(filename), "trace_%u", thread_nr);
+		debugfs_create_file(filename, 0400, dir,
+				    &fw_trace->buffers[thread_nr],
+				    &pvr_fw_trace_fops);
 	}
-
-	debugfs_create_file("pvr_fw_trace_group_mask", 0644, minor->debugfs_root, pvr_dev,
-			    &pvr_fw_trace_group_mask_fops);
 }
+#endif
