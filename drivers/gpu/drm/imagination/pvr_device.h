@@ -156,6 +156,9 @@ struct pvr_device {
 	/** @fence_work: Work item for fence processing. */
 	struct work_struct fence_work;
 
+	/** @delayed_idle_work: Delayed work item for idle checking. */
+	struct delayed_work delayed_idle_work;
+
 	/** @kccb_rtn_obj: Object representing KCCB return slots. */
 	struct pvr_fw_object *kccb_rtn_obj;
 

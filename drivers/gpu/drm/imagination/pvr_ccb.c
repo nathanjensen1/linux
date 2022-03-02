@@ -230,10 +230,7 @@ pvr_kccb_send_cmd_power_locked(struct pvr_device *pvr_dev, struct rogue_fwif_kcc
 	int err;
 
 	lockdep_assert_held(&pvr_dev->power_lock);
-
-	err = pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON);
-	if (err)
-		goto err_out;
+	WARN_ON(pvr_dev->power_state != PVR_POWER_STATE_ON);
 
 	mutex_lock(&pvr_ccb->lock);
 
@@ -265,7 +262,6 @@ pvr_kccb_send_cmd_power_locked(struct pvr_device *pvr_dev, struct rogue_fwif_kcc
 err_unlock:
 	mutex_unlock(&pvr_ccb->lock);
 
-err_out:
 	return err;
 }
 
@@ -286,7 +282,14 @@ pvr_kccb_send_cmd(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *cmd,
 	int err;
 
 	pvr_power_lock(pvr_dev);
+
+	err = pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON);
+	if (err)
+		goto err_power_unlock;
+
 	err = pvr_kccb_send_cmd_power_locked(pvr_dev, cmd, kccb_slot);
+
+err_power_unlock:
 	pvr_power_unlock(pvr_dev);
 
 	return err;
