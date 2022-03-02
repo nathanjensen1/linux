@@ -6,6 +6,8 @@
 
 #include "pvr_rogue_cr_defs.h"
 
+#include "pvr_power.h"
+
 #include <drm/drm_print.h>
 
 #include <linux/bitfield.h>
@@ -18,6 +20,7 @@
 #include <linux/gfp.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <linux/stddef.h>
 #include <linux/types.h>
@@ -137,15 +140,15 @@ static int pvr_device_clk_init(struct pvr_device *pvr_dev)
 		goto err_out;
 	}
 
-	err = clk_prepare_enable(core_clk);
+	err = clk_prepare(core_clk);
 	if (err)
 		goto err_out;
 
-	err = clk_prepare_enable(sys_clk);
+	err = clk_prepare(sys_clk);
 	if (err)
 		goto err_deinit_core_clk;
 
-	err = clk_prepare_enable(mem_clk);
+	err = clk_prepare(mem_clk);
 	if (err)
 		goto err_deinit_sys_clk;
 
@@ -170,9 +173,9 @@ err_out:
 static void
 pvr_device_clk_fini(struct pvr_device *pvr_dev)
 {
-	clk_disable_unprepare(pvr_dev->mem_clk);
-	clk_disable_unprepare(pvr_dev->sys_clk);
-	clk_disable_unprepare(pvr_dev->core_clk);
+	clk_unprepare(pvr_dev->mem_clk);
+	clk_unprepare(pvr_dev->sys_clk);
+	clk_unprepare(pvr_dev->core_clk);
 
 	pvr_dev->core_clk = NULL;
 	pvr_dev->sys_clk = NULL;
@@ -219,6 +222,7 @@ static irqreturn_t pvr_meta_irq_handler(int irq, void *data)
 		queue_work(pvr_dev->irq_wq, &pvr_dev->fwccb_work);
 		wake_up(&pvr_dev->kccb_rtn_q);
 		queue_work(pvr_dev->irq_wq, &pvr_dev->fence_work);
+		pvr_power_check_idle(pvr_dev);
 	}
 
 	return IRQ_HANDLED;
@@ -543,50 +547,51 @@ pvr_device_gpu_fini(struct pvr_device *pvr_dev)
 int
 pvr_device_init(struct pvr_device *pvr_dev)
 {
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct device *dev = drm_dev->dev;
 	int err;
-
-	/* Map the control registers into memory. */
-	err = pvr_device_reg_init(pvr_dev);
-	if (err)
-		return err;
 
 	/* Enable and initialize clocks required for the device to operate. */
 	err = pvr_device_clk_init(pvr_dev);
 	if (err)
-		goto err_device_reg_fini;
+		goto err_out;
 
-	if (pvr_dev->vendor.callbacks &&
-	    pvr_dev->vendor.callbacks->power_enable) {
-		err = pvr_dev->vendor.callbacks->power_enable(pvr_dev);
-		if (err)
-			goto err_device_clk_fini;
-	}
+	/* Explicitly power the GPU so we can access control registers before the FW is booted. */
+	err = pm_runtime_get_sync(dev);
+	if (err)
+		goto err_device_clk_fini;
+
+	/* Map the control registers into memory. */
+	err = pvr_device_reg_init(pvr_dev);
+	if (err)
+		goto err_pm_runtime_put;
 
 	err = pvr_device_irq_init(pvr_dev);
 	if (err)
-		goto err_vendor_power_disable;
+		goto err_device_reg_fini;
 
 	/* Perform GPU-specific initialization steps. */
 	err = pvr_device_gpu_init(pvr_dev);
 	if (err)
 		goto err_device_irq_fini;
 
+	pm_runtime_put_autosuspend(dev);
+
 	return 0;
 
 err_device_irq_fini:
 	pvr_device_irq_fini(pvr_dev);
 
-err_vendor_power_disable:
-	if (pvr_dev->vendor.callbacks &&
-	    pvr_dev->vendor.callbacks->power_disable)
-		pvr_dev->vendor.callbacks->power_disable(pvr_dev);
+err_device_reg_fini:
+	pvr_device_reg_fini(pvr_dev);
+
+err_pm_runtime_put:
+	pm_runtime_put_sync_suspend(dev);
 
 err_device_clk_fini:
 	pvr_device_clk_fini(pvr_dev);
 
-err_device_reg_fini:
-	pvr_device_reg_fini(pvr_dev);
-
+err_out:
 	return err;
 }
 
@@ -597,17 +602,19 @@ err_device_reg_fini:
 void
 pvr_device_fini(struct pvr_device *pvr_dev)
 {
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct device *dev = drm_dev->dev;
+
 	/*
 	 * Deinitialization stages are performed in reverse order compared to
 	 * the initialization stages in pvr_device_init().
 	 */
+	pm_runtime_get_sync(dev);
 	pvr_device_gpu_fini(pvr_dev);
 	pvr_device_irq_fini(pvr_dev);
-	if (pvr_dev->vendor.callbacks &&
-	    pvr_dev->vendor.callbacks->power_disable)
-		pvr_dev->vendor.callbacks->power_disable(pvr_dev);
-	pvr_device_clk_fini(pvr_dev);
 	pvr_device_reg_fini(pvr_dev);
+	pm_runtime_put_sync_suspend(dev);
+	pvr_device_clk_fini(pvr_dev);
 
 	/* TODO: Remaining deinitialization steps */
 }
