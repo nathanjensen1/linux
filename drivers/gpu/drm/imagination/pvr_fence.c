@@ -5,6 +5,7 @@
 #include "pvr_drv.h"
 #include "pvr_fence.h"
 #include "pvr_gem.h"
+#include "pvr_power.h"
 #include "pvr_rogue_cr_defs.h"
 #include "pvr_rogue_fwif.h"
 
@@ -297,8 +298,14 @@ static void pvr_fence_imported_signal_worker(struct work_struct *work)
 	dma_fence_put(&pvr_fence->base);
 
 	/* Sent uncounted kick to FW. */
-	pvr_fw_mts_schedule(pvr_dev, (PVR_FWIF_DM_GP & ~ROGUE_CR_MTS_SCHEDULE_DM_CLRMSK) |
-				     ROGUE_CR_MTS_SCHEDULE_TASK_NON_COUNTED);
+	mutex_lock(&pvr_dev->power_lock);
+
+	if (!pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON)) {
+		pvr_fw_mts_schedule(pvr_dev, (PVR_FWIF_DM_GP & ~ROGUE_CR_MTS_SCHEDULE_DM_CLRMSK) |
+					     ROGUE_CR_MTS_SCHEDULE_TASK_NON_COUNTED);
+	}
+
+	mutex_unlock(&pvr_dev->power_lock);
 }
 
 static void pvr_fence_imported_signal(struct dma_fence *fence, struct dma_fence_cb *cb)

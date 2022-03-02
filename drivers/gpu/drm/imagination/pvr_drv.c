@@ -19,6 +19,7 @@
 #include <drm/drm_file.h>
 #include <drm/drm_ioctl.h>
 
+#include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/export.h>
 #include <linux/fs.h>
@@ -30,6 +31,7 @@
 #include <linux/of_platform.h>
 #include <linux/overflow.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/xarray.h>
 
 /**
@@ -821,6 +823,7 @@ pvr_probe(struct platform_device *plat_dev)
 
 	pvr_fence_device_init(pvr_dev);
 
+	pm_runtime_enable(&plat_dev->dev);
 	pvr_power_init(pvr_dev);
 
 	pvr_dev->vendor.callbacks = of_device_get_match_data(&plat_dev->dev);
@@ -828,7 +831,7 @@ pvr_probe(struct platform_device *plat_dev)
 	if (pvr_dev->vendor.callbacks && pvr_dev->vendor.callbacks->init) {
 		err = pvr_dev->vendor.callbacks->init(pvr_dev);
 		if (err)
-			goto err_out;
+			goto err_pm_runtime_disable;
 	}
 
 	err = pvr_device_init(pvr_dev);
@@ -848,6 +851,9 @@ err_vendor_fini:
 	if (pvr_dev->vendor.callbacks && pvr_dev->vendor.callbacks->fini)
 		pvr_dev->vendor.callbacks->fini(pvr_dev);
 
+err_pm_runtime_disable:
+	pm_runtime_disable(&plat_dev->dev);
+
 err_out:
 	return err;
 }
@@ -862,6 +868,7 @@ pvr_remove(struct platform_device *plat_dev)
 	pvr_device_fini(pvr_dev);
 	if (pvr_dev->vendor.callbacks && pvr_dev->vendor.callbacks->fini)
 		pvr_dev->vendor.callbacks->fini(pvr_dev);
+	pm_runtime_disable(&plat_dev->dev);
 
 	return 0;
 }
@@ -873,11 +880,66 @@ static const struct of_device_id dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dt_match);
 
+static int pvr_device_suspend(struct device *dev)
+{
+	struct platform_device *plat_dev = to_platform_device(dev);
+	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
+	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
+	int err = 0;
+
+	if (pvr_dev->vendor.callbacks &&
+	    pvr_dev->vendor.callbacks->power_disable) {
+		err = pvr_dev->vendor.callbacks->power_disable(pvr_dev);
+		if (err)
+			goto err_out;
+	}
+
+	clk_disable(pvr_dev->mem_clk);
+	clk_disable(pvr_dev->sys_clk);
+	clk_disable(pvr_dev->core_clk);
+
+err_out:
+	return err;
+}
+
+static int pvr_device_resume(struct device *dev)
+{
+	struct platform_device *plat_dev = to_platform_device(dev);
+	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
+	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
+	int err;
+
+	clk_enable(pvr_dev->core_clk);
+	clk_enable(pvr_dev->sys_clk);
+	clk_enable(pvr_dev->mem_clk);
+
+	if (pvr_dev->vendor.callbacks &&
+	    pvr_dev->vendor.callbacks->power_enable) {
+		err = pvr_dev->vendor.callbacks->power_enable(pvr_dev);
+		if (err)
+			goto err_clk_disable;
+	}
+
+	return 0;
+
+err_clk_disable:
+	clk_disable(pvr_dev->mem_clk);
+	clk_disable(pvr_dev->sys_clk);
+	clk_disable(pvr_dev->core_clk);
+
+	return err;
+}
+
+static const struct dev_pm_ops pvr_pm_ops = {
+	SET_RUNTIME_PM_OPS(pvr_device_suspend, pvr_device_resume, NULL)
+};
+
 static struct platform_driver pvr_driver = {
 	.probe = pvr_probe,
 	.remove = pvr_remove,
 	.driver = {
 		.name = PVR_DRIVER_NAME,
+		.pm = &pvr_pm_ops,
 		.of_match_table = dt_match,
 	},
 };
