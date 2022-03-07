@@ -21,6 +21,7 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <linux/stddef.h>
 #include <linux/types.h>
@@ -180,6 +181,41 @@ pvr_device_clk_fini(struct pvr_device *pvr_dev)
 	pvr_dev->core_clk = NULL;
 	pvr_dev->sys_clk = NULL;
 	pvr_dev->mem_clk = NULL;
+}
+
+/**
+ * pvr_device_regulator_init() - Initialise regulator required by a PowerVR device
+ * @pvr_dev: Target PowerVR device.
+ *
+ * The regulator is not a required devicetree property. If it is not present then this function will
+ * succeed, but &pvr_device->regulator will be %NULL.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * Any error returned by devm_regulator_get().
+ */
+static int
+pvr_device_regulator_init(struct pvr_device *pvr_dev)
+{
+	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct regulator *regulator;
+	int err;
+
+	regulator = devm_regulator_get(drm_dev->dev, "power");
+	if (IS_ERR(regulator)) {
+		err = PTR_ERR(regulator);
+		/* Regulator is not required, so ENODEV is allowed here. */
+		if (err != -ENODEV)
+			goto err_out;
+		regulator = NULL;
+	}
+
+	pvr_dev->regulator = regulator;
+
+	return 0;
+
+err_out:
+	return err;
 }
 
 /**
@@ -555,6 +591,10 @@ pvr_device_init(struct pvr_device *pvr_dev)
 	err = pvr_device_clk_init(pvr_dev);
 	if (err)
 		goto err_out;
+
+	err = pvr_device_regulator_init(pvr_dev);
+	if (err)
+		goto err_device_clk_fini;
 
 	/* Explicitly power the GPU so we can access control registers before the FW is booted. */
 	err = pm_runtime_get_sync(dev);

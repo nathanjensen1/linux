@@ -32,6 +32,7 @@
 #include <linux/overflow.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/regulator/consumer.h>
 #include <linux/xarray.h>
 
 /**
@@ -851,6 +852,9 @@ static int pvr_device_suspend(struct device *dev)
 	clk_disable(pvr_dev->sys_clk);
 	clk_disable(pvr_dev->core_clk);
 
+	if (pvr_dev->regulator)
+		regulator_disable(pvr_dev->regulator);
+
 err_out:
 	return err;
 }
@@ -861,6 +865,12 @@ static int pvr_device_resume(struct device *dev)
 	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
 	int err;
+
+	if (pvr_dev->regulator) {
+		err = regulator_enable(pvr_dev->regulator);
+		if (err)
+			goto err_out;
+	}
 
 	clk_enable(pvr_dev->core_clk);
 	clk_enable(pvr_dev->sys_clk);
@@ -880,6 +890,7 @@ err_clk_disable:
 	clk_disable(pvr_dev->sys_clk);
 	clk_disable(pvr_dev->core_clk);
 
+err_out:
 	return err;
 }
 

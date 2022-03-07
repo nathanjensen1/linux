@@ -33,6 +33,9 @@ struct clk;
 /* Forward declaration from <linux/firmware.h>. */
 struct firmware;
 
+/* Forward declaration from <linux/regulator/consumer.h>. */
+struct regulator;
+
 /* Forward declaration from "pvr_fw.h". */
 struct pvr_fw_funcs;
 
@@ -128,6 +131,9 @@ struct pvr_device {
 
 	/** @mem_clk: Memory clock. */
 	struct clk *mem_clk;
+
+	/** @regulator: Power regulator. */
+	struct regulator *regulator;
 
 	/** @irq: IRQ number. */
 	int irq;
