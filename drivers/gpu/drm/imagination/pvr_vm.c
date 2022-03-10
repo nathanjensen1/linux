@@ -2052,7 +2052,7 @@ pvr_page_table_ptr_fini(struct pvr_page_table_ptr *ptr)
  * @should_create: Specify whether new page tables should be created when
  *                 empty page table entries are encountered during traversal.
  *
- * If @should_create is %false, it is the callers responsibility to verify that
+ * If @should_create is %false, it is the caller's responsibility to verify that
  * the state of the table references in @ptr is valid on return. If -%ENXIO is
  * returned, at least one of the table references is invalid. It should be
  * noted that @ptr as a whole will be left in a valid state if -%ENXIO is

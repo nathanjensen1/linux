@@ -22,7 +22,7 @@
  * @context: Target PowerVR fence context
  *
  * The fence will be created with two references; one for the caller, one for the fence worker. The
- * callers reference (and any other references subsequently taken) should be released with
+ * caller's reference (and any other references subsequently taken) should be released with
  * dma_fence_put(). If the fence will not be signaled (e.g. on an error path) then the fence worker
  * reference should be manually dropped via pvr_fence_deactivate_and_put().
  *
@@ -323,7 +323,7 @@ static void pvr_fence_imported_signal(struct dma_fence *fence, struct dma_fence_
  * @imported_fence: Existing fence to create the new fence from.
  *
  * The fence will be created with two references; one for the caller, one for the fence worker. The
- * callers reference (and any other references subsequently taken) should be released with
+ * caller's reference (and any other references subsequently taken) should be released with
  * dma_fence_put(). If the fence is not subsequently used (e.g. on an error path) then the fence
  * worker reference should be manually dropped via pvr_fence_deactivate_and_put(); this prevents any
  * race conditions due to uncertainty about whether the fence will be signaled or not.
@@ -439,7 +439,7 @@ pvr_fence_deactivate_and_put(struct dma_fence *fence)
 	} else {
 		/*
 		 * For native fences, this function should only be called if it is known
-		 * that the fence will never be signaled (eg the update command for this
+		 * that the fence will never be signaled (e.g. the update command for this
 		 * fence was never submitted). Just drop the reference.
 		 */
 		dma_fence_put(fence);
