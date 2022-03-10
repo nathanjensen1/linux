@@ -279,7 +279,7 @@ pvr_cccb_wait_for_idle(struct pvr_cccb *pvr_cccb, u32 timeout)
  * Caller must have locked the Client CCB with pvr_cccb_lock().
  *
  * If this function is successful, then the Client CCB will be unlocked. On
- * error, the Client CCB will still be locked, and it is the callers
+ * error, the Client CCB will still be locked, and it is the caller's
  * responsibility to unlock it with pvr_cccb_unlock_rollback().
  *
  * Return :
