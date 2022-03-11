@@ -41,15 +41,15 @@ static void
 pvr_vm_mapping_fini(struct pvr_vm_mapping *mapping);
 
 /**
- * pvr_mmu_flush() - Request flush of MMU caches
- * @pvr_dev: Target PowerVR device
+ * pvr_vm_mmu_flush() - Request flush of all MMU caches.
+ * @pvr_dev: Target PowerVR device.
  *
- * This must be called following any possible change to the MMU page tables.
+ * This function must be called following any possible change to the MMU page
+ * tables.
  *
  * Returns:
  *  * 0 on success, or
- *  * Any error returned by pvr_kccb_send_cmd(), or
- *  * Any error returned by pvr_kccb_wait_for_completion().
+ *  * Any error encountered while submitting the flush command via the KCCB.
  */
 int
 pvr_vm_mmu_flush(struct pvr_device *pvr_dev)
@@ -91,76 +91,20 @@ err_out:
 
 /**
  * DOC: PowerVR Virtual Memory Handling
- *
- * There's a lot going on in this section... TODO
- *
- * .. admonition:: Note on page table naming
- *
- *    This file uses a different naming convention for page table levels than
- *    the original DDK materials. Since page table implementation details are
- *    not exposed outside this file, the description of the name mapping exists
- *    here in its normative form:
- *
- *    * L0 page table => DDK page table
- *    * L1 page table => DDK page directory
- *    * L2 page table => DDK page catalog
- *
- *    The variable/function naming convention in this file is
- *    ``page_table_lx_*``  where x is either ``0``, ``1`` or ``2`` to represent
- *    the level of the page table structure. The name ``page_table_*`` without
- *    the ``_lx`` suffix is used for references to the entire tree structure
- *    including all three levels, or an operation or value which is
- *    level-agnostic.
  */
-
 /**
- * PVR_IDX_INVALID - Default value for a u16-based index.
+ * DOC: PowerVR Virtual Memory Handling (constants)
  *
- * This value cannot be zero, since zero is a valid index value.
+ * .. c:macro:: PVR_IDX_INVALID
+ *
+ *    Default value for a u16-based index.
+ *
+ *    This value cannot be zero, since zero is a valid index value.
  */
 #define PVR_IDX_INVALID ((u16)(-1))
 
 /**
  * DOC: VM backing pages
- *
- * While the page tables hold memory accessible to the rest of the driver,
- * the page tables themselves must have memory allocated to back them. We
- * call this memory "VM backing pages". Conveniently, each page table is
- * (currently) exactly 4KiB, as defined by %PVR_VM_BACKING_PAGE_SIZE. We
- * currently support any CPU page size of this size or greater by ignoring
- * any space after the first 4KiB of a CPU page allocated as a VM backing page.
- *
- * .. admonition:: Future work
- *
- *    We should be able to efficiently support CPU page sizes greater than 4KiB
- *    by allocating multiple page tables to each CPU page. It is unlikely
- *    that we will ever need to support CPU page sizes less than 4KiB.
- *
- * Usage
- * -----
- * To add this functionality to a structure which wraps a raw page table, embed
- * an instance of &struct pvr_vm_backing_page in the wrapper struct. Call
- * pvr_vm_backing_page_init() to allocate and map the backing page, and
- * pvr_vm_backing_page_fini() to perform the reverse operations when you're
- * finished with it. Use pvr_vm_backing_page_sync() to flush the memory from
- * the host to the device. As this is an expensive operation (calling out to
- * dma_sync_single_for_device()), be sure to perform all necessary changes to
- * the backing memory before calling it.
- *
- * Between calls to pvr_vm_backing_page_init() and pvr_vm_backing_page_fini(),
- * the public fields of &struct pvr_vm_backing_page can be used to access the
- * allocated page. To access the memory from the CPU, use
- * &pvr_vm_backing_page.host_ptr. For an address which can be passed to the
- * device, use &pvr_vm_backing_page.dma_addr.
- *
- * It is expected that the embedded &struct pvr_vm_backing_page will be zeroed
- * before calling pvr_vm_backing_page_init(). In return,
- * pvr_vm_backing_page_fini() will re-zero it before returning. You can
- * therefore compare the value of either &pvr_vm_backing_page.dma_addr or
- * &pvr_vm_backing_page.host_ptr to zero or %NULL to check if the backing
- * page is ready for use.
- *
- * .. note:: This API is not expected to be exposed outside ``pvr_vm.c``.
  */
 /**
  * DOC: VM backing pages (constants)
@@ -171,29 +115,21 @@ err_out:
  *    at least as large as this value for the current implementation; this is
  *    checked at compile-time.
  */
-
-/**
- * PVR_VM_BACKING_PAGE_SIZE - Page size of a PowerVR device's integrated MMU.
- *
- * *This doc comment is not rendered - see DOC: VM backing pages (constants).*
- */
 #define PVR_VM_BACKING_PAGE_SIZE SZ_4K
 static_assert(PAGE_SIZE >= PVR_VM_BACKING_PAGE_SIZE);
 
 /**
  * struct pvr_vm_backing_page - Represents a single page used to back a page
  *                              table of any level.
+ * @dma_addr: DMA address of this page.
+ * @host_ptr: CPU address of this page.
+ * @pvr_dev: The PowerVR device to which this page is associated. **For
+ *           internal use only.**
  */
 struct pvr_vm_backing_page {
-	/** @dma_addr: DMA (quasi-physical) address of this page. */
 	dma_addr_t dma_addr;
-	/** @host_ptr: CPU address of this page. */
 	void *host_ptr;
-
-	/**
-	 * @pvr_dev: The PowerVR device to which this page is associated.
-	 * **For internal use only.**
-	 */
+/* private: internal use only */
 	struct pvr_device *pvr_dev;
 };
 
@@ -299,7 +235,7 @@ pvr_vm_backing_page_fini(struct pvr_vm_backing_page *page)
  *
  * .. caution::
  *
- *    **This is an expensive function call.** Only call
+ *    **This is potentially an expensive function call.** Only call
  *    pvr_vm_backing_page_sync() once you're sure you have no more changes to
  *    make to the backing page in the immediate future.
  */
@@ -323,15 +259,6 @@ pvr_vm_backing_page_sync(struct pvr_vm_backing_page *page)
 
 /**
  * DOC: Raw page tables
- *
- * These types define the lowest level representation of the page table
- * structure. This is the format which a PowerVR device's MMU can interpret
- * directly. As such, their definitions are taken directly from hardware
- * documentation.
- *
- * To store additional information required by the driver, we use
- * :ref:`mirror page tables<Mirror page tables>`. In most cases, the mirror
- * types are the ones you want to use for handles.
  */
 
 #define PVR_PAGE_TABLE_TYPEOF_ENTRY(level_) \
@@ -349,6 +276,7 @@ pvr_vm_backing_page_sync(struct pvr_vm_backing_page *page)
 
 /**
  * struct pvr_page_table_l2_entry_raw - A single entry in a level 2 page table.
+ * @val: The raw value of this entry.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %ROGUE_MMUCTRL_ENTRY_SIZE_PC_VALUE.
@@ -378,7 +306,6 @@ pvr_vm_backing_page_sync(struct pvr_vm_backing_page *page)
  *        the page would result in a page fault.
  */
 struct pvr_page_table_l2_entry_raw {
-	/** @val: The raw value of this entry. */
 	u32 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l2_entry_raw) * 8 ==
@@ -390,6 +317,16 @@ pvr_page_table_l2_entry_raw_is_valid(struct pvr_page_table_l2_entry_raw entry)
 	return PVR_PAGE_TABLE_FIELD_GET(2, VALID, entry);
 }
 
+/**
+ * pvr_page_table_l2_entry_raw_set() - Write a valid entry into a raw level 2
+ *                                     page table.
+ * @entry: Target raw level 2 page table entry.
+ * @child_table_dma_addr: DMA address of the level 1 page table to be
+ *                        associated with @entry.
+ *
+ * When calling this function, @child_table_dma_addr must be a valid DMA
+ * address and a multiple of %ROGUE_MMUCTRL_PT_L2_DATA_PT_L1_BASE_ALIGNSIZE.
+ */
 static __always_inline void
 pvr_page_table_l2_entry_raw_set(struct pvr_page_table_l2_entry_raw *entry,
 				dma_addr_t child_table_dma_addr)
@@ -410,6 +347,7 @@ pvr_page_table_l2_entry_raw_clear(struct pvr_page_table_l2_entry_raw *entry)
 
 /**
  * struct pvr_page_table_l1_entry_raw - A single entry in a level 1 page table.
+ * @val: The raw value of this entry.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %ROGUE_MMUCTRL_ENTRY_SIZE_PD_VALUE.
@@ -491,7 +429,6 @@ pvr_page_table_l2_entry_raw_clear(struct pvr_page_table_l2_entry_raw *entry)
  *        result in a page fault.
  */
 struct pvr_page_table_l1_entry_raw {
-	/** @val: The raw value of this entry. */
 	u64 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l1_entry_raw) * 8 ==
@@ -503,6 +440,16 @@ pvr_page_table_l1_entry_raw_is_valid(struct pvr_page_table_l1_entry_raw entry)
 	return PVR_PAGE_TABLE_FIELD_GET(1, VALID, entry);
 }
 
+/**
+ * pvr_page_table_l1_entry_raw_set() - Write a valid entry into a raw level 1
+ *                                     page table.
+ * @entry: Target raw level 1 page table entry.
+ * @child_table_dma_addr: DMA address of the level 0 page table to be
+ *                        associated with @entry.
+ *
+ * When calling this function, @child_table_dma_addr must be a valid DMA
+ * address and a multiple of 4 KiB.
+ */
 static void
 pvr_page_table_l1_entry_raw_set(struct pvr_page_table_l1_entry_raw *entry,
 				dma_addr_t child_table_dma_addr)
@@ -523,6 +470,7 @@ pvr_page_table_l1_entry_raw_clear(struct pvr_page_table_l1_entry_raw *entry)
 
 /**
  * struct pvr_page_table_l0_entry_raw - A single entry in a level 0 page table.
+ * @val: The raw value of this entry.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %ROGUE_MMUCTRL_ENTRY_SIZE_PT_VALUE.
@@ -550,10 +498,9 @@ pvr_page_table_l1_entry_raw_clear(struct pvr_page_table_l1_entry_raw *entry)
  *        value is always aligned to the 4KiB page size.
  *
  *    * - 39..12
- *      - **Physical Page Address:** he way this value is
- *        interpreted depends on the page size. Bits not specified in the
- *        table below (e.g. bits 20..12 for page size 2MiB) should be
- *        considered reserved.
+ *      - **Physical Page Address:** The way this value is interpreted depends
+ *        on the page size. Bits not specified in the table below (e.g. bits
+ *        20..12 for page size 2MiB) should be considered reserved.
  *
  *        This table shows the bits used in an L0 page table entry to represent
  *        the Physical Page Address for a given page size (as defined in the
@@ -618,7 +565,6 @@ pvr_page_table_l1_entry_raw_clear(struct pvr_page_table_l1_entry_raw *entry)
  *        in a page fault.
  */
 struct pvr_page_table_l0_entry_raw {
-	/** @val: The raw value of this entry. */
 	u64 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l0_entry_raw) * 8 ==
@@ -626,17 +572,17 @@ static_assert(sizeof(struct pvr_page_table_l0_entry_raw) * 8 ==
 
 /**
  * struct pvr_page_flags_raw - The configurable flags from a single entry in a
- * level 0 page table.
+ *                             level 0 page table.
+ * @val: The raw value of these flags. Since these are a strict subset of
+ *       &struct pvr_page_table_l0_entry_raw; use that type for our member here.
  *
  * The flags stored in this type are: PM/FW Protect; SLC Bypass Control; Cache
  * Coherency, and Read Only (bits 62, 3, 2 and 1 respectively).
+ *
+ * This type should never be instantiated directly; instead use
+ * pvr_page_flags_raw_create() to ensure only valid bits of @val are set.
  */
 struct pvr_page_flags_raw {
-	/**
-	 * @val: The raw value of these flags. Since these are a strict subset
-	 * of struct pvr_page_table_l0_entry_raw; use that type for our member
-	 * here.
-	 */
 	struct pvr_page_table_l0_entry_raw val;
 } __packed;
 static_assert(sizeof(struct pvr_page_flags_raw) ==
@@ -648,6 +594,20 @@ pvr_page_table_l0_entry_raw_is_valid(struct pvr_page_table_l0_entry_raw entry)
 	return PVR_PAGE_TABLE_FIELD_GET(0, VALID, entry);
 }
 
+/**
+ * pvr_page_table_l0_entry_raw_set() - Write a valid entry into a raw level 0
+ *                                     page table.
+ * @entry: Target raw level 0 page table entry.
+ * @dma_addr: DMA address of the physical page to be associated with @entry.
+ * @flags: Options to be set on @entry.
+ *
+ * When calling this function, @child_table_dma_addr must be a valid DMA
+ * address and a multiple of 4 KiB.
+ *
+ * The @flags parameter is directly assigned into @entry. It is the callers
+ * responsibility to ensure that only bits specified in
+ * &struct pvr_page_flags_raw are set in @flags.
+ */
 static void
 pvr_page_table_l0_entry_raw_set(struct pvr_page_table_l0_entry_raw *entry,
 				dma_addr_t dma_addr,
@@ -665,6 +625,23 @@ pvr_page_table_l0_entry_raw_clear(struct pvr_page_table_l0_entry_raw *entry)
 	entry->val = 0;
 }
 
+/**
+ * pvr_page_flags_raw_create() - Initialize the flag bits of a raw level 0 page
+ *                               table entry.
+ * @read_only: This page is read-only (see: Read Only).
+ * @cache_coherent: This page does not require cache flushes (see: Cache
+ *                  Coherency).
+ * @slc_bypass: This page bypasses the device cache (see: SLC Bypass Control).
+ * @pm_fw_protect: This page is only for use by the firmware or Parameter
+ *                 Manager (see PM/FW Protect).
+ *
+ * For more details on the use of these four options, see their respective
+ * entries in the table under &struct pvr_page_table_l0_entry_raw.
+ *
+ * Return:
+ * A new &struct pvr_page_flags_raw instance which can be passed directly to
+ * pvr_page_table_l0_entry_raw_set() or pvr_page_table_l0_insert().
+ */
 static struct pvr_page_flags_raw
 pvr_page_flags_raw_create(bool read_only, bool cache_coherent, bool slc_bypass,
 			  bool pm_fw_protect)
@@ -681,7 +658,7 @@ pvr_page_flags_raw_create(bool read_only, bool cache_coherent, bool slc_bypass,
 }
 
 /**
- * struct pvr_page_table_l2_raw - The raw data of an L2 page table.
+ * struct pvr_page_table_l2_raw - The raw data of a level 2 page table.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %PVR_VM_BACKING_PAGE_SIZE.
@@ -694,7 +671,7 @@ struct pvr_page_table_l2_raw {
 static_assert(sizeof(struct pvr_page_table_l2_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
 /**
- * struct pvr_page_table_l1_raw - The raw data of an L1 page table.
+ * struct pvr_page_table_l1_raw - The raw data of a level 1 page table.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %PVR_VM_BACKING_PAGE_SIZE.
@@ -707,16 +684,16 @@ struct pvr_page_table_l1_raw {
 static_assert(sizeof(struct pvr_page_table_l1_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
 /**
- * struct pvr_page_table_l0_raw - The raw data of an L0 page table.
+ * struct pvr_page_table_l0_raw - The raw data of a level 0 page table.
  *
  * This type is a structure for type-checking purposes. At compile-time, its
  * size is checked against %PVR_VM_BACKING_PAGE_SIZE.
  *
  * .. caution::
  *
- *    The size of L0 page tables is variable depending on the page size
- *    specified in the associated L1 page table entry. For simplicity, this
- *    type is fixed to contain the maximum possible number of entries.
+ *    The size of level 0 page tables is variable depending on the page size
+ *    specified in the associated level 1 page table entry. For simplicity,
+ *    this type is fixed to contain the maximum possible number of entries.
  *    **You should never read or write beyond the last supported entry.**
  */
 struct pvr_page_table_l0_raw {
@@ -728,13 +705,6 @@ static_assert(sizeof(struct pvr_page_table_l0_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
 /**
  * DOC: Mirror page tables
- *
- * These structures hold additional information required by the driver that
- * cannot be stored in :ref:`raw page tables<Raw page tables>` (since those are
- * defined by the hardware).
- *
- * In most cases, you should hold a handle to these types instead of the raw
- * types directly.
  */
 
 /*
@@ -746,14 +716,14 @@ struct pvr_page_table_l1;
 struct pvr_page_table_l0;
 
 /**
- * struct pvr_page_table_l2 - A wrapped L2 page table.
+ * struct pvr_page_table_l2 - A wrapped level 2 page table.
  *
  * To access the raw part of this table, use pvr_page_table_l2_get_raw().
  * Alternatively to access a raw entry directly, use
  * pvr_page_table_l2_get_entry_raw().
  *
- * An L2 page table forms the root of the page table tree structure, so this
- * type has no &parent or &parent_idx members.
+ * A level 2 page table forms the root of the page table tree structure, so
+ * this type has no &parent or &parent_idx members.
  */
 struct pvr_page_table_l2 {
 	/**
@@ -780,8 +750,8 @@ struct pvr_page_table_l2 {
 };
 
 /**
- * pvr_page_table_l2_init() - Initialize an L2 page table.
- * @table: Target L2 page table.
+ * pvr_page_table_l2_init() - Initialize a level 2 page table.
+ * @table: Target level 2 page table.
  * @pvr_dev: Target PowerVR device
  *
  * It is expected that @table be zeroed (e.g. from kzalloc()) before calling
@@ -789,7 +759,8 @@ struct pvr_page_table_l2 {
  *
  * Return:
  *  * 0 on success, or
- *  * Any error returned by pvr_vm_backing_page_init().
+ *  * Any error encountered while intializing &table->backing_page using
+ *    pvr_vm_backing_page_init().
  */
 static __always_inline int
 pvr_page_table_l2_init(struct pvr_page_table_l2 *table,
@@ -799,8 +770,8 @@ pvr_page_table_l2_init(struct pvr_page_table_l2 *table,
 }
 
 /**
- * pvr_page_table_l2_fini() - Teardown an L2 page table.
- * @table: Target L2 page table.
+ * pvr_page_table_l2_fini() - Teardown a level 2 page table.
+ * @table: Target level 2 page table.
  *
  * It is an error to attempt to use @table after calling this function.
  */
@@ -811,16 +782,17 @@ pvr_page_table_l2_fini(struct pvr_page_table_l2 *table)
 }
 
 /**
- * pvr_page_table_l2_sync() - Flush an L2 page table from the CPU to the device.
- * @table: Target L2 page table.
+ * pvr_page_table_l2_sync() - Flush a level 2 page table from the CPU to the
+ *                            device.
+ * @table: Target level 2 page table.
  *
  * This is just a thin wrapper around pvr_vm_backing_page_sync(), so the
  * warning there applies here too: **Only call pvr_page_table_l2_sync() once
  * you're sure you have no more changes to make to** @table **in the immediate
  * future.**
  *
- * If child L1 page tables of @table also need to be flushed, this should be
- * done first using pvr_page_table_l1_sync() *before* calling this function.
+ * If child level 1 page tables of @table also need to be flushed, this should
+ * be done first using pvr_page_table_l1_sync() *before* calling this function.
  */
 static __always_inline void
 pvr_page_table_l2_sync(struct pvr_page_table_l2 *table)
@@ -829,9 +801,9 @@ pvr_page_table_l2_sync(struct pvr_page_table_l2 *table)
 }
 
 /**
- * pvr_page_table_l2_get_raw() - Access the raw equivalent of a mirror L2 page
- *                               table.
- * @table: Target L2 page table.
+ * pvr_page_table_l2_get_raw() - Access the raw equivalent of a mirror level 2
+ *                               page table.
+ * @table: Target level 2 page table.
  *
  * Essentially returns the CPU address of the raw equivalent of @table, cast to
  * a &struct pvr_page_table_l2_raw pointer.
@@ -839,7 +811,7 @@ pvr_page_table_l2_sync(struct pvr_page_table_l2 *table)
  * You probably want to call pvr_page_table_l2_get_entry_raw() instead.
  *
  * Return:
- *  * The raw equivalent of @table.
+ * The raw equivalent of @table.
  */
 static __always_inline struct pvr_page_table_l2_raw *
 pvr_page_table_l2_get_raw(struct pvr_page_table_l2 *table)
@@ -849,17 +821,21 @@ pvr_page_table_l2_get_raw(struct pvr_page_table_l2 *table)
 
 /**
  * pvr_page_table_l2_get_entry_raw() - Access an entry from the raw equivalent
- *                                     of a mirror L2 page table.
- * @table: Target L2 page table.
+ *                                     of a mirror level 2 page table.
+ * @table: Target level 2 page table.
  * @idx: Index of the entry to access.
  *
- * Technically this function returns a pointer to a slot in a raw L2 page
+ * Technically this function returns a pointer to a slot in a raw level 2 page
  * table, since the returned "entry" is not guaranteed to be valid. The caller
- * must verify the validity of the entry at the returned address before reading
- * or overwriting it.
+ * must verify the validity of the entry at the returned address (perhaps using
+ * pvr_page_table_l2_entry_raw_is_valid()) before reading or overwriting it.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before dereferencing the
+ * returned pointer.
  *
  * Return:
- *  * A pointer to the requested raw L2 page table entry.
+ * A pointer to the requested raw level 2 page table entry.
  */
 static __always_inline struct pvr_page_table_l2_entry_raw *
 pvr_page_table_l2_get_entry_raw(struct pvr_page_table_l2 *table, u16 idx)
@@ -868,14 +844,14 @@ pvr_page_table_l2_get_entry_raw(struct pvr_page_table_l2 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l2_entry_is_valid() - Check if an L2 page table entry is
+ * pvr_page_table_l2_entry_is_valid() - Check if a level 2 page table entry is
  *                                      marked as valid.
- * @table: Target L2 page table.
+ * @table: Target level 2 page table.
  * @idx: Index of the entry to check.
  *
- * Return:
- *  * %true if there is a valid entry at @idx in @table, or
- *  * %false otherwise.
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  */
 static __always_inline bool
 pvr_page_table_l2_entry_is_valid(struct pvr_page_table_l2 *table, u16 idx)
@@ -887,7 +863,7 @@ pvr_page_table_l2_entry_is_valid(struct pvr_page_table_l2 *table, u16 idx)
 }
 
 /**
- * struct pvr_page_table_l1 - A wrapped L1 page table.
+ * struct pvr_page_table_l1 - A wrapped level 1 page table.
  *
  * To access the raw part of this table, use pvr_page_table_l1_get_raw().
  * Alternatively to access a raw entry directly, use
@@ -930,8 +906,8 @@ struct pvr_page_table_l1 {
 };
 
 /**
- * pvr_page_table_l1_init() - Initialize an L1 page table.
- * @table: Target L1 page table.
+ * pvr_page_table_l1_init() - Initialize a level 1 page table.
+ * @table: Target level 1 page table.
  * @pvr_dev: Target PowerVR device
  *
  * When this function returns successfully, @table is still not considered
@@ -943,7 +919,8 @@ struct pvr_page_table_l1 {
  *
  * Return:
  *  * 0 on success, or
- *  * Any error returned by pvr_vm_backing_page_init().
+ *  * Any error encountered while intializing &table->backing_page using
+ *    pvr_vm_backing_page_init().
  */
 static __always_inline int
 pvr_page_table_l1_init(struct pvr_page_table_l1 *table,
@@ -955,8 +932,8 @@ pvr_page_table_l1_init(struct pvr_page_table_l1 *table,
 }
 
 /**
- * pvr_page_table_l1_fini() - Teardown an L1 page table.
- * @table: Target L1 page table.
+ * pvr_page_table_l1_fini() - Teardown a level 1 page table.
+ * @table: Target level 1 page table.
  *
  * It is an error to attempt to use @table after calling this function, even
  * indirectly. This includes calling pvr_page_table_l2_remove(), which must
@@ -969,16 +946,17 @@ pvr_page_table_l1_fini(struct pvr_page_table_l1 *table)
 }
 
 /**
- * pvr_page_table_l1_sync() - Flush an L1 page table from the CPU to the device.
- * @table: Target L1 page table.
+ * pvr_page_table_l1_sync() - Flush a level 1 page table from the CPU to the
+ *                            device.
+ * @table: Target level 1 page table.
  *
  * This is just a thin wrapper around pvr_vm_backing_page_sync(), so the
  * warning there applies here too: **Only call pvr_page_table_l1_sync() once
  * you're sure you have no more changes to make to** @table **in the immediate
  * future.**
  *
- * If child L0 page tables of @table also need to be flushed, this should be
- * done first using pvr_page_table_l0_sync() *before* calling this function.
+ * If child level 0 page tables of @table also need to be flushed, this should
+ * be done first using pvr_page_table_l0_sync() *before* calling this function.
  */
 static __always_inline void
 pvr_page_table_l1_sync(struct pvr_page_table_l1 *table)
@@ -987,9 +965,9 @@ pvr_page_table_l1_sync(struct pvr_page_table_l1 *table)
 }
 
 /**
- * pvr_page_table_l1_get_raw() - Access the raw equivalent of a mirror L1 page
- *                               table.
- * @table: Target L1 page table.
+ * pvr_page_table_l1_get_raw() - Access the raw equivalent of a mirror level 1
+ *                               page table.
+ * @table: Target level 1 page table.
  *
  * Essentially returns the CPU address of the raw equivalent of @table, cast to
  * a &struct pvr_page_table_l1_raw pointer.
@@ -997,7 +975,7 @@ pvr_page_table_l1_sync(struct pvr_page_table_l1 *table)
  * You probably want to call pvr_page_table_l1_get_entry_raw() instead.
  *
  * Return:
- *  * The raw equivalent of @table.
+ * The raw equivalent of @table.
  */
 static __always_inline struct pvr_page_table_l1_raw *
 pvr_page_table_l1_get_raw(struct pvr_page_table_l1 *table)
@@ -1007,17 +985,21 @@ pvr_page_table_l1_get_raw(struct pvr_page_table_l1 *table)
 
 /**
  * pvr_page_table_l1_get_entry_raw() - Access an entry from the raw equivalent
- *                                     of a mirror L1 page table.
- * @table: Target L1 page table.
+ *                                     of a mirror level 1 page table.
+ * @table: Target level 1 page table.
  * @idx: Index of the entry to access.
  *
- * Technically this function returns a pointer to a slot in a raw L1 page
+ * Technically this function returns a pointer to a slot in a raw level 1 page
  * table, since the returned "entry" is not guaranteed to be valid. The caller
- * must verify the validity of the entry at the returned address before reading
- * or overwriting it.
+ * must verify the validity of the entry at the returned address (perhaps using
+ * pvr_page_table_l1_entry_raw_is_valid()) before reading or overwriting it.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before dereferencing the
+ * returned pointer.
  *
  * Return:
- *  * A pointer to the requested raw L1 page table entry.
+ * A pointer to the requested raw level 1 page table entry.
  */
 static __always_inline struct pvr_page_table_l1_entry_raw *
 pvr_page_table_l1_get_entry_raw(struct pvr_page_table_l1 *table, u16 idx)
@@ -1026,14 +1008,14 @@ pvr_page_table_l1_get_entry_raw(struct pvr_page_table_l1 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l1_entry_is_valid() - Check if an L1 page table entry is
+ * pvr_page_table_l1_entry_is_valid() - Check if a level 1 page table entry is
  *                                      marked as valid.
- * @table: Target L1 page table.
+ * @table: Target level 1 page table.
  * @idx: Index of the entry to check.
  *
- * Return:
- *  * %true if there is a valid entry at @idx in @table, or
- *  * %false otherwise.
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  */
 static __always_inline bool
 pvr_page_table_l1_entry_is_valid(struct pvr_page_table_l1 *table, u16 idx)
@@ -1045,7 +1027,7 @@ pvr_page_table_l1_entry_is_valid(struct pvr_page_table_l1 *table, u16 idx)
 }
 
 /**
- * struct pvr_page_table_l0 - A wrapped L0 page table.
+ * struct pvr_page_table_l0 - A wrapped level 0 page table.
  *
  * To access the raw part of this table, use pvr_page_table_l0_get_raw().
  * Alternatively to access a raw entry directly, use
@@ -1083,8 +1065,8 @@ struct pvr_page_table_l0 {
 };
 
 /**
- * pvr_page_table_l0_init() - Initialize an L0 page table.
- * @table: Target L0 page table.
+ * pvr_page_table_l0_init() - Initialize a level 0 page table.
+ * @table: Target level 0 page table.
  * @pvr_dev: Target PowerVR device
  *
  * When this function returns successfully, @table is still not considered
@@ -1096,7 +1078,8 @@ struct pvr_page_table_l0 {
  *
  * Return:
  *  * 0 on success, or
- *  * Any error returned by pvr_vm_backing_page_init().
+ *  * Any error encountered while intializing &table->backing_page using
+ *    pvr_vm_backing_page_init().
  */
 static __always_inline int
 pvr_page_table_l0_init(struct pvr_page_table_l0 *table,
@@ -1108,8 +1091,8 @@ pvr_page_table_l0_init(struct pvr_page_table_l0 *table,
 }
 
 /**
- * pvr_page_table_l0_fini() - Teardown an L0 page table.
- * @table: Target L0 page table.
+ * pvr_page_table_l0_fini() - Teardown a level 0 page table.
+ * @table: Target level 0 page table.
  *
  * It is an error to attempt to use @table after calling this function, even
  * indirectly. This includes calling pvr_page_table_l1_remove(), which must
@@ -1122,8 +1105,9 @@ pvr_page_table_l0_fini(struct pvr_page_table_l0 *table)
 }
 
 /**
- * pvr_page_table_l0_sync() - Flush an L0 page table from the CPU to the device.
- * @table: Target L0 page table.
+ * pvr_page_table_l0_sync() - Flush a level 0 page table from the CPU to the
+ *                            device.
+ * @table: Target level 0 page table.
  *
  * This is just a thin wrapper around pvr_vm_backing_page_sync(), so the
  * warning there applies here too: **Only call pvr_page_table_l0_sync() once
@@ -1141,9 +1125,9 @@ pvr_page_table_l0_sync(struct pvr_page_table_l0 *table)
 }
 
 /**
- * pvr_page_table_l0_get_raw() - Access the raw equivalent of a mirror L0 page
- *                               table.
- * @table: Target L0 page table.
+ * pvr_page_table_l0_get_raw() - Access the raw equivalent of a mirror level 0
+ *                               page table.
+ * @table: Target level 0 page table.
  *
  * Essentially returns the CPU address of the raw equivalent of @table, cast to
  * a &struct pvr_page_table_l0_raw pointer.
@@ -1151,7 +1135,7 @@ pvr_page_table_l0_sync(struct pvr_page_table_l0 *table)
  * You probably want to call pvr_page_table_l0_get_entry_raw() instead.
  *
  * Return:
- *  * The raw equivalent of @table.
+ * The raw equivalent of @table.
  */
 static __always_inline struct pvr_page_table_l0_raw *
 pvr_page_table_l0_get_raw(struct pvr_page_table_l0 *table)
@@ -1161,17 +1145,22 @@ pvr_page_table_l0_get_raw(struct pvr_page_table_l0 *table)
 
 /**
  * pvr_page_table_l0_get_entry_raw() - Access an entry from the raw equivalent
- *                                     of a mirror L0 page table.
- * @table: Target L0 page table.
+ *                                     of a mirror level 0 page table.
+ * @table: Target level 0 page table.
  * @idx: Index of the entry to access.
  *
- * Technically this function returns a pointer to a slot in a raw L0 page
+ * Technically this function returns a pointer to a slot in a raw level 0 page
  * table, since the returned "entry" is not guaranteed to be valid. The caller
- * must verify the validity of the entry at the returned address before reading
- * or overwriting it.
+ * must verify the validity of the entry at the returned address (perhaps using
+ * pvr_page_table_l0_entry_raw_is_valid()) before reading or overwriting it.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before dereferencing the
+ * returned pointer. This is espcially important for level 0 page tables, which
+ * can have a variable number of entries.
  *
  * Return:
- *  * A pointer to the requested raw L0 page table entry.
+ * A pointer to the requested raw level 0 page table entry.
  */
 static __always_inline struct pvr_page_table_l0_entry_raw *
 pvr_page_table_l0_get_entry_raw(struct pvr_page_table_l0 *table, u16 idx)
@@ -1180,14 +1169,14 @@ pvr_page_table_l0_get_entry_raw(struct pvr_page_table_l0 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l0_entry_is_valid() - Check if an L0 page table entry is
+ * pvr_page_table_l0_entry_is_valid() - Check if a level 0 page table entry is
  *                                      marked as valid.
- * @table: Target L0 page table.
+ * @table: Target level 0 page table.
  * @idx: Index of the entry to check.
  *
- * Return:
- *  * %true if there is a valid entry at @idx in @table, or
- *  * %false otherwise.
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  */
 static __always_inline bool
 pvr_page_table_l0_entry_is_valid(struct pvr_page_table_l0 *table, u16 idx)
@@ -1199,10 +1188,15 @@ pvr_page_table_l0_entry_is_valid(struct pvr_page_table_l0 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l2_insert() - TODO
- * @table: Target L2 page table.
+ * pvr_page_table_l2_insert() - Insert an entry referring to a level 1 page
+ *                              table into a level 2 page table.
+ * @table: Target level 2 page table.
  * @idx: Index of the entry to write.
- * @child_table: Target L1 page table to be referenced by the new entry.
+ * @child_table: Target level 1 page table to be referenced by the new entry.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
  * there is not already a valid entry at @idx in @table.
@@ -1225,12 +1219,19 @@ pvr_page_table_l2_insert(struct pvr_page_table_l2 *table, u16 idx,
 }
 
 /**
- * pvr_page_table_l2_remove() - TODO
- * @table: Target L2 page table.
+ * pvr_page_table_l2_remove() - Remove a level 1 page table from a level 2 page
+ *                              table.
+ * @table: Target level 2 page table.
  * @idx: Index of the entry to remove.
  *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
+ *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table.
+ * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * function twice, and subsequent calls **will** place @table into an invalid
+ * state.
  */
 static void
 pvr_page_table_l2_remove(struct pvr_page_table_l2 *table, u16 idx)
@@ -1249,10 +1250,15 @@ pvr_page_table_l2_remove(struct pvr_page_table_l2 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l1_insert() - TODO
- * @table: Target L1 page table.
+ * pvr_page_table_l1_insert() - Insert an entry referring to a level 0 page
+ *                              table into a level 1 page table.
+ * @table: Target level 1 page table.
  * @idx: Index of the entry to write.
- * @child_table: Target L0 page table to be referenced by the new entry.
+ * @child_table: Target level 0 page table to be referenced by the new entry.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
  * there is not already a valid entry at @idx in @table.
@@ -1278,12 +1284,22 @@ pvr_page_table_l1_insert(struct pvr_page_table_l1 *table, u16 idx,
 static void __pvr_page_table_l1_destroy(struct pvr_page_table_l1 *table);
 
 /**
- * pvr_page_table_l1_remove() - TODO
- * @table: Target L1 page table.
+ * pvr_page_table_l1_remove() - Remove a level 0 page table from a level 1 page
+ *                              table.
+ * @table: Target level 1 page table.
  * @idx: Index of the entry to remove.
  *
+ * If this function results in @table becoming empty, it will be removed from
+ * its parent level 2 page table and destroyed.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
+ *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table.
+ * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * function twice, and subsequent calls **will** place @table into an invalid
+ * state.
  */
 static void
 pvr_page_table_l1_remove(struct pvr_page_table_l1 *table, u16 idx)
@@ -1303,11 +1319,16 @@ pvr_page_table_l1_remove(struct pvr_page_table_l1 *table, u16 idx)
 }
 
 /**
- * pvr_page_table_l0_insert() - TODO
- * @table: Target L0 page table.
+ * pvr_page_table_l0_insert() - Insert an entry referring to a physical page
+ *                              into a level 2 page table.
+ * @table: Target level 0 page table.
  * @idx: Index of the entry to write.
  * @dma_addr: Target DMA address to be referenced by the new entry.
  * @flags: Page options to be stored in the new entry.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
  * there is not already a valid entry at @idx in @table.
@@ -1333,12 +1354,22 @@ pvr_page_table_l0_insert(struct pvr_page_table_l0 *table, u16 idx,
 static void __pvr_page_table_l0_destroy(struct pvr_page_table_l0 *table);
 
 /**
- * pvr_page_table_l0_remove() - TODO
- * @table: Target L0 page table.
+ * pvr_page_table_l0_remove() - Remove a physical page from a level 0 page
+ *                              table.
+ * @table: Target level 0 page table.
  * @idx: Index of the entry to remove.
  *
+ * If this function results in @table becoming empty, it will be removed from
+ * its parent level 1 page table and destroyed.
+ *
+ * The value of @idx is not checked here; it is the callers responsibility to
+ * ensure @idx refers to a valid index within @table before calling this
+ * function.
+ *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table.
+ * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * function twice, and subsequent calls **will** place @table into an invalid
+ * state.
  */
 static void
 pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
@@ -1359,10 +1390,6 @@ pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
 
 /**
  * DOC: Page table index utilities
- *
- * These utilities are not tied to the raw or mirror page tables since they
- * operate only on virtual device addresses which are identical between the two
- * structures.
  */
 /**
  * DOC: Page table index utilities (constants)
@@ -1390,51 +1417,27 @@ pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
  *
  * .. c:macro:: PVR_PAGE_TABLE_ADDR_MASK
  *
- *    Bitmask of virtual devices addresses which are valid in the page table
+ *    Bitmask of device-virtual addresses which are valid in the page table
  *    structure.
  *
  *    This value is derived from %PVR_PAGE_TABLE_ADDR_SPACE_SIZE, so the same
  *    notes on that constant apply here.
  */
-
-/**
- * PVR_PAGE_TABLE_ADDR_SPACE_SIZE - Size of device-virtual address space which
- * can be represented in the page table structure.
- *
- * *This doc comment is not rendered - see DOC: Page table index utilities
- * (constants).*
- */
 #define PVR_PAGE_TABLE_ADDR_SPACE_SIZE SZ_1T
-
-/**
- * PVR_PAGE_TABLE_ADDR_BITS - Number of bits needed to represent any value less
- * than %PVR_PAGE_TABLE_ADDR_SPACE_SIZE exactly.
- *
- * *This doc comment is not rendered - see DOC: Page table index utilities
- * (constants).*
- */
 #define PVR_PAGE_TABLE_ADDR_BITS __ffs(PVR_PAGE_TABLE_ADDR_SPACE_SIZE)
-
-/**
- * PVR_PAGE_TABLE_ADDR_MASK - Bitmask of virtual devices addresses which are
- * valid in the page table structure.
- *
- * *This doc comment is not rendered - see DOC: Page table index utilities
- * (constants).*
- */
 #define PVR_PAGE_TABLE_ADDR_MASK (PVR_PAGE_TABLE_ADDR_SPACE_SIZE - 1)
 
 /**
- * pvr_page_table_l2_idx() - Calculate the L2 page table index for a virtual
- *                           device address.
- * @device_addr: Target virtual device address.
+ * pvr_page_table_l2_idx() - Calculate the level 2 page table index for a
+ *                           device-virtual address.
+ * @device_addr: Target device-virtual address.
  *
  * This function does not perform any bounds checking - it is the caller's
  * responsibility to ensure that @device_addr is valid before interpreting
  * the result.
  *
  * Return:
- *  * The index into an L2 page table corresponding to @device_addr.
+ * The index into a level 2 page table corresponding to @device_addr.
  */
 static __always_inline u16
 pvr_page_table_l2_idx(u64 device_addr)
@@ -1444,16 +1447,16 @@ pvr_page_table_l2_idx(u64 device_addr)
 }
 
 /**
- * pvr_page_table_l1_idx() - Calculate the L1 page table index for a virtual
- *                           device address.
- * @device_addr: Target virtual device address.
+ * pvr_page_table_l1_idx() - Calculate the level 1 page table index for a
+ *                           device-virtual address.
+ * @device_addr: Target device-virtual address.
  *
  * This function does not perform any bounds checking - it is the caller's
  * responsibility to ensure that @device_addr is valid before interpreting
  * the result.
  *
  * Return:
- *  * The index into an L1 page table corresponding to @device_addr.
+ * The index into a level 1 page table corresponding to @device_addr.
  */
 static __always_inline u16
 pvr_page_table_l1_idx(u64 device_addr)
@@ -1463,16 +1466,16 @@ pvr_page_table_l1_idx(u64 device_addr)
 }
 
 /**
- * pvr_page_table_l0_idx() - Calculate the L0 page table index for a virtual
- *                           device address.
- * @device_addr: Target virtual device address.
+ * pvr_page_table_l0_idx() - Calculate the level 0 page table index for a
+ *                           device-virtual address.
+ * @device_addr: Target device-virtual address.
  *
  * This function does not perform any bounds checking - it is the caller's
  * responsibility to ensure that @device_addr is valid before interpreting
  * the result.
  *
  * Return:
- *  * The index into an L0 page table corresponding to @device_addr.
+ * The index into a level 0 page table corresponding to @device_addr.
  */
 static __always_inline u16
 pvr_page_table_l0_idx(u64 device_addr)
@@ -1483,25 +1486,25 @@ pvr_page_table_l0_idx(u64 device_addr)
 
 /**
  * DOC: High-level page table operations
- *
- * TODO
  */
 
 /**
- * pvr_page_table_l1_create_unchecked() - Create an L1 page table and insert
- *                                        it into an L2 page table.
+ * pvr_page_table_l1_create_unchecked() - Create a level 1 page table and
+ *                                        insert it into a level 2 page table.
  * @pvr_dev: Target PowerVR device.
- * @parent_table: L2 page table into which the created L1 page table will be
- * inserted.
- * @idx: Index into @parent_table at which to insert the created L1 page table.
+ * @parent_table: Target level 2 page table.
+ * @idx: Index into @parent_table at which to insert the created level 1 page
+ * table.
  *
- * This function is unchecked. By using it, the caller is asserting that slot
- * @idx in @parent_table does not contain a valid entry.
+ * This function is unchecked. By using it, the caller is asserting that @idx
+ * indexes a valid slot in @parent_table, and that slot does not contain a
+ * valid entry.
  *
  * Return:
- *  * The newly-minted L1 page table on success,
+ *  * The newly-minted level 1 page table on success,
  *  * -%ENOMEM if allocation of a &struct pvr_page_table_l1 fails, or
- *  * Any error returned by pvr_page_table_l1_init().
+ *  * Any error encountered while initializing the new level 1 page table with
+ *    pvr_page_table_l1_init().
  */
 static struct pvr_page_table_l1 *
 pvr_page_table_l1_create_unchecked(struct pvr_device *pvr_dev,
@@ -1521,7 +1524,6 @@ pvr_page_table_l1_create_unchecked(struct pvr_device *pvr_dev,
 	if (err)
 		goto err_free_table;
 
-	/* Store the new L1 page table in the parent L2 page table. */
 	pvr_page_table_l2_insert(parent_table, idx, table);
 
 	return table;
@@ -1534,9 +1536,9 @@ err_out:
 }
 
 /**
- * __pvr_page_table_l1_destroy() - Destroy an L1 page table after removing it
- *                                 from its parent L2 page table.
- * @table: Target L1 page table.
+ * __pvr_page_table_l1_destroy() - Destroy a level 1 page table after removing
+ *                                 it from its parent level 2 page table.
+ * @table: Target level 1 page table.
  *
  * Although this function is defined in the "High-level page table operations"
  * section for symmetry, it should never be called directly (hence the ``__``
@@ -1556,23 +1558,28 @@ __pvr_page_table_l1_destroy(struct pvr_page_table_l1 *table)
 
 /**
  * pvr_page_table_l1_get_or_create() - Retrieves (optionally creating if
- *                                     necessary) an L1 page table from the
- *                                     specified L2 page table entry.
+ *                                     necessary) a level 1 page table from the
+ *                                     specified level 2 page table entry.
  * @pvr_dev: [IN] Target PowerVR device.
- * @parent_table: [IN] L2 page table which contains the target L1 page table.
+ * @parent_table: [IN] Level 2 page table which contains the target level 1
+ *                page table.
  * @idx: [IN] Index into @parent_table of the entry to fetch.
  * @should_create: [IN] Specifies whether new page tables should be created
- * when empty page table entries are encountered during traversal.
+ *                 when empty page table entries are encountered during
+ *                 traversal.
  * @did_create: [OUT] Optional pointer to a flag which is set when
- * @should_create is %true and new page table entries are created. In any
- * other case, the value will not be modified.
+ *              @should_create is %true and new page table entries are created.
+ *              In any other case, the value will not be modified.
  *
  * Return:
- *  * The selected L1 page table on success,
- *  * -%ENXIO if @should_create is %false and an L1 page table would have been
- *    created, or
- *  * Any error returned by pvr_page_table_l1_create_unchecked() if
- *    @should_create is %true and a new L1 page table needs to be created.
+ *  * The selected level 1 page table on success, or
+ *
+ *    If @should_create is %false:
+ *     * -%ENXIO if a level 1 page table would have been created.
+ *
+ *    If @should_create is %true:
+ *     * Any error encountered while creating the level 1 page table with
+ *       pvr_page_table_l1_create_unchecked() if one needs to be created.
  */
 static struct pvr_page_table_l1 *
 pvr_page_table_l1_get_or_create(struct pvr_device *pvr_dev,
@@ -1587,10 +1594,7 @@ pvr_page_table_l1_get_or_create(struct pvr_device *pvr_dev,
 	if (!should_create)
 		return ERR_PTR(-ENXIO);
 
-	/*
-	 * Use the unchecked version of pvr_page_table_l1_create() because we
-	 * just verified the entry does not exist yet.
-	 */
+	/* Safe, because we just verified the entry does not exist yet. */
 	table = pvr_page_table_l1_create_unchecked(pvr_dev, parent_table, idx);
 	if (!IS_ERR(table) && did_create)
 		*did_create = true;
@@ -1599,20 +1603,22 @@ pvr_page_table_l1_get_or_create(struct pvr_device *pvr_dev,
 }
 
 /**
- * pvr_page_table_l0_create_unchecked() - Create an L0 page table and insert
- *                                        it into an L1 page table.
+ * pvr_page_table_l0_create_unchecked() - Create a level 0 page table and
+ *                                        insert it into a level 1 page table.
  * @pvr_dev: Target PowerVR device.
- * @parent_table: L1 page table into which the created L0 page table will be
- * inserted.
- * @idx: Index into @parent_table at which to insert the created L0 page table.
+ * @parent_table: Target level 1 page table.
+ * @idx: Index into @parent_table at which to insert the created level 0 page
+ * table.
  *
- * This function is unchecked. By using it, the caller is asserting that slot
- * @idx in @parent_table does not contain a valid entry.
+ * This function is unchecked. By using it, the caller is asserting that @idx
+ * indexes a valid slot in @parent_table, and that slot does not contain a
+ * valid entry.
  *
  * Return:
- *  * The newly-minted L0 page table on success,
+ *  * The newly-minted level 0 page table on success,
  *  * -%ENOMEM if allocation of a &struct pvr_page_table_l0 fails, or
- *  * Any error returned by pvr_page_table_l0_init().
+ *  * Any error encountered while initializing the new level 0 page table with
+ *    pvr_page_table_l1_init().
  */
 static struct pvr_page_table_l0 *
 pvr_page_table_l0_create_unchecked(struct pvr_device *pvr_dev,
@@ -1632,7 +1638,6 @@ pvr_page_table_l0_create_unchecked(struct pvr_device *pvr_dev,
 	if (err)
 		goto err_free_table;
 
-	/* Store the new L0 page table in the parent L1 page table. */
 	pvr_page_table_l1_insert(parent_table, idx, table);
 
 	return table;
@@ -1645,9 +1650,9 @@ err_out:
 }
 
 /**
- * __pvr_page_table_l0_destroy() - Destroy an L0 page table after removing it
- *                                 from its parent L1 page table.
- * @table: Target L0 page table.
+ * __pvr_page_table_l0_destroy() - Destroy a level 0 page table after removing
+ *                                 it from its parent level 1 page table.
+ * @table: Target level 0 page table.
  *
  * Although this function is defined in the "High-level page table operations"
  * section for symmetry, it should never be called directly (hence the ``__``
@@ -1667,23 +1672,25 @@ __pvr_page_table_l0_destroy(struct pvr_page_table_l0 *table)
 
 /**
  * pvr_page_table_l0_get_or_create() - Retrieves (optionally creating if
- *                                     necessary) an L0 page table from the
- *                                     specified L1 page table entry.
+ *                                     necessary) a level 0 page table from the
+ *                                     specified level 1 page table entry.
  * @pvr_dev: [IN] Target PowerVR device.
- * @parent_table: [IN] L1 page table which contains the target L0 page table.
+ * @parent_table: [IN] Level 1 page table which contains the target level 0
+ *                page table.
  * @idx: [IN] Index into @parent_table of the entry to fetch.
  * @should_create: [IN] Specifies whether new page tables should be created
- * when empty page table entries are encountered during traversal.
+ *                 when empty page table entries are encountered during
+ *                 traversal.
  * @did_create: [OUT] Optional pointer to a flag which is set when
- * @should_create is %true and new page table entries are created. In any
- * other case, the value will not be modified.
+ *              @should_create is %true and new page table entries are created.
+ *              In any other case, the value will not be modified.
  *
  * Return:
- *  * The selected L0 page table on success,
- *  * -%ENXIO if @should_create is %false and an L0 page table would have been
- *    created, or
+ *  * The selected level 0 page table on success,
+ *  * -%ENXIO if @should_create is %false and a level 0 page table would have
+ *    been created, or
  *  * Any error returned by pvr_page_table_l1_create_unchecked() if
- *    @should_create is %true and a new L0 page table needs to be created.
+ *    @should_create is %true and a new level 0 page table needs to be created.
  */
 static struct pvr_page_table_l0 *
 pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
@@ -1698,10 +1705,7 @@ pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
 	if (!should_create)
 		return ERR_PTR(-ENXIO);
 
-	/*
-	 * Use the unchecked version of pvr_page_table_l0_create() because we
-	 * just verified the entry does not exist yet.
-	 */
+	/* Safe, because we just verified the entry does not exist yet. */
 	table = pvr_page_table_l0_create_unchecked(pvr_dev, parent_table, idx);
 	if (!IS_ERR(table) && did_create)
 		*did_create = true;
@@ -1711,20 +1715,6 @@ pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
 
 /**
  * DOC: Page table pointer
- *
- * Traversing the page table tree structure is not a straightforward
- * operation since there are multiple layers, each with different properties.
- * To contain and attempt to reduce this complexity, it's mostly encompassed
- * in a "heavy pointer" type (&struct pvr_page_table_ptr) and its associated
- * functions.
- *
- * Usage
- * -----
- * To start using a &struct pvr_page_table_ptr instance, you must first
- * initialize it to the starting address of your traversal using
- * pvr_page_table_ptr_init().
- *
- * TODO
  */
 /**
  * DOC: Page table pointer (constants)
@@ -1734,72 +1724,51 @@ pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
  *    Negative value to indicate that a page table pointer is fully in sync
  *    when assigned to &pvr_page_table_ptr->sync_level_required.
  */
-
-/**
- * PVR_PAGE_TABLE_PTR_IN_SYNC - Negative value to indicate that a page table
- *                              pointer is fully in sync.
- *
- * *This doc comment is not rendered - see DOC: VM backing pages (constants).*
- */
 #define PVR_PAGE_TABLE_PTR_IN_SYNC ((s8)(-1))
 
 /**
- * struct pvr_page_table_ptr - TODO
+ * struct pvr_page_table_ptr - A reference to a single physical page as indexed
+ *                             by the page table structure.
+ * @pvr_dev: The PowerVR device associated with the VM context the
+ *           pointer is traversing.
+ * @l2_table: A cached handle to the level 2 page table the pointer is
+ *            currently traversing.
+ * @l1_table: A cached handle to the level 1 page table the pointer is
+ *            currently traversing.
+ * @l0_table: A cached handle to the level 0 page table the pointer is
+ *            currently traversing.
+ * @l2_idx: Index into the level 2 page table the pointer is currently
+ *          referencing.
+ * @l1_idx: Index into the level 1 page table the pointer is currently
+ *          referencing.
+ * @l0_idx: Index into the level 0 page table the pointer is currently
+ *          referencing.
+ * @sync_level_required: The maximum level of the page table tree structure
+ *                       which has (possibly) been modified since it was last
+ *                       flushed to the device.
+ *
+ *                       This field should only be set with
+ *                       pvr_page_table_ptr_require_sync() or indirectly by
+ *                       pvr_page_table_ptr_sync_partial().
  */
 struct pvr_page_table_ptr {
-	/**
-	 * @pvr_dev: The PowerVR device associated with the VM context the
-	 * pointer is traversing.
-	 */
 	struct pvr_device *pvr_dev;
-
-	/**
-	 * @l2_table: A cached handle to the L2 page table the pointer is
-	 * currently traversing.
-	 */
 	struct pvr_page_table_l2 *l2_table;
-
-	/**
-	 * @l1_table: A cached handle to the L1 page table the pointer is
-	 * currently traversing.
-	 */
 	struct pvr_page_table_l1 *l1_table;
-
-	/**
-	 * @l0_table: A cached handle to the L0 page table the pointer is
-	 * currently traversing.
-	 */
 	struct pvr_page_table_l0 *l0_table;
-
-	/**
-	 * @l2_idx: Index into the L2 page table the pointer is currently
-	 * referencing.
-	 */
 	u16 l2_idx;
-
-	/**
-	 * @l1_idx: Index into the L1 page table the pointer is currently
-	 * referencing.
-	 */
 	u16 l1_idx;
-
-	/**
-	 * @l0_idx: Index into the L0 page table the pointer is currently
-	 * referencing.
-	 */
 	u16 l0_idx;
-
-	/**
-	 * @sync_level_required: The maximum level of the page table tree
-	 * structure which has (possibly) been modified since it was last
-	 * flushed to the device.
-	 *
-	 * This field should only be set with pvr_page_table_ptr_require_sync()
-	 * or indirectly by pvr_page_table_ptr_sync_partial().
-	 */
 	s8 sync_level_required;
 };
 
+/**
+ * pvr_page_table_ptr_require_sync() - Mark a page table pointer as requiring a
+ *                                     sync operation for the referenced page
+ *                                     tables up to a specified level.
+ * @ptr: Target page table pointer.
+ * @level: Maximum page table level for which a sync is required.
+ */
 static __always_inline void
 pvr_page_table_ptr_require_sync(struct pvr_page_table_ptr *ptr, s8 level)
 {
@@ -1808,20 +1777,23 @@ pvr_page_table_ptr_require_sync(struct pvr_page_table_ptr *ptr, s8 level)
 }
 
 /**
- * pvr_page_table_ptr_sync_manual() - TODO
+ * pvr_page_table_ptr_sync_manual() - Trigger a sync of some or all of the
+ *                                    page tables referenced by a page table
+ *                                    pointer.
  * @ptr: Target page table pointer.
- * @level: TODO
+ * @level: Maximum page table level to sync.
  *
  * Do not call this function directly. Instead use
  * pvr_page_table_ptr_sync_partial() which is checked against the current
- * value of &ptr->sync_level_required.
+ * value of &ptr->sync_level_required as set by
+ * pvr_page_table_ptr_require_sync().
  */
 static void
 pvr_page_table_ptr_sync_manual(struct pvr_page_table_ptr *ptr, s8 level)
 {
 	/*
-	 * We sync the pages table levels in ascending order (starting from
-	 * the leaf node) to ensure consistency.
+	 * We sync the page table levels in ascending order (starting from the
+	 * leaf node) to ensure consistency.
 	 */
 
 	if (level < 0)
@@ -1841,9 +1813,19 @@ pvr_page_table_ptr_sync_manual(struct pvr_page_table_ptr *ptr, s8 level)
 }
 
 /**
- * pvr_page_table_ptr_sync_partial() - TODO
+ * pvr_page_table_ptr_sync_partial() - Trigger a sync of some or all of the
+ *                                     page tables referenced by a page table
+ *                                     pointer.
  * @ptr: Target page table pointer.
- * @level: TODO
+ * @level: Requested page table level to sync up to (inclusive).
+ *
+ * If @level is greater than the maximum level recorded by @ptr as requiring
+ * a sync operation, only the previously recorded maximum will be used.
+ *
+ * Additionally, if @level is greater than or equal to the maximum level
+ * recorded by @ptr as requiring a sync operation, that maximum level will be
+ * reset as a full sync will be performed. This is equivalent to calling
+ * pvr_page_table_ptr_sync().
  */
 static void
 pvr_page_table_ptr_sync_partial(struct pvr_page_table_ptr *ptr, s8 level)
@@ -1865,8 +1847,13 @@ pvr_page_table_ptr_sync_partial(struct pvr_page_table_ptr *ptr, s8 level)
 }
 
 /**
- * pvr_page_table_ptr_sync() - TODO
+ * pvr_page_table_ptr_sync() - Trigger a sync of every page table referenced by
+ *                             a page table pointer.
  * @ptr: Target page table pointer.
+ *
+ * The maximum level marked internally as requiring a sync will be reset so
+ * that subsequent calls to this function will be no-ops unless @ptr is
+ * otherwise updated.
  */
 static __always_inline void
 pvr_page_table_ptr_sync(struct pvr_page_table_ptr *ptr)
@@ -1877,15 +1864,29 @@ pvr_page_table_ptr_sync(struct pvr_page_table_ptr *ptr)
 }
 
 /**
- * pvr_page_table_ptr_load_tables() - TODO
+ * pvr_page_table_ptr_load_tables() - Load pointers to tables in each level of
+ *                                    the page table tree structure needed to
+ *                                    reference the physical page referenced by
+ *                                    a page table pointer.
  * @ptr: Target page table pointer.
  * @should_create: Specifies whether new page tables should be created when
- * empty page table entries are encountered during traversal.
- * @load_level_required: TODO
+ *                 empty page table entries are encountered during traversal.
+ * @load_level_required: Maximum page table level to load.
+ *
+ * If @should_create is %true, this function may modify the stored required
+ * sync level of @ptr as new page tables are created and inserted into their
+ * respective parents.
+ *
+ * Since there is only one root page table, it is technically incorrect to call
+ * this function with a value of @load_level_required greater than or equal to
+ * the root level number. However, this is not explicitly disallowed here.
  *
  * Return:
- *  * 0 on success, or
- *  * ...
+ *  * 0 on success,
+ *  * Any error returned by pvr_page_table_l1_get_or_create() if
+ *    @load_level_required >= 1 except -%ENXIO, or
+ *  * Any error returned by pvr_page_table_l0_get_or_create() if
+ *    @load_level_required >= 0 except -%ENXIO.
  */
 static int
 pvr_page_table_ptr_load_tables(struct pvr_page_table_ptr *ptr,
@@ -1976,15 +1977,20 @@ err_out:
 }
 
 /**
- * pvr_page_table_ptr_set() - TODO
+ * pvr_page_table_ptr_set() - Reassign a page table pointer, syncing any
+ *                            page tables previously assigned to it which are
+ *                            no longer relevant.
  * @ptr: Target page table pointer.
  * @device_addr: New pointer target.
  * @should_create: Specify whether new page tables should be created when
- * empty page table entries are encountered during traversal.
+ *                 empty page table entries are encountered during traversal.
+ *
+ * This function performs a full sync on the pointer, regardless of which
+ * levels are modified.
  *
  * Return:
  *  * 0 on success, or
- *  * ...
+ *  * Any error returned by pvr_page_table_ptr_load_tables().
  */
 static int
 pvr_page_table_ptr_set(struct pvr_page_table_ptr *ptr, u64 device_addr,
@@ -2002,18 +2008,18 @@ pvr_page_table_ptr_set(struct pvr_page_table_ptr *ptr, u64 device_addr,
 /**
  * pvr_page_table_ptr_init() - Initialize a page table pointer.
  * @ptr: Target page table pointer.
- * @pvr_dev: TODO
- * @root_table: TODO
- * @device_addr: TODO
+ * @pvr_dev: Target PowerVR device.
+ * @root_table: Root of the target page table tree structure.
+ * @device_addr: Pointer target.
  * @should_create: Specify whether new page tables should be created when
- * empty page table entries are encountered during traversal.
+ *                 empty page table entries are encountered during traversal.
  *
  * This function zeroes @ptr; it must not be a valid page table pointer when it
  * is called.
  *
  * Return:
  *  * 0 on success, or
- *  * ...
+ *  * Any error returned by pvr_page_table_ptr_set().
  */
 static int
 pvr_page_table_ptr_init(struct pvr_page_table_ptr *ptr,
@@ -2044,7 +2050,7 @@ pvr_page_table_ptr_fini(struct pvr_page_table_ptr *ptr)
  * pvr_page_table_ptr_next_page() - Advance a page table pointer.
  * @ptr: Target page table pointer.
  * @should_create: Specify whether new page tables should be created when
- * empty page table entries are encountered during traversal.
+ *                 empty page table entries are encountered during traversal.
  *
  * If @should_create is %false, it is the callers responsibility to verify that
  * the state of the table references in @ptr is valid on return. If -%ENXIO is
@@ -2105,9 +2111,12 @@ load_tables:
 }
 
 /**
- * pvr_page_table_ptr_copy() - TODO
- * @dst: TODO
- * @src: TODO
+ * pvr_page_table_ptr_copy() - Duplicate a page table pointer.
+ * @dst: [OUT] New page table pointer.
+ * @src: [IN] Original page table pointer.
+ *
+ * The pointer at @dst will be marked as "synced" so that any sync operations
+ * required on @src are not duplicated.
  */
 static void
 pvr_page_table_ptr_copy(struct pvr_page_table_ptr *dst,
@@ -2124,18 +2133,15 @@ pvr_page_table_ptr_copy(struct pvr_page_table_ptr *dst,
 
 /**
  * DOC: Single page operations
- *
- * TODO
  */
 
 /**
- * pvr_page_create() - Create a device virtual memory page and insert it into
- * an L0 page table.
- * @ptr: TODO
- * @dma_addr: DMA (quasi-physical) address which the created page should point
- * to.
- * @flags: Page options saved on the L0 page table entry for reading by the
- * device.
+ * pvr_page_create() - Create a device-virtual memory page and insert it into
+ * a level 0 page table.
+ * @ptr: Page table pointer to the device-virtual address of the target page.
+ * @dma_addr: DMA address of the physical page backing the created page.
+ * @flags: Page options saved on the level 0 page table entry for reading by
+ *         the device.
  *
  * Return:
  *  * 0 on success, or
@@ -2158,8 +2164,8 @@ pvr_page_create(struct pvr_page_table_ptr *ptr, dma_addr_t dma_addr,
 
 /**
  * pvr_page_destroy() - Destroy a device page after removing it from its
- *                      parent L0 page table.
- * @ptr: TODO
+ *                      parent level 0 page table.
+ * @ptr: Page table pointer to the device-virtual address of the target page.
  */
 static void
 pvr_page_destroy(struct pvr_page_table_ptr *ptr)
@@ -2176,35 +2182,8 @@ pvr_page_destroy(struct pvr_page_table_ptr *ptr)
 
 /**
  * DOC: Interval tree base implementation
- *
- * There is a note in <linux/interval_tree_generic.h> which says:
- *
- *    Note - before using this, please consider if generic version
- *    (interval_tree.h) would work for you...
- *
- * Here, then, is our justification for using the generic version, instead
- * of the generic version (naming is hard, okay!):
- *
- * The generic version of &struct interval_tree_node (from
- * <linux/interval_tree.h> uses unsigned long. We always need the elements to
- * be 64 bits wide, regardless of host pointer size. We could gate this
- * implementation on %BITS_PER_LONG, but it's better for us to store &start
- * and &size then derive &last rather than the way &struct interval_tree_node
- * does it, storing &start and &last] then deriving &size.
  */
 
-/**
- * pvr_vm_interval_tree_compute_last() - Compute the inclusive last value of
- *                                       a range.
- * @start: Start of range.
- * @size: Size of range.
- *
- * This seemingly useless function was added to attempt to eliminate some
- * off-by-one errors which managed to creep in before it existed.
- *
- * Return:
- *  * The last (inclusive) value of the range specified by @start and @size.
- */
 static __always_inline u64
 pvr_vm_interval_tree_compute_last(u64 start, u64 size)
 {
@@ -2217,6 +2196,15 @@ pvr_vm_interval_tree_compute_last(u64 start, u64 size)
 /**
  * struct pvr_vm_interval_tree_node - A node in our implementation of an
  *                                    interval tree.
+ * @rb: Base RB-tree node. **For internal use only.**
+ * @start: The start value of the range represented by this node. **For
+ *         internal use only.** Do not access this member directly, instead
+ *         call pvr_vm_interval_tree_node_start().
+ * @size: The size of the range represented by this node. **For internal use
+ *        only.** Do not access this member directly, instead call
+ *        pvr_vm_interval_tree_node_size().
+ * @__subtree_last: Required for the implementation generated by
+ *                  INTERVAL_TREE_DEFINE(). **For internal use only.**
  *
  * Unlike the generic implementation in <linux/interval_tree.h>, we store the
  * size of the interval instead of the last value. To access the last value (as
@@ -2224,31 +2212,10 @@ pvr_vm_interval_tree_compute_last(u64 start, u64 size)
  * pvr_vm_internal_tree_node_last().
  */
 struct pvr_vm_interval_tree_node {
-	/** @rb: Base RB-tree node. **For internal use only.** */
 	struct rb_node rb;
-
-	/**
-	 * @start: The start value of the range represented by this node.
-	 * **For internal use only.**
-	 *
-	 * Do not access this member directly, instead call
-	 * pvr_vm_interval_tree_node_start().
-	 */
 	u64 start;
-
-	/**
-	 * @size: The size of the range represented by this node.
-	 * **For internal use only.**
-	 *
-	 * Do not access this member directly, instead call
-	 * pvr_vm_interval_tree_node_size().
-	 */
 	u64 size;
-
-	/**
-	 * @__subtree_last: Required for the implementation generated by
-	 * INTERVAL_TREE_DEFINE(). **For internal use only.**
-	 */
+/* private: internal use only */
 	u64 __subtree_last;
 };
 
@@ -2264,6 +2231,13 @@ pvr_vm_interval_tree_node_mark_removed(struct pvr_vm_interval_tree_node *node)
 	RB_CLEAR_NODE(&node->rb);
 }
 
+/**
+ * pvr_vm_interval_tree_node_init() - Initialize an VM internal interval tree
+ *                                    node.
+ * @node: Target VM interval tree node.
+ * @start: Start value of @node.
+ * @size: Size of @node.
+ */
 static __always_inline void
 pvr_vm_interval_tree_node_init(struct pvr_vm_interval_tree_node *node,
 			       u64 start, u64 size)
@@ -2274,6 +2248,16 @@ pvr_vm_interval_tree_node_init(struct pvr_vm_interval_tree_node *node,
 	node->size = size;
 }
 
+/**
+ * pvr_vm_interval_tree_node_fini() - Teardown an VM internal interval tree
+ *                                    node.
+ * @node: Target VM interval tree node.
+ *
+ * There are no actual teardown operations required for a
+ * &struct pvr_vm_interval_tree_node. However, this function does verify that
+ * @node has been removed from its parent tree and emits a kernel warning if
+ * this is not the case.
+ */
 static __always_inline void
 pvr_vm_interval_tree_node_fini(struct pvr_vm_interval_tree_node *node)
 {
@@ -2282,11 +2266,13 @@ pvr_vm_interval_tree_node_fini(struct pvr_vm_interval_tree_node *node)
 }
 
 /**
- * pvr_vm_interval_tree_node_start() - TODO
+ * pvr_vm_interval_tree_node_start() - Obtain the start value of the interval
+ *                                     represented by a VM internal interval
+ *                                     tree node.
  * @node: Target VM interval tree node.
  *
  * Return:
- *  * The start value of @node.
+ * The start value of @node.
  */
 static __always_inline u64
 pvr_vm_interval_tree_node_start(struct pvr_vm_interval_tree_node *node)
@@ -2295,11 +2281,13 @@ pvr_vm_interval_tree_node_start(struct pvr_vm_interval_tree_node *node)
 }
 
 /**
- * pvr_vm_interval_tree_node_size() - TODO
+ * pvr_vm_interval_tree_node_size() - Obtain the size of the interval
+ *                                    represented by a VM internal interval
+ *                                    tree node.
  * @node: Target VM interval tree node.
  *
  * Return:
- *  * The size of @node.
+ * The size of @node.
  */
 static __always_inline u64
 pvr_vm_interval_tree_node_size(struct pvr_vm_interval_tree_node *node)
@@ -2308,11 +2296,13 @@ pvr_vm_interval_tree_node_size(struct pvr_vm_interval_tree_node *node)
 }
 
 /**
- * pvr_vm_interval_tree_node_last() - TODO
+ * pvr_vm_interval_tree_node_last() - Obtain the last (inclusive) value of the
+ *                                    interval represented by a VM internal
+ *                                    interval tree node.
  * @node: Target VM interval tree node.
  *
  * Return:
- *  * The last (inclusive) value of @node.
+ * The last (inclusive) value of @node.
  */
 static __always_inline u64
 pvr_vm_interval_tree_node_last(struct pvr_vm_interval_tree_node *node)
@@ -2327,11 +2317,12 @@ INTERVAL_TREE_DEFINE(struct pvr_vm_interval_tree_node, rb, u64, __subtree_last,
 
 /**
  * for_each_pvr_vm_interval_tree_node() - Helper macro to iterate a specific
- *                                        range of an interval tree.
- * @tree_:
- * @node_:
- * @start_:
- * @size_:
+ *                                        range of a VM internal interval tree.
+ * @tree_: Target interval tree to iterate.
+ * @node_: Pointer to an allocated instance of &struct pvr_vm_interval_tree_node
+ *         to be used as the loop variable.
+ * @start_: First value to iterate from.
+ * @size_: Size to iterate for.
  *
  * Due to the way interval tree iteration works, formulating a ``for`` loop
  * around it is pretty verbose! We can encapsulate all that lengthiness in a
@@ -2345,17 +2336,27 @@ INTERVAL_TREE_DEFINE(struct pvr_vm_interval_tree_node, rb, u64, __subtree_last,
 						      (size_)))
 
 /**
- * struct pvr_vm_interval_tree - TODO
+ * struct pvr_vm_interval_tree - Our implementation of an interval tree.
+ * @root: The underlying root of the red-black tree as used by
+ *        INTERVAL_TREE_DEFINE().
+ *
+ * The generic interval tree types in both <linux/interval_tree_generic.h> and
+ * <linux/interval_tree.h> do not contain a specific type for the root of the
+ * tree; instead using &struct rb_root_cached from the underlying red-black
+ * tree implementation.
  */
 struct pvr_vm_interval_tree {
-	/** @root: TODO */
 	struct rb_root_cached root;
 } __packed;
 
 /**
- * pvr_vm_interval_tree_insert() - TODO
+ * pvr_vm_interval_tree_insert() - Insert a node into a VM internal interval
+ *                                 tree.
  * @tree: Target VM interval tree.
  * @node: Node to be inserted.
+ *
+ * This function forms a wrapper around __pvr_vm_interval_tree_insert(), which
+ * is generated by INTERVAL_TREE_DEFINE().
  */
 static __always_inline void
 pvr_vm_interval_tree_insert(struct pvr_vm_interval_tree *tree,
@@ -2370,9 +2371,13 @@ pvr_vm_interval_tree_insert(struct pvr_vm_interval_tree *tree,
 }
 
 /**
- * pvr_vm_interval_tree_remove() - TODO
+ * pvr_vm_interval_tree_remove() - Remove a node from a VM internal interval
+ *                                 tree.
  * @tree: Target VM interval tree.
  * @node: Node to be removed.
+ *
+ * This function forms a wrapper around __pvr_vm_interval_tree_remove(), which
+ * is generated by INTERVAL_TREE_DEFINE().
  */
 static __always_inline void
 pvr_vm_interval_tree_remove(struct pvr_vm_interval_tree *tree,
@@ -2389,27 +2394,19 @@ pvr_vm_interval_tree_remove(struct pvr_vm_interval_tree *tree,
 }
 
 /**
- * pvr_vm_interval_tree_subtree_search() - TODO
- * @node: Node to search from.
- * @start: Start value of the iterable range.
- * @size: Size of the iterable range.
- */
-static __always_inline struct pvr_vm_interval_tree_node *
-pvr_vm_interval_tree_subtree_search(struct pvr_vm_interval_tree_node *node,
-				    u64 start, u64 size)
-{
-	/* This function is generated by INTERVAL_TREE_DEFINE(). */
-	return __pvr_vm_interval_tree_subtree_search(
-		node, start, pvr_vm_interval_tree_compute_last(start, size));
-}
-
-/**
- * pvr_vm_interval_tree_iter_first() - TODO
+ * pvr_vm_interval_tree_iter_first() - Locate the first VM internal interval
+ *                                     tree node which overlaps with the
+ *                                     specified range.
  * @tree: Target VM interval tree.
  * @start: Start value of the iterable range.
  * @size: Size of the iterable range.
  *
- * *This function is generated by INTERVAL_TREE_DEFINE().*
+ * This function forms a wrapper around __pvr_vm_interval_tree_iter_first(),
+ * which is generated by INTERVAL_TREE_DEFINE().
+ *
+ * Return:
+ *  * The node containing @start (if one exists), or
+ *  * %NULL otherwise.
  */
 static __always_inline struct pvr_vm_interval_tree_node *
 pvr_vm_interval_tree_iter_first(struct pvr_vm_interval_tree *tree, u64 start,
@@ -2422,10 +2419,19 @@ pvr_vm_interval_tree_iter_first(struct pvr_vm_interval_tree *tree, u64 start,
 }
 
 /**
- * pvr_vm_interval_tree_iter_next() - TODO
+ * pvr_vm_interval_tree_iter_next() - Locate the next VM internal interval tree
+ *                                    node which overlaps with the specified
+ *                                    range.
  * @node: Node to iterate from.
  * @start: Start value of the iterable range.
  * @size: Size of the iterable range.
+ *
+ * This function forms a wrapper around __pvr_vm_interval_tree_iter_next(),
+ * which is generated by INTERVAL_TREE_DEFINE().
+ *
+ * Return:
+ *  * The subsequent node if one is found, or
+ *  * %NULL otherwise.
  */
 static __always_inline struct pvr_vm_interval_tree_node *
 pvr_vm_interval_tree_iter_next(struct pvr_vm_interval_tree_node *node,
@@ -2461,13 +2467,11 @@ pvr_vm_interval_tree_fini(struct pvr_vm_interval_tree *tree)
 {
 	struct pvr_vm_interval_tree_node *node;
 
-	/* clang-format off */
 	for_each_pvr_vm_interval_tree_node(tree, node, 0, U64_MAX) {
 		WARN(true, "%s(%p) found [%llx,%llx]@%p", __func__, tree,
 		     pvr_vm_interval_tree_node_start(node),
 		     pvr_vm_interval_tree_node_last(node), node);
 	}
-	/* clang-format on */
 }
 
 /**
@@ -2549,11 +2553,8 @@ pvr_vm_interval_tree_get(struct pvr_vm_interval_tree *tree, u64 start)
 }
 
 /**
- * DOC: Type-save VM interval tree wrappers
- *
- * TODO
+ * DOC: Type-safe VM interval tree wrappers
  */
-
 /**
  * PVR_GEN_INTERVAL_TREE_WRAPPER_TYPE_AND_DECLS() - TODO
  * @node_wrapper_: Type name of the structure to use as a node.
@@ -2716,50 +2717,50 @@ pvr_vm_interval_tree_get(struct pvr_vm_interval_tree *tree, u64 start)
 			pvr_vm_interval_tree_get(&tree->tree, start));          \
 	}
 
-PVR_GEN_INTERVAL_TREE_WRAPPER_TYPE_AND_DECLS(pvr_vm_mapping);
+PVR_GEN_INTERVAL_TREE_WRAPPER_TYPE_AND_DECLS(pvr_vm_mapping)
 
 /**
  * DOC: Memory context
  *
- * TODO
+ * This is the "top level" datatype in the VM code. It's exposed in the public
+ * API as an opaque handle.
  */
 
 /**
- * struct pvr_vm_context - TODO
+ * struct pvr_vm_context - Context type which encapsulates an entire page table
+ *                         tree structure.
+ * @pvr_dev: The PowerVR device to which this context is bound.
+ *
+ *           This binding is immutable for the life of the context.
+ * @root_table: The root of the page table tree structure.
+ *
+ *              This embedded struct is our "mirror" version of the top level
+ *              page table. By definition, there can only be one of these. The
+ *              device requires this top level table to always exist, so there
+ *              is no need for it to be a pointer here.
+ * @mappings: An interval tree structure containing every currently
+ *            active mapping associated with this context.
+ * @lock: Global lock on this entire structure of page tables.
  */
 struct pvr_vm_context {
-	/**
-	 * @pvr_dev: TODO
-	 */
 	struct pvr_device *pvr_dev;
-
-	/** @root_table: The root of the page table tree structure.*/
 	struct pvr_page_table_l2 root_table;
-
-	/**
-	 * @mappings: TODO
-	 */
 	struct pvr_vm_mapping_tree mappings;
-
-	/**
-	 * @lock: Global lock on this entire structure of page tables.
-	 *
-	 * .. admonition:: Future work
-	 *
-	 *    This "global" lock is potentially not the most efficient method
-	 *    of protecting the entire page table tree structure. Investigation
-	 *    into more granular methods would be a good idea.
-	 */
 	struct mutex lock;
 };
 
+/**
+ * pvr_vm_get_page_table_root_addr() - Get the DMA address of the root of the
+ *                                     page table structure behind a VM context.
+ * @vm_ctx: Target VM context.
+ */
 dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx)
 {
 	return vm_ctx->root_table.backing_page.dma_addr;
 }
 
 /**
- * pvr_vm_context_init() - TODO
+ * pvr_vm_context_init() - Initialize a VM context for the specified device.
  * @vm_ctx: Target VM context.
  * @pvr_dev: Target PowerVR device.
  */
@@ -2785,9 +2786,14 @@ err_out:
 }
 
 /**
- * pvr_vm_context_fini() - TODO
+ * pvr_vm_context_fini() - Teardown a VM context.
  * @vm_ctx: Target VM context.
- * @enable_warnings: Whether to print warnings for remaining mappings.
+ * @enable_warnings: Specify whether warnings should be emitted for mappings
+ *                   which are cleaned up by this function.
+ *
+ * This function ensures that no mappings are left dangling by unmapping them
+ * all in order of ascending device-virtual address. Set the @enable_warnings
+ * flag to emit kernel warnings when this happens.
  */
 static void
 pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
@@ -2798,7 +2804,7 @@ pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
 	mutex_lock(&vm_ctx->lock);
 
 	while ((mapping = pvr_vm_mapping_tree_iter_first(&vm_ctx->mappings, 0, U64_MAX)) != NULL) {
-		WARN(enable_warnings, "%s(%p) found [%llx,%llx]@%p", __func__, &vm_ctx->mappings,
+		WARN(enable_warnings, "%s(%p) found [%llx,%llx]@%p", __func__, vm_ctx,
 		     pvr_vm_mapping_start(mapping), pvr_vm_mapping_last(mapping), mapping);
 		pvr_vm_mapping_unmap(vm_ctx, mapping);
 		pvr_vm_mapping_fini(mapping);
@@ -2812,6 +2818,18 @@ pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
 	pvr_page_table_l2_fini(&vm_ctx->root_table);
 }
 
+/**
+ * pvr_vm_context_unmap_from_ptr() - Unmap pages from a memory context starting
+ *                                   from the entry addressed by a page table
+ *                                   pointer.
+ * @ptr: Page table pointer to the first page to unmap.
+ * @nr_pages: Number of pages to unmap.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * Any error encountered while advancing @ptr with
+ *    pvr_page_table_ptr_next_page() (except -%ENXIO).
+ */
 static int
 pvr_vm_context_unmap_from_ptr(struct pvr_page_table_ptr *ptr, u64 nr_pages)
 {
@@ -2855,12 +2873,12 @@ err_out:
 }
 
 /**
- * pvr_vm_context_unmap() - TODO
+ * pvr_vm_context_unmap() - Unmap pages from a memory context.
  * @vm_ctx: Target memory context.
- * @device_addr: First virtual device address to unmap.
+ * @device_addr: First device-virtual address to unmap.
  * @nr_pages: Number of pages to unmap.
  *
- * The total amount of virtual memory unmapped by pvr_vm_context_unmap()
+ * The total amount of device-virtual memory unmapped by pvr_vm_context_unmap()
  * is @nr_pages * 4KiB.
  */
 static int
@@ -2889,6 +2907,21 @@ err_out:
 	return err;
 }
 
+/**
+ * pvr_vm_context_map_direct() - Map pages to a memory context starting from
+ *                               the entry addressed by a page table pointer.
+ * @vm_ctx: Target memory context.
+ * @dma_addr: Initial DMA address of the memory to be mapped.
+ * @size: Size of mapping.
+ * @ptr: Page table pointer to the first page to map.
+ * @flags: Flags to be set on every device-virtual page created.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error encountered while creating a page with pvr_page_create(), or
+ *  * Any error encountered while advancing @ptr with
+ *    pvr_page_table_ptr_next_page().
+ */
 static int
 pvr_vm_context_map_direct(struct pvr_vm_context *vm_ctx, dma_addr_t dma_addr,
 			  u64 size, struct pvr_page_table_ptr *ptr,
@@ -2941,22 +2974,26 @@ err_fini_ptr_copy:
 
 /**
  * pvr_vm_context_map_partial_sgl() - Map part of a scatter-gather table entry
- *                                    to virtual device memory.
+ *                                    to device-virtual memory.
  * @vm_ctx: Target VM context.
  * @sgl: Target scatter-gather table entry.
  * @offset: Offset into @sgl to map from. Must result in a starting address
- * from @sgl which is CPU page-aligned.
+ *          from @sgl which is CPU page-aligned.
  * @size: Size of the memory to be mapped in bytes. Must be a non-zero multiple
- * of the device page size.
+ *        of the device page size.
  * @ptr: Page table pointer which points to the first page that should be
- * mapped to. This will point to the last page mapped to on return.
- * @page_flags: Page options to be applied to every virtual device memory page
- * in the created mapping.
+ *       mapped to. This will point to the last page mapped to on return.
+ * @page_flags: Page options to be applied to every device-virtual memory page
+ *              in the created mapping.
+ *
+ * If you need to map all of @sgl, use pvr_vm_context_map_sgl() instead which
+ * derives the values of @offset and @size from @sgl directly.
  *
  * Return:
- *  * 0 on success, or
+ *  * 0 on success,
  *  * -%EINVAL if the range specified by @offset and @size is not completely
- *    within @sgl.
+ *    within @sgl, or
+ *  * Any error returned by pvr_vm_context_map_direct().
  */
 static int
 pvr_vm_context_map_partial_sgl(struct pvr_vm_context *vm_ctx,
@@ -2974,6 +3011,23 @@ pvr_vm_context_map_partial_sgl(struct pvr_vm_context *vm_ctx,
 					 page_flags);
 }
 
+/**
+ * pvr_vm_context_map_sgl() - Map an entire scatter-gather table entry to
+ *                            device-virtual memory.
+ * @vm_ctx: Target VM context.
+ * @sgl: Target scatter-gather table entry.
+ * @ptr: Page table pointer which points to the first page that should be
+ *       mapped to. This will point to the last page mapped to on return.
+ * @page_flags: Page options to be applied to every device-virtual memory page
+ *              in the created mapping.
+ *
+ * If you only need to map part of @sgl, use pvr_vm_context_map_sgl_partial()
+ * instead.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * Any error returned by pvr_vm_context_map_direct().
+ */
 static int
 pvr_vm_context_map_sgl(struct pvr_vm_context *vm_ctx, struct scatterlist *sgl,
 		       struct pvr_page_table_ptr *ptr,
@@ -2987,16 +3041,18 @@ pvr_vm_context_map_sgl(struct pvr_vm_context *vm_ctx, struct scatterlist *sgl,
 }
 
 /**
- * pvr_vm_context_map_sgt() - Map an entire scatter-gather table into virtual
- *                            device memory.
+ * pvr_vm_context_map_sgt() - Map an entire scatter-gather table into
+ *                            device-virtual memory.
  * @vm_ctx: Target VM context.
  * @sgt: Target scatter-gather table.
  * @device_addr: Virtual device address to map to. Must be device page-aligned.
- * @page_flags: Page options to be applied to every virtual device memory page
+ * @page_flags: Page options to be applied to every device-virtual memory page
  * in the created mapping.
  *
  * Return:
- *  * 0 on success, or
+ *  * 0 on success,
+ *  * -%EINVAL if any of the entries in @sgt are not correctly aligned to the
+ *    device page size,
  *  * ...
  */
 static int
@@ -3038,15 +3094,15 @@ pvr_vm_context_map_sgt(struct pvr_vm_context *vm_ctx, struct sg_table *sgt,
 	}
 
 	/*
-	 * Before progressing, save a copy of the start pointer so we can use
+	 * Before progressing, save a copy of the start pointer, so we can use
 	 * it again if we enter an error state and have to destroy pages.
 	 */
 	pvr_page_table_ptr_copy(&ptr_copy, &ptr);
 
 	/*
-	 * Map first sg table entry outside loop, as it doesn't require a
-	 * pointer increment beforehand. We know &sgl is valid here because an
-	 * sg table must contain at least one entry.
+	 * Map the first sg table entry outside the loop, as it doesn't
+	 * require a pointer increment beforehand. We know &sgl is valid here
+	 * because an sg table must contain at least one entry.
 	 */
 	sgl = sgt->sgl;
 	err = pvr_vm_context_map_sgl(vm_ctx, sgl, &ptr, page_flags);
@@ -3088,7 +3144,7 @@ err_out:
 
 /**
  * pvr_vm_context_map_partial_sgt() - Map part of a scatter-gather table into
- *                                    virtual device memory.
+ *                                    device-virtual memory.
  * @vm_ctx: Target VM context.
  * @sgt: Target scatter-gather table.
  * @sgt_offset: Offset into @sgt to map from. Must result in a starting
@@ -3096,7 +3152,7 @@ err_out:
  * @device_addr: Virtual device address to map to. Must be device page-aligned.
  * @size: Size of memory to be mapped in bytes. Must be a non-zero multiple
  * of the device page size.
- * @page_flags: Page options to be applied to every virtual device memory page
+ * @page_flags: Page options to be applied to every device-virtual memory page
  * in the created mapping.
  *
  * Return:
@@ -3344,8 +3400,6 @@ err_out:
 
 /**
  * DOC: Memory mappings
- *
- * TODO
  */
 /**
  * DOC: Memory mappings (constants)
@@ -3356,15 +3410,27 @@ err_out:
  *    &pvr_vm_mapping->pvr_obj_offset member of a &struct pvr_vm_mapping,
  *    indicates that it maps the entire associated &struct pvr_gem_object.
  */
-
 #define PVR_VM_MAPPING_COMPLETE ((unsigned int)(UINT_MAX))
 
 /**
- * struct pvr_vm_mapping - TODO
+ * struct pvr_vm_mapping - Represents a mapping between a DMA address and a
+ *                         device-virtual address with a given size.
+ * @node: Base VM interval tree node.
+ * @pvr_obj: Target PowerVR GEM object.
+ * @pvr_obj_offset: Offset into @pvr_obj from which this mapping begins.
+ * @slc_bypass: Whether to bypass the SLC on the device-side of this mapping.
+ * @pm_fw_protect: Whether this mapping should be restricted to the PM and FW.
  *
- * This structure implicitly contains the device address and size of the
- * mapping through @node members &pvr_vm_interval_tree_node.start and
+ * This structure implicitly contains the device-virtual address and size of
+ * the mapping through @node members &pvr_vm_interval_tree_node.start and
  * &pvr_vm_interval_tree_node.size respectively.
+ *
+ * Instantiating this struct does not implicitly apply the described mapping;
+ * that must be done with pvr_vm_mapping_map() and reversed with
+ * pvr_vm_mapping_unmap() before deinitialization.
+ *
+ * See &struct pvr_page_flags_raw for details of the flag values contained in
+ * this struct.
  */
 struct pvr_vm_mapping {
 	struct pvr_vm_interval_tree_node node;
@@ -3375,12 +3441,17 @@ struct pvr_vm_mapping {
 	bool pm_fw_protect;
 };
 
-/**
- * DOC: Memory mappings (implementation)
- */
-
 PVR_GEN_INTERVAL_TREE_WRAPPER_DEFS(pvr_vm_mapping, node)
 
+/**
+ * pvr_vm_mapping_page_flags_raw() - Generate raw page flags required for
+ *                                   applying a mapping.
+ * @mapping: Target memory mapping.
+ *
+ * Return:
+ * A raw page flags instance for use with pvr_vm_context_map_sgt() or
+ * pvr_vm_context_map_partial_sgt().
+ */
 static struct pvr_page_flags_raw
 pvr_vm_mapping_page_flags_raw(struct pvr_vm_mapping *mapping)
 {
@@ -3393,14 +3464,36 @@ pvr_vm_mapping_page_flags_raw(struct pvr_vm_mapping *mapping)
 }
 
 /**
- * pvr_vm_mapping_init_partial() - TODO
+ * pvr_vm_mapping_init_partial() - Setup a partial mapping with the specified
+ *                                 parameters.
  * @mapping: Target memory mapping.
- * @device_addr: TODO
- * @size: TODO
- * @pvr_obj: TODO
- * @pvr_obj_offset: TODO
+ * @device_addr: Device-virtual address at the start of the mapping.
+ * @size: Size of the desired mapping.
+ * @pvr_obj: Target PowerVR memory object.
+ * @pvr_obj_offset: Offset into @pvr_obj to begin mapping from.
  *
  * The memory behind @mapping should be zeroed before calling this function.
+ *
+ * Some parameters of this function are unchecked. It is therefore the callers
+ * responsibility to ensure certain constraints are met. Specifically:
+ *
+ * * @pvr_obj_offset must be less than the size of @pvr_obj,
+ * * The sum of @pvr_obj_offset and @size must be less than or equal to the
+ *   size of @pvr_obj,
+ * * The range specified by @pvr_obj_offset and @size (the "CPU range") must be
+ *   CPU page-aligned both in start position and size, and
+ * * The range specified by @device_addr and @size (the "device range") must be
+ *   device page-aligned both in start position and size.
+ *
+ * Note that this function does not perform the mapping operation itself; it
+ * merely prepares an instance of &struct pvr_vm_mapping which can later be
+ * passed to pvr_vm_mapping_map() and used to track the status of the mapping.
+ * In fact, the returned &struct pvr_vm_mapping is not bound to a VM context
+ * until pvr_vm_mapping_map() is called on it.
+ *
+ * If you need to map the entirety of @pvr_obj, consider using
+ * pvr_vm_mapping_init() instead (although there is no performance benefit in
+ * doing so).
  */
 static void
 pvr_vm_mapping_init_partial(struct pvr_vm_mapping *mapping, u64 device_addr,
@@ -3425,14 +3518,19 @@ pvr_vm_mapping_init_partial(struct pvr_vm_mapping *mapping, u64 device_addr,
 }
 
 /**
- * pvr_vm_mapping_init() - TODO
+ * pvr_vm_mapping_init() - Setup a complete mapping with the specified
+ *                         parameters.
  * @mapping: Target memory mapping.
- * @device_addr: TODO
- * @pvr_obj: TODO
+ * @device_addr: Device-virtual address at the start of the mapping.
+ * @pvr_obj: Target PowerVR memory object.
  *
  * Internally, this function just calls pvr_vm_mapping_init_partial() with the
  * extra arguments &size and &pvr_obj_offset populated with the size of
- * @pvr_obj and the "magic" constant %PVR_VM_MAPPING_COMPLETE respectively.
+ * @pvr_obj and the "magic" constant %PVR_VM_MAPPING_COMPLETE respectively. As
+ * such, many of the constraints specified on that function also apply here.
+ *
+ * If you only need to map part of @pvr_obj, use pvr_vm_mapping_init_partial()
+ * instead.
  */
 static __always_inline void
 pvr_vm_mapping_init(struct pvr_vm_mapping *mapping, u64 device_addr,
@@ -3443,6 +3541,14 @@ pvr_vm_mapping_init(struct pvr_vm_mapping *mapping, u64 device_addr,
 				    PVR_VM_MAPPING_COMPLETE);
 }
 
+/**
+ * pvr_vm_mapping_fini() - Teardown a mapping.
+ * @mapping: Target memory mapping.
+ *
+ * This function may not be called on a mapping which is currently active. The
+ * caller must call pvr_vm_mapping_unmap() on @mapping (or otherwise ensure
+ * @mapping is not currently mapped) before calling this function.
+ */
 static void
 pvr_vm_mapping_fini(struct pvr_vm_mapping *mapping)
 {
@@ -3451,6 +3557,19 @@ pvr_vm_mapping_fini(struct pvr_vm_mapping *mapping)
 	pvr_gem_object_put(mapping->pvr_obj);
 }
 
+/**
+ * pvr_vm_mapping_map() - Insert a mapping into a memory context.
+ * @vm_ctx: Target VM context.
+ * @mapping: Target memory mapping.
+ *
+ * Return:
+ *  * 0 on success,
+ *  * -%EEXIST if @mapping overlaps with an existing mapping in @vm_ctx,
+ *  * Any error encountered while attempting to obtain a reference to the
+ *    buffer bound to @mapping (see pvr_gem_object_get_pages()), or
+ *  * Any error returned by exactly one of pvr_vm_context_map_sgt() or
+ *    pvr_vm_context_map_partial_sgt().
+ */
 static int
 pvr_vm_mapping_map(struct pvr_vm_context *vm_ctx,
 		   struct pvr_vm_mapping *mapping)
@@ -3491,6 +3610,15 @@ err_out:
 	return err;
 }
 
+/**
+ * pvr_vm_mapping_unmap() - Remove a mapping from a memory context.
+ * @vm_ctx: Target VM context.
+ * @mapping: Target memory mapping.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * Any error returned by pvr_vm_context_unmap().
+ */
 static int
 pvr_vm_mapping_unmap(struct pvr_vm_context *vm_ctx,
 		     struct pvr_vm_mapping *mapping)
@@ -3521,7 +3649,7 @@ err_out:
  */
 
 /**
- * pvr_device_addr_is_valid() - Tests whether a virtual device address
+ * pvr_device_addr_is_valid() - Tests whether a device-virtual address
  *                              is valid.
  * @device_addr: Virtual device address to test.
  *
@@ -3540,6 +3668,8 @@ pvr_device_addr_is_valid(u64 device_addr)
 /**
  * pvr_device_addr_and_size_are_valid() - Tests whether a device-virtual
  * address and associated size are both valid.
+ * @device_addr: Virtual device address to test.
+ * @size: Size of the range based at @device_addr to test.
  *
  * Calling pvr_device_addr_is_valid() twice (once on @size, and again on
  * @device_addr + @size) to verify a device-virtual address range initially
@@ -3622,7 +3752,8 @@ err_out:
 /**
  * pvr_vm_destroy_context() - Destroy an existing VM context.
  * @vm_ctx: Target VM context.
- * @enable_warnings: Whether to print warnings for remaining mappings.
+ * @enable_warnings: Specify whether warnings should be emitted for mappings
+ *                   which are cleaned up by this function.
  *
  * It is an error to call pvr_vm_destroy_context() on a VM context that has
  * already been destroyed.
@@ -3666,8 +3797,8 @@ err_out:
 }
 
 /**
- * pvr_vm_map() - Map a section of physical memory into a section of virtual
- *                device memory.
+ * pvr_vm_map() - Map a section of physical memory into a section of
+ *                device-virtual memory.
  * @vm_ctx: Target VM context.
  * @pvr_obj: Target PowerVR memory object.
  * @device_addr: Virtual device address at the start of the requested mapping.
@@ -3679,8 +3810,8 @@ err_out:
  *
  * Return:
  *  * 0 on success,
- *  * -%EINVAL if @device_addr is not a valid page-aligned virtual device
- *    address or any part of @pvr_obj is not device virtual page-aligned,
+ *  * -%EINVAL if @device_addr is not a valid page-aligned device-virtual
+ *    address or any part of @pvr_obj is not device-virtual page-aligned,
  *  * -%EEXIST if the requested mapping overlaps with an existing mapping,
  *  * -%ENOMEM if allocation of internally required CPU memory fails, or
  *  * Any error encountered while performing internal operations required to
@@ -3695,6 +3826,11 @@ pvr_vm_map(struct pvr_vm_context *vm_ctx, struct pvr_gem_object *pvr_obj,
 	struct pvr_vm_mapping *mapping;
 	int err;
 
+	/*
+	 * Our validation function only checks against the device page size;
+	 * for a mapping to succeed we also need the size to align to the CPU
+	 * page size.
+	 */
 	if (!pvr_device_addr_and_size_are_valid(device_addr, size) ||
 	    size & ~PAGE_MASK) {
 		err = -EINVAL;
@@ -3731,7 +3867,7 @@ err_out:
 
 /**
  * pvr_vm_map_partial() - Map a section of physical memory into a section of
- *                        virtual device memory.
+ *                        device-virtual memory.
  * @vm_ctx: Target VM context.
  * @pvr_obj: Target PowerVR memory object.
  * @pvr_obj_offset: Offset into @pvr_obj to map from.
@@ -3745,10 +3881,10 @@ err_out:
  *
  * Return:
  *  * 0 on success,
- *  * -%EINVAL if @device_addr is not a valid page-aligned virtual device
+ *  * -%EINVAL if @device_addr is not a valid page-aligned device-virtual
  *    address; the region specified by @pvr_obj_offset and @size does not fall
  *    entirely within @pvr_obj, or any part of the specified region of @pvr_obj
- *    is not device virtual page-aligned,
+ *    is not device-virtual page-aligned,
  *  * -%EEXIST if the requested mapping overlaps with an existing mapping,
  *  * -%ENOMEM if allocation of internally required CPU memory fails, or
  *  * Any error encountered while performing internal operations required to
@@ -3802,13 +3938,13 @@ err_out:
 }
 
 /**
- * pvr_vm_unmap() - Unmap an already mapped section of virtual device memory.
+ * pvr_vm_unmap() - Unmap an already mapped section of device-virtual memory.
  * @vm_ctx: Target VM context.
  * @device_addr: Virtual device address at the start of the target mapping.
  *
  * Return:
  *  * 0 on success,
- *  * -%EINVAL if @device_addr is not a valid page-aligned virtual device
+ *  * -%EINVAL if @device_addr is not a valid page-aligned device-virtual
  *    address,
  *  * -%ENOENT if @device_addr is not a handle to an existing mapping, or
  *  * Any error encountered while performing internal operations required to
@@ -4037,18 +4173,13 @@ err_out:
 
 /**
  * pvr_heap_contains_range() - Determine if a given heap contains the specified
- * device-virtual address range.
- * @heap: Target heap.
+ *                             device-virtual address range.
+ * @pvr_heap: Target heap.
  * @start: Inclusive start of the target range.
  * @end: Inclusive end of the target range.
  *
  * It is an error to call this function with values of @start and @end that do
  * not satisfy the condition @start <= @end.
- *
- * Return:
- *  * %true iff @heap completely contains the range specified by @start and
- *    @end, or
- *  * %false otherwise.
  */
 static __always_inline bool
 pvr_heap_contains_range(const struct pvr_heap *pvr_heap, u64 start, u64 end)
@@ -4058,7 +4189,7 @@ pvr_heap_contains_range(const struct pvr_heap *pvr_heap, u64 start, u64 end)
 
 /**
  * pvr_find_heap_containing() - Find a heap which contains the specified
- * device-virtual address range.
+ *                              device-virtual address range.
  * @pvr_dev: Target PowerVR device.
  * @start: Start of the target range.
  * @size: Size of the target range.
@@ -4103,16 +4234,16 @@ pvr_find_heap_containing(struct pvr_device *pvr_dev, u64 start, u64 size)
 }
 
 /**
- * pvr_vm_find_gem_object() - Look up a buffer object from a given virtual
- * device address.
+ * pvr_vm_find_gem_object() - Look up a buffer object from a given
+ *                            device-virtual address.
  * @vm_ctx: [IN] Target VM context.
  * @device_addr: [IN] Virtual device address at the start of the required
- * object.
+ *               object.
  * @mapped_offset_out: [OUT] Pointer to location to write offset of the start
- * of the mapped region within the buffer object. May be %NULL if this
- * information is not required.
+ *                     of the mapped region within the buffer object. May be
+ *                     %NULL if this information is not required.
  * @mapped_size_out: [OUT] Pointer to location to write size of the mapped
- * region. May be %NULL if this information is not required.
+ *                   region. May be %NULL if this information is not required.
  *
  * If successful, a reference will be taken on the buffer object. The caller
  * must drop the reference with pvr_gem_object_put().
