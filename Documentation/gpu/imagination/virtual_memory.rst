@@ -170,6 +170,11 @@ Internal functions
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
    :identifiers: pvr_page_table_ptr_sync_manual pvr_page_table_ptr_load_tables
 
+Constants
+---------
+.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
+   :doc: Page table pointer (constants)
+
 
 Interval tree base implementation
 =================================

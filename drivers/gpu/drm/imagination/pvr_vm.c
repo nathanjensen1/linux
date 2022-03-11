@@ -1726,6 +1726,22 @@ pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
  *
  * TODO
  */
+/**
+ * DOC: Page table pointer (constants)
+ *
+ * .. c:macro:: PVR_PAGE_TABLE_PTR_IN_SYNC
+ *
+ *    Negative value to indicate that a page table pointer is fully in sync
+ *    when assigned to &pvr_page_table_ptr->sync_level_required.
+ */
+
+/**
+ * PVR_PAGE_TABLE_PTR_IN_SYNC - Negative value to indicate that a page table
+ *                              pointer is fully in sync.
+ *
+ * *This doc comment is not rendered - see DOC: VM backing pages (constants).*
+ */
+#define PVR_PAGE_TABLE_PTR_IN_SYNC ((s8)(-1))
 
 /**
  * struct pvr_page_table_ptr - TODO
@@ -1842,7 +1858,7 @@ pvr_page_table_ptr_sync_partial(struct pvr_page_table_ptr *ptr, s8 level)
 	 */
 	if (level >= ptr->sync_level_required) {
 		level = ptr->sync_level_required;
-		ptr->sync_level_required = -1;
+		ptr->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 	}
 
 	pvr_page_table_ptr_sync_manual(ptr, level);
@@ -2009,7 +2025,7 @@ pvr_page_table_ptr_init(struct pvr_page_table_ptr *ptr,
 {
 	ptr->pvr_dev = pvr_dev;
 	ptr->l2_table = root_table;
-	ptr->sync_level_required = -1;
+	ptr->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 
 	return pvr_page_table_ptr_set(ptr, device_addr, should_create);
 }
@@ -2050,7 +2066,7 @@ pvr_page_table_ptr_fini(struct pvr_page_table_ptr *ptr)
 static int
 pvr_page_table_ptr_next_page(struct pvr_page_table_ptr *ptr, bool should_create)
 {
-	s8 load_level_required = -1;
+	s8 load_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 
 	if (++ptr->l0_idx != ROGUE_MMUCTRL_ENTRIES_PT_L0_VALUE)
 		goto load_tables;
@@ -2103,7 +2119,7 @@ pvr_page_table_ptr_copy(struct pvr_page_table_ptr *dst,
 	 * Nothing currently in the clone requires a sync later on, since the
 	 * original will handle it either when advancing or during teardown.
 	 */
-	dst->sync_level_required = -1;
+	dst->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 }
 
 /**
