@@ -1031,7 +1031,7 @@ struct drm_pvr_cmd_geom {
 	/** @data: [IN] Geometry job data. */
 	union {
 		/**
-		 * @cmd_frag_format_1: Command data when @format ==
+		 * @cmd_geom_format_1: Command data when @format ==
 		 *                     %DRM_PVR_CMD_GEOM_FORMAT_1.
 		 */
 		struct drm_pvr_cmd_geom_format_1 cmd_geom_format_1;
