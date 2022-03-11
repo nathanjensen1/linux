@@ -1872,6 +1872,8 @@ static __always_inline void
 pvr_page_table_ptr_sync(struct pvr_page_table_ptr *ptr)
 {
 	pvr_page_table_ptr_sync_manual(ptr, ptr->sync_level_required);
+
+	ptr->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 }
 
 /**
