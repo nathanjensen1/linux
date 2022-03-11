@@ -4,192 +4,459 @@ GPU Virtual Memory Handling
 The sources associated with this section can be found in ``pvr_vm.c`` and
 ``pvr_vm.h``.
 
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: PowerVR Virtual Memory Handling
+There's a lot going on in this section, so it's broken down into several parts;
+beginning with the public-facing API surface.
+
+.. admonition:: Note on page table naming
+
+   This file uses a different naming convention for page table levels than the
+   generated hardware defs. Since page table implementation details are not
+   exposed outside this file, the description of the name mapping exists here
+   in its normative form:
+
+   * Level 0 page table => Page table
+   * Level 1 page table => Page directory
+   * Level 2 page table => Page catalog
+
+   The variable/function naming convention in this file is ``page_table_lx_*``
+   where x is either ``0``, ``1`` or ``2`` to represent the level of the page
+   table structure. The name ``page_table_*`` without the ``_lx`` suffix is
+   used for references to the entire tree structure including all three levels,
+   or an operation or value which is level-agnostic.
+
+.. contents::
+   :local:
+   :depth: 1
 
 
 Public API
 ==========
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.h
-   :doc: Public API
+The public-facing API of our virtual memory management is exposed as a
+collection of functions associated with an opaque handle type.
 
-Types
+The opaque handle is :c:type:`pvr_vm_context`. This holds a "global state",
+including a complete page table tree structure. You do not need to consider
+this internal structure (or anything else in :c:type:`pvr_vm_context`) when
+using this API; it is designed to operate as a black box.
+
+Usage
 -----
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.h
-   :identifiers: pvr_vm_page_options
+Begin by calling :c:func:`pvr_vm_create_context` to obtain a VM context. It is
+bound to a PowerVR device (:c:type:`pvr_device`) and holds a reference to it.
+This binding is immutable.
+
+Once you're finished with a VM context, call :c:func:`pvr_vm_destroy_context`
+to release it. This should be done before freeing or otherwise releasing the
+PowerVR device to which the VM context is bound.
+
+It is an error to destroy a VM context which has already been destroyed. If a
+VM context still contains valid memory mappings at the point it is destroyed,
+these will be unmapped, and (optionally) warnings will be printed.
 
 Functions
 ---------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_vm_create_context pvr_vm_destroy_context
-                 pvr_vm_map pvr_vm_map_partial pvr_vm_unmap
+* :c:func:`pvr_vm_create_context`
+* :c:func:`pvr_vm_destroy_context`
+* :c:func:`pvr_vm_map`
+* :c:func:`pvr_vm_map_partial`
+* :c:func:`pvr_vm_unmap`
 
 Helper functions
 ----------------
+* :c:func:`pvr_device_addr_is_valid`
+* :c:func:`pvr_device_addr_and_size_are_valid`
+* :c:func:`pvr_vm_get_root_page_table_addr`
+
+Constants
+---------
+* :c:macro:`PVR_VM_BACKING_PAGE_SIZE`
+
+
+Memory mappings
+===============
+Physical memory is exposed to the device via **mappings**. Mappings may never
+overlap, although any given region of physical memory may be referenced by
+multiple mappings.
+
+Use :c:func:`pvr_vm_map` to create a mapping, providing a
+:c:type:`pvr_gem_object` holding the physical memory to be mapped. The physical
+memory behind the object (or each "section" if it's not contiguous) must be
+device page-aligned. This restriction is checked by :c:func:`pvr_vm_map`, which
+returns -``EINVAL`` if the check fails.
+
+If only part of the :c:type:`pvr_gem_object` must be mapped, use
+:c:func:`pvr_vm_map_partial` instead. In addition to the parameters accepted by
+:c:func:`pvr_vm_map`, this also takes an offset into the object and the size of
+the mapping to be created. The restrictions regarding alignment on
+:c:func:`pvr_vm_map` also apply here, with the exception that only the region
+of the object within the bounds specified by the offset and size must satisfy
+them. These are checked by :c:func:`pvr_vm_map_partial`, along with the offset
+and size values to ensure that the region they specify falls entirely within
+the bounds of the provided object.
+
+Both of these mapping functions call :c:func:`pvr_gem_object_get` to ensure the
+underlying physical memory is not freed until *after* the mapping is released.
+
+Although :c:func:`pvr_vm_map_partial` could technically always be used in place
+of :c:func:`pvr_vm_map`, the latter should be preferred when possible since it
+is a more efficient operation.
+
+Mappings are tracked internally so that it is theoretically impossible to
+accidentally create overlapping mappings. No handle is returned after a
+mapping operation succeeds; callers should instead use the start device
+virtual address of the mapping as its handle.
+
+When mapped memory is no longer required by the device, it should be
+unmapped using :c:func:`pvr_vm_unmap`. In addition to making the memory
+inaccessible to the device, this will call :c:func:`pvr_gem_object_put` to
+release the underlying physical memory. If the mapping held the last reference,
+the physical memory will automatically be freed. Attempting to unmap an invalid
+mapping (or one that has already been unmapped) will result in an -``ENOENT``
+error.
+
+Types
+-----
+* :c:type:`pvr_vm_mapping`
+
+Functions
+---------
+* :c:func:`pvr_vm_mapping_init_partial`
+* :c:func:`pvr_vm_mapping_init`
+* :c:func:`pvr_vm_mapping_fini`
+* :c:func:`pvr_vm_mapping_map`
+* :c:func:`pvr_vm_mapping_unmap`
+* :c:func:`pvr_vm_mapping_page_flags_raw`
+
+Constants
+---------
+* :c:macro:`PVR_VM_MAPPING_COMPLETE`
+
+
+VM backing pages
+================
+While the page tables hold memory accessible to the rest of the driver, the
+page tables themselves must have memory allocated to back them. We call this
+memory "VM backing pages". Conveniently, each page table is (currently) exactly
+4KiB, as defined by ``PVR_VM_BACKING_PAGE_SIZE``. We currently support any CPU
+page size of this size or greater.
+
+Usage
+-----
+To add this functionality to a structure which wraps a raw page table, embed
+an instance of :c:type:`pvr_vm_backing_page` in the wrapper struct. Call
+:c:func:`pvr_vm_backing_page_init` to allocate and map the backing page, and
+:c:func:`pvr_vm_backing_page_fini` to perform the reverse operations when
+you're finished with it. Use :c:func:`pvr_vm_backing_page_sync` to flush the
+memory from the host to the device. As this is an expensive operation (calling
+out to :c:func:`dma_sync_single_for_device`), be sure to perform all necessary
+changes to the backing memory before calling it.
+
+Between calls to :c:func:`pvr_vm_backing_page_init` and
+:c:func:`pvr_vm_backing_page_fini`, the public fields of
+:c:type:`pvr_vm_backing_page` can be used to access the allocated page. To
+access the memory from the CPU, use :c:member:`pvr_vm_backing_page.host_ptr`.
+For an address which can be passed to the device, use
+:c:member:`pvr_vm_backing_page.dma_addr`.
+
+It is expected that the embedded :c:type:`pvr_vm_backing_page` will be zeroed
+before calling :c:func:`pvr_vm_backing_page_init`. In return,
+:c:func:`pvr_vm_backing_page_fini` will re-zero it before returning. You can
+therefore compare the value of either :c:member:`pvr_vm_backing_page.dma_addr`
+or :c:member:`pvr_vm_backing_page.host_ptr` to zero or ``NULL`` to check if the
+backing page is ready for use.
+
+.. note:: This API is not expected to be exposed outside ``pvr_vm.c``.
+
+Types
+-----
+* :c:type:`pvr_vm_backing_page`
+
+Functions
+---------
+* :c:func:`pvr_vm_backing_page_init`
+* :c:func:`pvr_vm_backing_page_fini`
+* :c:func:`pvr_vm_backing_page_sync`
+
+Constants
+---------
+* :c:macro:`PVR_VM_BACKING_PAGE_SIZE`
+
+
+Raw page tables
+===============
+These types define the lowest level representation of the page table structure.
+This is the format which a PowerVR device's MMU can interpret directly. As
+such, their definitions are taken directly from hardware documentation.
+
+To store additional information required by the driver, we use
+`mirror page tables`_. In most cases, the mirror types are the ones you want to
+use for handles.
+
+Types
+-----
+* :c:type:`pvr_page_table_l2_entry_raw`
+* :c:type:`pvr_page_table_l1_entry_raw`
+* :c:type:`pvr_page_table_l0_entry_raw`
+* :c:type:`pvr_page_table_l2_raw`
+* :c:type:`pvr_page_table_l1_raw`
+* :c:type:`pvr_page_table_l0_raw`
+
+Functions
+---------
+* :c:func:`pvr_page_table_l2_entry_raw_is_valid`
+* :c:func:`pvr_page_table_l2_entry_raw_set`
+* :c:func:`pvr_page_table_l2_entry_raw_clear`
+* :c:func:`pvr_page_table_l1_entry_raw_is_valid`
+* :c:func:`pvr_page_table_l1_entry_raw_set`
+* :c:func:`pvr_page_table_l1_entry_raw_clear`
+* :c:func:`pvr_page_table_l0_entry_raw_is_valid`
+* :c:func:`pvr_page_table_l0_entry_raw_set`
+* :c:func:`pvr_page_table_l0_entry_raw_clear`
+
+
+Mirror page tables
+==================
+These structures hold additional information required by the driver that cannot
+be stored in `raw page tables`_ (since those are defined by the hardware).
+
+In most cases, you should hold a handle to these types instead of the raw types
+directly.
+
+Types
+-----
+* :c:type:`pvr_page_table_l2`
+* :c:type:`pvr_page_table_l1`
+* :c:type:`pvr_page_table_l0`
+
+Functions
+---------
+* :c:func:`pvr_page_table_l2_init`
+* :c:func:`pvr_page_table_l2_fini`
+* :c:func:`pvr_page_table_l2_sync`
+* :c:func:`pvr_page_table_l2_get_raw`
+* :c:func:`pvr_page_table_l2_get_entry_raw`
+* :c:func:`pvr_page_table_l2_insert`
+* :c:func:`pvr_page_table_l2_remove`
+* :c:func:`pvr_page_table_l1_init`
+* :c:func:`pvr_page_table_l1_fini`
+* :c:func:`pvr_page_table_l1_sync`
+* :c:func:`pvr_page_table_l1_get_raw`
+* :c:func:`pvr_page_table_l1_get_entry_raw`
+* :c:func:`pvr_page_table_l1_insert`
+* :c:func:`pvr_page_table_l1_remove`
+* :c:func:`pvr_page_table_l0_init`
+* :c:func:`pvr_page_table_l0_fini`
+* :c:func:`pvr_page_table_l0_sync`
+* :c:func:`pvr_page_table_l0_get_raw`
+* :c:func:`pvr_page_table_l0_get_entry_raw`
+* :c:func:`pvr_page_table_l0_insert`
+* :c:func:`pvr_page_table_l0_remove`
+
+
+Page table index utilities
+==========================
+These utilities are not tied to the raw or mirror page tables since they
+operate only on device-virtual addresses which are identical between the two
+structures.
+
+Functions
+---------
+* :c:func:`pvr_page_table_l2_idx`
+* :c:func:`pvr_page_table_l1_idx`
+* :c:func:`pvr_page_table_l0_idx`
+
+Constants
+---------
+* :c:macro:`PVR_PAGE_TABLE_ADDR_SPACE_SIZE`
+* :c:macro:`PVR_PAGE_TABLE_ADDR_BITS`
+* :c:macro:`PVR_PAGE_TABLE_ADDR_MASK`
+
+
+High-level page table operations
+================================
+We designate any functions which operate on our wrappers for page tables as
+"high-level".
+
+.. note::
+
+    This section contains functions prefixed with ``__`` that should never be
+    called directly, even internally.
+
+The two primary functions in this section are consumed by the page table
+pointer operations; that API is the expected method of performing operations
+on the page table tree structure
+
+The ``__`` functions noted previously are triggered when the refcount
+(implemented as the number of valid entries in the target page table) reaches
+zero.
+
+Functions
+---------
+* :c:func:`pvr_page_table_l1_get_or_create`
+* :c:func:`pvr_page_table_l0_get_or_create`
+
+Internal functions
+------------------
+* :c:func:`pvr_page_table_l1_create_unchecked`
+* :c:func:`__pvr_page_table_l1_destroy`
+* :c:func:`pvr_page_table_l0_create_unchecked`
+* :c:func:`__pvr_page_table_l0_destroy`
+
+
+Page table pointer
+==================
+Traversing the page table tree structure is not a straightforward operation
+since there are multiple layers, each with different properties. To contain and
+attempt to reduce this complexity, it's mostly encompassed in a "heavy pointer"
+type (:c:type:`pvr_page_table_ptr`) and its associated functions.
+
+Usage
+-----
+To start using a :c:type:`pvr_page_table_ptr` instance (a "pointer"), you must
+first initialize it to the starting address of your traversal using
+:c:func:`pvr_page_table_ptr_init`. Once finished, destroy it with
+:c:func:`pvr_page_table_ptr_fini`.
+
+You can advance the pointer using :c:func:`pvr_page_table_ptr_next_page`. If
+you're writing to the page table structure, you'll want to set the
+``should_create`` argument to ``true``. This will ensure the pointer doesn't
+dangle after advancing. See the function doc for more details.
+
+The pointer cannot be iterated in reverse; if you need to backtrack (e.g. in
+case of an error), keep a copy using :c:func:`pvr_page_table_ptr_copy`. The
+copy must be destroyed in the same fashion as the original (using
+:c:func:`pvr_page_table_ptr_fini`). There are no restrictions on the lifetime
+of the copy; it may outlive its original. Pending sync operations are not
+copied, so they will only be executed by operations on the original. This
+prevents some sync duplication, but it should be considered when working with
+copies.
+
+To avoid a free/alloc pair, you can reuse an existing pointer for a completely
+different range. This is achieved by calling :c:func:`pvr_page_table_ptr_set`
+to effectively re-initialize the pointer.
+
+We've mentioned sync operations in passing, but here are some actual details
+about how the pointer performs them. When a pointer is "initialized" (either by
+:c:func:`pvr_page_table_ptr_init`, :c:func:`pvr_page_table_ptr_copy` or
+:c:func:`pvr_page_table_ptr_set`), it's marked as "synced". If the pointer was
+destroyed at this point, no sync operation would occur. As the page table
+hierarchy is traversed (using :c:func:`pvr_page_table_ptr_next_page`), you
+should call :c:func:`pvr_page_table_ptr_require_sync` to indicate which levels
+of the hierarchy have been touched. This is a very cheap operation which just
+marks the pointer as "unsynced" up to and including the specified page table
+level.
+
+At the *next* call to :c:func:`pvr_page_table_ptr_next_page`, this "unsynced"
+level will be compared against the maximum level in the tree structure at which
+the pointer has changed. This information will then be used to perform the
+(somewhat expensive) DMA sync operation (:c:func:`pvr_vm_backing_page_sync`) on
+only the touched tables. Remember this decision relies on the user (you)
+reporting this status correctly, so always call
+:c:func:`pvr_page_table_ptr_require_sync`! In addition to
+:c:func:`pvr_page_table_ptr_next_page`, this "smart sync" will be performed by
+:c:func:`pvr_page_table_ptr_fini`. It can also be triggered manually by calling
+:c:func:`pvr_page_table_sync_partial`, or the simpler
+:c:func:`pvr_page_table_sync`. The former will only perform sync operations up
+to a specified level, while the latter always leaves the pointer in the
+"synced" state.
+
+Types
+-----
+* :c:type:`pvr_page_table_ptr`
+
+Functions
+---------
+* :c:func:`pvr_page_table_ptr_init`
+* :c:func:`pvr_page_table_ptr_fini`
+* :c:func:`pvr_page_table_ptr_next_page`
+* :c:func:`pvr_page_table_ptr_set`
+* :c:func:`pvr_page_table_ptr_require_sync`
+* :c:func:`pvr_page_table_ptr_copy`
+* :c:func:`pvr_page_table_ptr_sync`
+* :c:func:`pvr_page_table_ptr_sync_partial`
+
+Internal functions
+------------------
+* :c:func:`pvr_page_table_ptr_sync_manual`
+* :c:func:`pvr_page_table_ptr_load_tables`
+
+Constants
+---------
+* :c:macro:`PVR_PAGE_TABLE_PTR_IN_SYNC`
+
+
+Single page operations
+======================
+These functions operate on single device-virtual pages, as addressed by a
+:c:type:`pvr_page_table_ptr`. They keep the page table hierarchy updated.
+
+They are distinct from the High-level page table operations because they are
+used by consumers of the page table pointer, rather than the page table pointer
+functions themselves.
+
+Functions
+---------
+* :c:func:`pvr_page_create`
+* :c:func:`pvr_page_destroy`
+
+
+Interval tree base implementation
+=================================
+There is a note in ``<linux/interval_tree_generic.h>`` which says:
+
+   Note - before using this, please consider if generic version
+   (``interval_tree.h``) would work for you...
+
+Here, then, is our justification for using the generic version, instead of the
+generic version (naming is hard, okay!):
+
+The generic version of :c:type:`interval_tree_node` (from
+``<linux/interval_tree.h>``) uses unsigned long. We always need the elements to
+be 64 bits wide, regardless of host pointer size. We could gate this
+implementation on ``BITS_PER_LONG``, but it's better for us to store ``start``
+and ``size`` then derive ``last`` rather than the way
+:c:type:`interval_tree_node` does it, storing ``start`` and ``last`` then
+deriving ``size``.
+
+Types
+-----
+* :c:type:`pvr_vm_interval_tree_node`
+
+Functions
+---------
+* :c:func:`pvr_vm_interval_tree_compute_last`
+* :c:func:`pvr_vm_interval_tree_insert`
+* :c:func:`pvr_vm_interval_tree_iter_first`
+* :c:func:`pvr_vm_interval_tree_iter_next`
+* :c:func:`pvr_vm_interval_tree_init`
+* :c:func:`pvr_vm_interval_tree_fini`
+* :c:func:`pvr_vm_interval_tree_node_init`
+* :c:func:`pvr_vm_interval_tree_node_fini`
+* :c:func:`pvr_vm_interval_tree_node_start`
+* :c:func:`pvr_vm_interval_tree_node_size`
+* :c:func:`pvr_vm_interval_tree_node_last`
+* :c:func:`pvr_vm_interval_tree_node_is_inserted`
+* :c:func:`pvr_vm_interval_tree_node_mark_removed`
+
+
+Reference
+=========
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_device_addr_is_valid
+   :identifiers:
 
 Constants
 ---------
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.h
    :doc: Public API (constants)
 
-
-VM backing pages
-================
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: VM backing pages
+   :doc: Memory mappings (constants)
 
-Types
------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_vm_backing_page
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_vm_backing_page_init pvr_vm_backing_page_fini
-                 pvr_vm_backing_page_sync
-
-Constants
----------
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
    :doc: VM backing pages (constants)
 
-
-Raw page tables
-===============
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: Raw page tables
-
-Types
------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l2_entry_raw pvr_page_table_l1_entry_raw
-                 pvr_page_table_l0_entry_raw
-                 pvr_page_table_l2_raw pvr_page_table_l1_raw
-                 pvr_page_table_l0_raw
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l2_entry_raw_is_valid
-                 pvr_page_table_l2_entry_raw_set
-                 pvr_page_table_l2_entry_raw_clear
-                 pvr_page_table_l1_entry_raw_is_valid
-                 pvr_page_table_l1_entry_raw_set
-                 pvr_page_table_l1_entry_raw_clear
-                 pvr_page_table_l0_entry_raw_is_valid
-                 pvr_page_table_l0_entry_raw_set
-                 pvr_page_table_l0_entry_raw_clear
-
-
-Mirror page tables
-==================
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: Mirror page tables
-
-Types
------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l2 pvr_page_table_l1 pvr_page_table_l0
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l2_init pvr_page_table_l2_fini
-                 pvr_page_table_l2_sync pvr_page_table_l2_get_raw
-                 pvr_page_table_l2_get_entry_raw
-                 pvr_page_table_l2_insert pvr_page_table_l2_remove
-                 pvr_page_table_l1_init pvr_page_table_l1_fini
-                 pvr_page_table_l1_sync pvr_page_table_l1_get_raw
-                 pvr_page_table_l1_get_entry_raw
-                 pvr_page_table_l1_insert pvr_page_table_l1_remove
-                 pvr_page_table_l0_init pvr_page_table_l0_fini
-                 pvr_page_table_l0_sync pvr_page_table_l0_get_raw
-                 pvr_page_table_l0_get_entry_raw
-                 pvr_page_table_l0_insert pvr_page_table_l0_remove
-
-
-Page table index utilities
-==========================
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: Page table index utilities
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l2_idx pvr_page_table_l1_idx
-                 pvr_page_table_l0_idx
-
-Constants
----------
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
    :doc: Page table index utilities (constants)
 
-
-High-level page table operations
-================================
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: High-level page table operations
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l1_create pvr_page_table_l1_get_or_create
-                 pvr_page_table_l0_create pvr_page_table_l0_get_or_create
-                 pvr_page_create pvr_page_destroy
-
-Internal functions
-------------------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_l1_create_unchecked __pvr_page_table_l1_destroy
-                 pvr_page_table_l0_create_unchecked __pvr_page_table_l0_destroy
-
-
-Page table pointer
-==================
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: Page table pointer
-
-Types
------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_ptr
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_ptr_init pvr_page_table_ptr_fini
-                 pvr_page_table_ptr_next_page pvr_page_table_ptr_set
-                 pvr_page_table_ptr_require_sync pvr_page_table_ptr_copy
-                 pvr_page_table_ptr_sync pvr_page_table_ptr_sync_partial
-
-Internal functions
-------------------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_page_table_ptr_sync_manual pvr_page_table_ptr_load_tables
-
-Constants
----------
 .. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
    :doc: Page table pointer (constants)
-
-
-Interval tree base implementation
-=================================
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :doc: Interval tree base implementation
-
-Types
------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_vm_interval_tree_node
-
-Functions
----------
-.. kernel-doc:: drivers/gpu/drm/imagination/pvr_vm.c
-   :identifiers: pvr_vm_interval_tree_compute_last
-                 pvr_vm_interval_tree_node_start pvr_vm_interval_tree_node_size
-                 pvr_vm_interval_tree_node_last
-                 pvr_vm_interval_tree_insert
