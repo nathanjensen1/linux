@@ -206,7 +206,8 @@ pvr_fini_frag_context(struct pvr_context_render *ctx_render)
 }
 
 static int
-remap_priority(struct pvr_file *pvr_file, s32 uapi_priority, enum pvr_context_priority *priority_out)
+remap_priority(struct pvr_file *pvr_file, s32 uapi_priority,
+	       enum pvr_context_priority *priority_out)
 {
 	switch (uapi_priority) {
 	case DRM_PVR_CTX_PRIORITY_LOW:

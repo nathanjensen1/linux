@@ -2454,7 +2454,6 @@ pvr_vm_mapping_start(struct pvr_vm_mapping *mapping);
 static __always_inline u64
 pvr_vm_mapping_last(struct pvr_vm_mapping *mapping);
 
-
 /**
  * DOC: Memory context
  *

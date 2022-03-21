@@ -529,9 +529,9 @@ err_out:
 static int
 pvr_meta_init(struct pvr_device *pvr_dev)
 {
-        pvr_fw_heap_info_init(pvr_dev, ROGUE_FW_HEAP_META_SHIFT, 0);
+	pvr_fw_heap_info_init(pvr_dev, ROGUE_FW_HEAP_META_SHIFT, 0);
 
-        return 0;
+	return 0;
 }
 
 static u32

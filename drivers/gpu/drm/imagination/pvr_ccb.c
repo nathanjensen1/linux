@@ -187,7 +187,7 @@ static void
 pvr_fwccb_process_worker(struct work_struct *work)
 {
 	struct pvr_device *pvr_dev = container_of(work, struct pvr_device, fwccb_work);
-	volatile struct rogue_fwif_fwccb_cmd *fwccb = pvr_dev->fwccb.ccb;
+	struct rogue_fwif_fwccb_cmd *fwccb = pvr_dev->fwccb.ccb;
 	struct rogue_fwif_ccb_ctl *ctrl = pvr_dev->fwccb.ctrl;
 
 	mutex_lock(&pvr_dev->fwccb.lock);
