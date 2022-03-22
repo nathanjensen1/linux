@@ -221,8 +221,6 @@ enum drm_pvr_param {
 	 * the output value, and the minor version number in the lower 32 bits.
 	 */
 	DRM_PVR_PARAM_FW_VERSION,
-
-	DRM_PVR_PARAM_MAX /* non-ABI */
 };
 
 /**
@@ -538,8 +536,6 @@ enum drm_pvr_object_type {
 	 * drm_pvr_ioctl_create_hwrt_dataset_args for object creation arguments.
 	 */
 	DRM_PVR_OBJECT_TYPE_HWRT_DATASET,
-
-	DRM_PVR_OBJECT_TYPE_MAX /* non-ABI */
 };
 
 /* clang-format on */
@@ -845,8 +841,6 @@ enum drm_pvr_static_data_area_id {
 	DRM_PVR_STATIC_DATA_AREA_FENCE,
 	DRM_PVR_STATIC_DATA_AREA_VDM_SYNC,
 	DRM_PVR_STATIC_DATA_AREA_YUV_CSC,
-
-	DRM_PVR_STATIC_DATA_AREA_MAX /* non-ABI */
 };
 
 struct drm_pvr_static_data_area {
