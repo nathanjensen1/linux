@@ -447,12 +447,11 @@ pvr_ioctl_get_heap_info(struct drm_device *drm_dev, void *raw_args,
 }
 
 /**
- * pvr_ioctl_vm_op_map() - Sub-operation of pvr_ioctl_vm_op().
+ * pvr_ioctl_vm_map() - IOCTL to map buffer to GPU address space.
  * @pvr_file: PowerVR file private data.
  * @args: The operation-specific part of the calling ioctl args.
  *
- * Called from userspace with %DRM_IOCTL_PVR_VM_OP when the
- * &drm_pvr_ioctl_vm_op_args.operation field is set to %DRM_PVR_VM_OP_MAP.
+ * Called from userspace with %DRM_IOCTL_PVR_VM_MAP.
  *
  * Return:
  *  * 0 on success,
@@ -469,10 +468,12 @@ pvr_ioctl_get_heap_info(struct drm_device *drm_dev, void *raw_args,
  *    valid PowerVR buffer object.
  */
 static int
-pvr_ioctl_vm_op_map(struct pvr_file *pvr_file,
-		    struct drm_pvr_ioctl_vm_op_map_args *args)
+pvr_ioctl_vm_map(struct drm_device *drm_dev, void *raw_args,
+		 struct drm_file *file)
 {
-	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
+	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
+	struct drm_pvr_ioctl_vm_map_args *args = raw_args;
+	struct pvr_file *pvr_file = to_pvr_file(file);
 	struct pvr_vm_context *vm_ctx = pvr_file->user_vm_ctx;
 
 	struct pvr_gem_object *pvr_obj;
@@ -536,12 +537,11 @@ err_out:
 }
 
 /**
- * pvr_ioctl_vm_op_unmap() - Sub-operation of pvr_ioctl_vm_op().
+ * pvr_ioctl_vm_unmap() - IOCTL to unmap buffer from GPU address space.
  * @pvr_file: PowerVR file private data.
  * @args: The operation-specific part of the calling ioctl args.
  *
- * Called from userspace with %DRM_IOCTL_PVR_VM_OP when the
- * &drm_pvr_ioctl_vm_op_args.operation field is set to %DRM_PVR_VM_OP_UNMAP.
+ * Called from userspace with %DRM_IOCTL_PVR_VM_UNMAP.
  *
  * Return:
  *  * 0 on success,
@@ -551,60 +551,13 @@ err_out:
  *    &drm_pvr_ioctl_vm_op_unmap_args.device_addr.
  */
 static int
-pvr_ioctl_vm_op_unmap(struct pvr_file *pvr_file,
-		      struct drm_pvr_ioctl_vm_op_unmap_args *args)
+pvr_ioctl_vm_unmap(struct drm_device *drm_dev, void *raw_args,
+		   struct drm_file *file)
 {
-	return pvr_vm_unmap(pvr_file->user_vm_ctx, args->device_addr);
-}
-
-/**
- * pvr_ioctl_vm_op() - IOCTL to perform a virtual memory operation.
- * @drm_dev: [IN] Target DRM device.
- * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
- * &struct drm_pvr_ioctl_vm_op_args.
- * @file: [IN] DRM file private data.
- *
- * Called from userspace with %DRM_IOCTL_PVR_VM_OP.
- *
- * Return:
- *  * 0 on success,
- *  * -%EINVAL if any padding fields in &drm_pvr_ioctl_vm_op_args are not zero
- *    (including implicit padding in unions), or
- *  * Any error encountered while processing the selected pvr_ioctl_vm_op_*()
- *    function corresponding to &drm_pvr_ioctl_vm_op_args.operation.
- */
-int
-pvr_ioctl_vm_op(__always_unused struct drm_device *drm_dev, void *raw_args,
-		struct drm_file *file)
-{
-	struct drm_pvr_ioctl_vm_op_args *args = raw_args;
+	struct drm_pvr_ioctl_vm_unmap_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
 
-	/* All padding fields must be zeroed. */
-	if (args->_padding_4 != 0)
-		return -EINVAL;
-
-	/*
-	 * We delegate most of the data.* member validation to individual
-	 * operation handlers. However, since the implicit union padding
-	 * falls outside these members, we must check that ourselves.
-	 */
-	switch (args->operation) {
-	case DRM_PVR_VM_OP_MAP:
-		if (!PVR_IOCTL_UNION_PADDING_CHECK(args, data, map))
-			return -EINVAL;
-
-		return pvr_ioctl_vm_op_map(pvr_file, &args->data.map);
-
-	case DRM_PVR_VM_OP_UNMAP:
-		if (!PVR_IOCTL_UNION_PADDING_CHECK(args, data, unmap))
-			return -EINVAL;
-
-		return pvr_ioctl_vm_op_unmap(pvr_file, &args->data.unmap);
-
-	default:
-		return -EINVAL;
-	}
+	return pvr_vm_unmap(pvr_file->user_vm_ctx, args->device_addr);
 }
 
 /*
@@ -645,7 +598,8 @@ static const struct drm_ioctl_desc pvr_drm_driver_ioctls[] = {
 	DRM_PVR_IOCTL(CREATE_OBJECT, create_object, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(DESTROY_OBJECT, destroy_object, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(GET_HEAP_INFO, get_heap_info, DRM_RENDER_ALLOW),
-	DRM_PVR_IOCTL(VM_OP, vm_op, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(VM_MAP, vm_map, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(VM_UNMAP, vm_unmap, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(SUBMIT_JOB, submit_job, DRM_RENDER_ALLOW),
 };
 
