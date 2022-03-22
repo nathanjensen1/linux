@@ -266,7 +266,6 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		value = pvr_fw_version_packed(pvr_dev->fw_version.major, pvr_dev->fw_version.minor);
 		break;
 	case DRM_PVR_PARAM_INVALID:
-	case DRM_PVR_PARAM_MAX:
 	default:
 		return -EINVAL;
 	}

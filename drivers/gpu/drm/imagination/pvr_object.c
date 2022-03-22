@@ -26,7 +26,6 @@ destroy_object(struct pvr_object *obj)
 		pvr_hwrt_dataset_destroy(hwrt);
 		break;
 	}
-	case DRM_PVR_OBJECT_TYPE_MAX:
 	default:
 		WARN_ON(1);
 		break;
@@ -96,7 +95,6 @@ pvr_object_create(struct pvr_file *pvr_file,
 		break;
 	}
 
-	case DRM_PVR_OBJECT_TYPE_MAX:
 	default:
 		err = -EINVAL;
 		goto err_out;
