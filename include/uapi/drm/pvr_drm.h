@@ -65,8 +65,9 @@ extern "C" {
 #define DRM_IOCTL_PVR_CREATE_OBJECT PVR_IOCTL(0x05, DRM_IOWR, create_object)
 #define DRM_IOCTL_PVR_DESTROY_OBJECT PVR_IOCTL(0x06, DRM_IOW, destroy_object)
 #define DRM_IOCTL_PVR_GET_HEAP_INFO PVR_IOCTL(0x07, DRM_IOWR, get_heap_info)
-#define DRM_IOCTL_PVR_VM_OP PVR_IOCTL(0x08, DRM_IOW, vm_op)
-#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x09, DRM_IOW, submit_job)
+#define DRM_IOCTL_PVR_VM_MAP PVR_IOCTL(0x08, DRM_IOW, vm_map)
+#define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x09, DRM_IOW, vm_unmap)
+#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0a, DRM_IOW, submit_job)
 /* clang-format on */
 
 /**
@@ -888,35 +889,9 @@ struct drm_pvr_ioctl_get_heap_info_args {
 };
 
 /**
- * DOC: IOCTL VM_OP
- *
- * This IOCTL groups together several operations performed on device-virtual
- * memory. For a list of the currently supported options, see the flags section
- * below.
+ * struct drm_pvr_ioctl_vm_map_args - Arguments for %DRM_IOCTL_PVR_VM_MAP.
  */
-
-/**
- * DOC: Flags for VM_OP
- *
- * Operations
- * ~~~~~~~~~~
- * .. c:macro:: DRM_PVR_VM_OP_MAP
- *
- *    Map a PowerVR buffer object into device-virtual address space.
- *
- * .. c:macro:: DRM_PVR_VM_OP_UNMAP
- *
- *    Unmap a PowerVR buffer object from device-virtual address space.
- */
-#define DRM_PVR_VM_OP_MAP _UL(0)
-#define DRM_PVR_VM_OP_UNMAP _UL(1)
-
-/**
- * struct drm_pvr_ioctl_vm_op_map_args - Additional arguments for
- * %DRM_IOCTL_PVR_VM_OP when &drm_pvr_ioctl_vm_op_args.operation is
- * %DRM_PVR_VM_OP_MAP.
- */
-struct drm_pvr_ioctl_vm_op_map_args {
+struct drm_pvr_ioctl_vm_map_args {
 	/**
 	 * @device_addr: [IN] Requested device-virtual address for the mapping.
 	 * This must be non-zero and aligned to the device page size for the
@@ -954,36 +929,14 @@ struct drm_pvr_ioctl_vm_op_map_args {
 };
 
 /**
- * struct drm_pvr_ioctl_vm_op_unmap_args - Additional arguments for
- * %DRM_IOCTL_PVR_VM_OP when &drm_pvr_ioctl_vm_op_args.operation is
- * %DRM_PVR_VM_OP_UNMAP.
+ * struct drm_pvr_ioctl_vm_unmap_args - Arguments for %DRM_IOCTL_PVR_VM_UNMAP.
  */
-struct drm_pvr_ioctl_vm_op_unmap_args {
+struct drm_pvr_ioctl_vm_unmap_args {
 	/**
 	 * @device_addr: [IN] Device-virtual address at the start of the target
 	 * mapping. This must be non-zero.
 	 */
 	__u64 device_addr;
-};
-
-/**
- * struct drm_pvr_ioctl_vm_op_args - Arguments for %DRM_IOCTL_PVR_VM_OP.
- */
-struct drm_pvr_ioctl_vm_op_args {
-	/**
-	 * @operation: [IN] Specific operation requested. Must be one of
-	 * DRM_PVR_VM_OP_*.
-	 */
-	__u32 operation;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Operation-specific arguments. */
-	union {
-		struct drm_pvr_ioctl_vm_op_map_args map;
-		struct drm_pvr_ioctl_vm_op_unmap_args unmap;
-	} data;
 };
 
 /**
