@@ -3197,10 +3197,17 @@ pvr_vm_context_map_partial_sgt(struct pvr_vm_context *vm_ctx,
 
 	int err;
 
+	err = pvr_page_table_ptr_init(&ptr, vm_ctx->pvr_dev,
+				      &vm_ctx->root_table, device_addr, true);
+	if (err) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
 	/* @sgt must contain at least one entry. */
 	if (!sgt->sgl) {
 		err = -EINVAL;
-		goto err_out;
+		goto err_fini_ptr;
 	}
 
 	/*
@@ -3220,7 +3227,7 @@ pvr_vm_context_map_partial_sgt(struct pvr_vm_context *vm_ctx,
 	 * without finding the start of the requested range.
 	 */
 	err = -EINVAL;
-	goto err_out;
+	goto err_fini_ptr;
 
 found_first_sgl:
 	/* Record the entry discovered in the loop above. */
@@ -3239,73 +3246,17 @@ found_first_sgl:
 	    (sg_dma_address(sgl) + first_sgl_offset) & ~PVR_DEVICE_PAGE_MASK ||
 	    first_sgl_size & ~PVR_DEVICE_PAGE_MASK) {
 		err = -EINVAL;
-		goto err_out;
-	}
-
-	/*
-	 * Resume iterating through the sg table until we hit an entry which
-	 * contains (sgt_offset + size). Use do-while here because the first
-	 * and last entries could be the same.
-	 */
-	do {
-		if (accumulated_size >= sgt_offset + size)
-			goto found_last_sgl;
-
-		accumulated_size += sg_dma_len(sgl);
-
-		/*
-		 * This check should technically be at the top of this loop.
-		 * However, we've already performed it above for the first
-		 * iteration, so we move it to the bottom to prevent evaluating
-		 * it again. It will still be performed before every break
-		 * conditional.
-		 */
-		if (sg_dma_address(sgl) & ~PVR_DEVICE_PAGE_MASK ||
-		    sg_dma_len(sgl) & ~PVR_DEVICE_PAGE_MASK) {
-			err = -EINVAL;
-			goto err_out;
-		}
-	} while ((sgl = sg_next(sgl)) != NULL);
-
-	/*
-	 * If we fall out of the loop above, we've reached the end of @sgt
-	 * without finding the end of the requested range.
-	 */
-	err = -EINVAL;
-	goto err_out;
-
-found_last_sgl:
-	/* Record the entry discovered in the loop above. */
-	last_sgl = sgl;
-	last_sgl_size = accumulated_size - (sgt_offset + size);
-
-	/*
-	 * Ensure (sgt_offset + size) is within the bounds of the sg table and
-	 * that the part of the last sg table entry up to size is a
-	 * multiple of the page size.
-	 */
-	if (accumulated_size < sgt_offset + size ||
-	    last_sgl_size & ~PVR_DEVICE_PAGE_MASK ||
-	    sg_dma_address(last_sgl) & ~PVR_DEVICE_PAGE_MASK) {
-		err = -EINVAL;
-		goto err_out;
-	}
-
-	err = pvr_page_table_ptr_init(&ptr, vm_ctx->pvr_dev,
-				      &vm_ctx->root_table, device_addr, true);
-	if (err) {
-		err = -EINVAL;
-		goto err_out;
+		goto err_fini_ptr;
 	}
 
 	/*
 	 * If we only need to look at a single sg table entry, do that now so
 	 * we can apply both first_sgt_offset and last_sgt_size to it.
 	 */
-	if (first_sgl == last_sgl) {
+	if (accumulated_size >= sgt_offset + size) {
 		err = pvr_vm_context_map_partial_sgl(vm_ctx, first_sgl,
 						     first_sgl_offset,
-						     last_sgl_size, &ptr,
+						     size, &ptr,
 						     page_flags);
 		if (err)
 			goto err_fini_ptr;
@@ -3317,6 +3268,59 @@ found_last_sgl:
 		pvr_page_table_ptr_require_sync(&ptr, 0);
 
 		goto out;
+	}
+
+	/*
+	 * Resume iterating through the sg table until we hit an entry which
+	 * contains (sgt_offset + size). Use do-while here because the first
+	 * and last entries could be the same.
+	 */
+	while ((sgl = sg_next(sgl)) != NULL) {
+		u32 len = sg_dma_len(sgl);
+
+		if ((accumulated_size + len) >= sgt_offset + size)
+			goto found_last_sgl;
+
+		accumulated_size += len;
+
+		/*
+		 * This check should technically be at the top of this loop.
+		 * However, we've already performed it above for the first
+		 * iteration, so we move it to the bottom to prevent evaluating
+		 * it again. It will still be performed before every break
+		 * conditional.
+		 */
+		if (sg_dma_address(sgl) & ~PVR_DEVICE_PAGE_MASK ||
+		    sg_dma_len(sgl) & ~PVR_DEVICE_PAGE_MASK) {
+			err = -EINVAL;
+			goto err_fini_ptr;
+		}
+	}
+
+	/*
+	 * If we fall out of the loop above, we've reached the end of @sgt
+	 * without finding the end of the requested range.
+	 */
+	err = -EINVAL;
+	goto err_fini_ptr;
+
+found_last_sgl:
+	/* Record the entry discovered in the loop above. */
+	last_sgl = sgl;
+	last_sgl_size = (sgt_offset + size) - accumulated_size;
+
+	accumulated_size += sg_dma_len(last_sgl);
+
+	/*
+	 * Ensure (sgt_offset + size) is within the bounds of the sg table and
+	 * that the part of the last sg table entry up to size is a
+	 * multiple of the page size.
+	 */
+	if (accumulated_size < sgt_offset + size ||
+	    last_sgl_size & ~PVR_DEVICE_PAGE_MASK ||
+	    sg_dma_address(last_sgl) & ~PVR_DEVICE_PAGE_MASK) {
+		err = -EINVAL;
+		goto err_fini_ptr;
 	}
 
 	/*
