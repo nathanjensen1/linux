@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0 OR MIT
 # Copyright (c) 2022 Imagination Technologies Ltd.
 
-subdir-cc-flags-y := -I$(srctree)/$(src)
+subdir-ccflags-y := -I$(srctree)/$(src)
 
 powervr-y := \
 	pvr_ccb.o \
