@@ -30,7 +30,6 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 			enum pvr_context_priority priority,
 			struct drm_pvr_ioctl_create_context_args *args)
 {
-	struct rogue_fwif_rf_cmd *reset_framework;
 	int err;
 
 	ctx->type = type;
@@ -42,15 +41,8 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	kref_init(&ctx->ref_count);
 
-	reset_framework = pvr_gem_create_and_map_fw_object(pvr_dev, ROGUE_FWIF_RF_CMD_SIZE,
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&ctx->reset_framework_obj);
-	if (IS_ERR(reset_framework)) {
-		err = PTR_ERR(reset_framework);
-		goto err_out;
-	}
-
 	if (args->reset_framework_registers) {
+		struct rogue_fwif_rf_cmd *reset_framework;
 		struct drm_pvr_reset_framework rf_args;
 
 		if (copy_from_user(&rf_args,
@@ -58,35 +50,36 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 					   args->reset_framework_registers),
 				   sizeof(rf_args))) {
 			err = -EFAULT;
-			goto err_rf_free;
+			goto err_out;
 		}
 
 		if (rf_args.flags || rf_args.format != DRM_PVR_RF_FORMAT_CDM_1) {
 			err = -EINVAL;
-			goto err_rf_free;
+			goto err_out;
 		}
 
 		if (!PVR_IOCTL_UNION_PADDING_CHECK(&rf_args, data,
 						  cdm_format_1) ||
 		    !rf_args.data.cdm_format_1.cdm_ctrl_stream_base) {
 			err = -EINVAL;
-			goto err_rf_free;
+			goto err_out;
 		}
 
-		reset_framework->flags = ROGUE_FWIF_RF_FLAG_ENABLE;
+		reset_framework = pvr_gem_create_and_map_fw_object(pvr_dev, ROGUE_FWIF_RF_CMD_SIZE,
+			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+			&ctx->reset_framework_obj);
+		if (IS_ERR(reset_framework)) {
+			err = PTR_ERR(reset_framework);
+			goto err_out;
+		}
+
 		reset_framework->fw_registers.cdmreg_cdm_ctrl_stream_base =
 			rf_args.data.cdm_format_1.cdm_ctrl_stream_base;
 
-	} else {
-		reset_framework->flags = 0;
+		pvr_fw_object_vunmap(ctx->reset_framework_obj, reset_framework, true);
 	}
 
-	pvr_fw_object_vunmap(ctx->reset_framework_obj, reset_framework, true);
-
 	return 0;
-
-err_rf_free:
-	pvr_fw_object_release(ctx->reset_framework_obj);
 
 err_out:
 	return err;
@@ -95,7 +88,8 @@ err_out:
 static void
 pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
 {
-	pvr_fw_object_release(ctx->reset_framework_obj);
+	if (ctx->reset_framework_obj)
+		pvr_fw_object_release(ctx->reset_framework_obj);
 }
 
 /**
@@ -131,7 +125,7 @@ pvr_init_geom_context(
 		goto err_cccb_fini;
 	}
 
-	geom_ctx_state_fw->geom_reg_vdm_call_stack_pointer =
+	geom_ctx_state_fw->geom_core[0].geom_reg_vdm_call_stack_pointer =
 		render_ctx_args->vdm_callstack_addr;
 
 	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, geom_ctx_state_fw, true);
@@ -337,8 +331,7 @@ pvr_init_fw_render_context(
 		goto err_destroy_gem_object;
 	}
 
-	ctxswitch_regs =
-		&fw_render_context->static_render_context_state.ctxswitch_regs;
+	ctxswitch_regs = &fw_render_context->static_render_context_state.ctxswitch_regs[0];
 
 	BUILD_BUG_ON(sizeof(*ctxswitch_regs) != sizeof(srcs_args.data));
 	memcpy(ctxswitch_regs, &srcs_args.data, sizeof(srcs_args.data));
