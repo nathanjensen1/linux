@@ -265,7 +265,7 @@ enum drm_pvr_ctx_priority {
  * &drm_pvr_static_render_context_state.format
  */
 enum drm_pvr_static_render_context_state_format {
-	/** @DRM_PVR_SRCS_FORMAT_1: Format 1, used by firmware version 1.14. */
+	/** @DRM_PVR_SRCS_FORMAT_1: Format 1, used by firmware version 1.17. */
 	DRM_PVR_SRCS_FORMAT_1 = 0,
 };
 
@@ -280,7 +280,7 @@ struct drm_pvr_static_render_context_state {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_static_render_context_state_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_SRCS_FORMAT_1.
+	 * For firmware version 1.17, this is %DRM_PVR_SRCS_FORMAT_1.
 	 */
 	__u32 format;
 
@@ -322,7 +322,7 @@ struct drm_pvr_static_render_context_state {
  * &drm_pvr_static_compute_context_state.format
  */
 enum drm_pvr_static_compute_context_state_format {
-	/** @DRM_PVR_SCCS_FORMAT_1: Format 1, used by firmware version 1.14. */
+	/** @DRM_PVR_SCCS_FORMAT_1: Format 1, used by firmware version 1.17. */
 	DRM_PVR_SCCS_FORMAT_1 = 0,
 };
 
@@ -337,7 +337,7 @@ struct drm_pvr_static_compute_context_state {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_static_compute_context_state_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_SCCS_FORMAT_1.
+	 * For firmware version 1.17, this is %DRM_PVR_SCCS_FORMAT_1.
 	 */
 	__u32 format;
 
@@ -351,7 +351,6 @@ struct drm_pvr_static_compute_context_state {
 		 *            %DRM_PVR_SCCS_FORMAT_1.
 		 */
 		struct {
-			__u64 cdmreg_cdm_context_state_base_addr;
 			__u64 cdmreg_cdm_context_pds0;
 			__u64 cdmreg_cdm_context_pds1;
 			__u64 cdmreg_cdm_terminate_pds;
@@ -396,7 +395,7 @@ struct drm_pvr_ioctl_create_compute_context_args {
  * &drm_pvr_reset_framework.format
  */
 enum drm_pvr_reset_framework_format {
-	/** @DRM_PVR_RF_FORMAT_CDM_1: Format 1, used by firmware 1.14. */
+	/** @DRM_PVR_RF_FORMAT_CDM_1: Format 1, used by firmware 1.17. */
 	DRM_PVR_RF_FORMAT_CDM_1 = 0,
 };
 
@@ -418,7 +417,7 @@ struct drm_pvr_reset_framework {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_reset_framework_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_RF_FORMAT_CDM_1.
+	 * For firmware version 1.17, this is %DRM_PVR_RF_FORMAT_CDM_1.
 	 */
 	__u32 format;
 
@@ -1021,7 +1020,7 @@ struct drm_pvr_cmd_geom {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_cmd_geom_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_CMD_GEOM_FORMAT_1.
+	 * For firmware version 1.17, this is %DRM_PVR_CMD_GEOM_FORMAT_1.
 	 */
 	__u32 format;
 
@@ -1148,7 +1147,7 @@ struct drm_pvr_cmd_frag {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_cmd_frag_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_CMD_FRAG_FORMAT_1.
+	 * For firmware version 1.17, this is %DRM_PVR_CMD_FRAG_FORMAT_1.
 	 */
 	__u32 format;
 
@@ -1184,6 +1183,7 @@ struct drm_pvr_compute_regs_format_1 {
 	__u64 cdm_item;
 	__u64 compute_cluster;
 	__u64 cdm_ctrl_stream_base;
+	__u64 cdm_context_state_base_addr;
 	__u32 tpu;
 	__u32 cdm_resume_pds1;
 };
@@ -1235,7 +1235,7 @@ struct drm_pvr_cmd_compute {
 	 * This must be one of the values defined by
 	 * &enum drm_pvr_cmd_compute_format.
 	 *
-	 * For firmware version 1.14, this is %DRM_PVR_CMD_COMPUTE_FORMAT_1.
+	 * For firmware version 1.17, this is %DRM_PVR_CMD_COMPUTE_FORMAT_1.
 	 */
 	__u32 format;
 

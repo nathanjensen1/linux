@@ -29,7 +29,7 @@
 
 /* Major and minor numbers for the supported version of the firmware. */
 #define PVR_FW_VERSION_MAJOR 1
-#define PVR_FW_VERSION_MINOR 14
+#define PVR_FW_VERSION_MINOR 17
 
 /**
  * pvr_device_reg_init() - Initialize kernel access to a PowerVR device's

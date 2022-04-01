@@ -93,6 +93,25 @@ hwrt_init_common_fw_structure(
 	}
 
 	hwrt_data_common_fw->geom_caches_need_zeroing = false;
+	hwrt_data_common_fw->screen_pixel_max = args->screen_pixel_max;
+	hwrt_data_common_fw->multi_sample_ctl = args->multi_sample_control;
+	hwrt_data_common_fw->flipped_multi_sample_ctl =
+		args->flipped_multi_sample_control;
+	hwrt_data_common_fw->tpc_stride = args->tpc_stride;
+	hwrt_data_common_fw->tpc_size = args->tpc_stride;
+	hwrt_data_common_fw->te_screen = args->te_screen_size;
+	hwrt_data_common_fw->mtile_stride = args->mtile_stride;
+	hwrt_data_common_fw->teaa = args->te_aa;
+	hwrt_data_common_fw->te_mtile1 = args->te_mtile[0];
+	hwrt_data_common_fw->te_mtile2 = args->te_mtile[1];
+	hwrt_data_common_fw->isp_merge_lower_x = args->isp_merge_lower_x;
+	hwrt_data_common_fw->isp_merge_lower_y = args->isp_merge_lower_y;
+	hwrt_data_common_fw->isp_merge_upper_x = args->isp_merge_upper_x;
+	hwrt_data_common_fw->isp_mergy_upper_y = args->isp_merge_upper_y;
+	hwrt_data_common_fw->isp_merge_scale_x = args->isp_merge_scale_x;
+	hwrt_data_common_fw->isp_merge_scale_y = args->isp_merge_scale_y;
+	hwrt_data_common_fw->rgn_header_size = args->region_header_size;
+	hwrt_data_common_fw->isp_mtile_size = args->isp_mtile_size;
 
 	pvr_fw_object_vunmap(hwrt->common_fw_obj, hwrt_data_common_fw, false);
 
@@ -151,30 +170,11 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 	}
 
 	hwrt_data_fw->vheap_table_dev_addr = geom_data_args->vheap_table_dev_addr;
-	hwrt_data_fw->screen_pixel_max = args->screen_pixel_max;
-	hwrt_data_fw->multi_sample_ctl = args->multi_sample_control;
-	hwrt_data_fw->flipped_multi_sample_ctl =
-		args->flipped_multi_sample_control;
-	hwrt_data_fw->tpc_stride = args->tpc_stride;
-	hwrt_data_fw->tail_ptrs_dev_addr = geom_data_args->tail_ptrs_dev_addr;
-	hwrt_data_fw->tpc_size = args->tpc_stride;
-	hwrt_data_fw->te_screen = args->te_screen_size;
-	hwrt_data_fw->mtile_stride = args->mtile_stride;
-	hwrt_data_fw->teaa = args->te_aa;
-	hwrt_data_fw->te_mtile1 = args->te_mtile[0];
-	hwrt_data_fw->te_mtile2 = args->te_mtile[1];
-	hwrt_data_fw->isp_merge_lower_x = args->isp_merge_lower_x;
-	hwrt_data_fw->isp_merge_lower_y = args->isp_merge_lower_y;
-	hwrt_data_fw->isp_merge_upper_x = args->isp_merge_upper_x;
-	hwrt_data_fw->isp_mergy_upper_y = args->isp_merge_upper_y;
-	hwrt_data_fw->isp_merge_scale_x = args->isp_merge_scale_x;
-	hwrt_data_fw->isp_merge_scale_y = args->isp_merge_scale_y;
 	hwrt_data_fw->macrotile_array_dev_addr =
 		rt_data_args->macrotile_array_dev_addr;
 	hwrt_data_fw->rgn_header_dev_addr = rt_data_args->region_header_dev_addr;
 	hwrt_data_fw->rtc_dev_addr = geom_data_args->rtc_dev_addr;
-	hwrt_data_fw->rgn_header_size = args->region_header_size;
-	hwrt_data_fw->isp_mtile_size = args->isp_mtile_size;
+	hwrt_data_fw->tail_ptrs_dev_addr = geom_data_args->tail_ptrs_dev_addr;
 
 	rta_ctl = &hwrt_data_fw->rta_ctl;
 
