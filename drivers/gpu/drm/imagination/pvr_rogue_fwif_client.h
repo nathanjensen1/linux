@@ -140,6 +140,7 @@ struct rogue_fwif_compute_regs {
 	u64 cdm_item;
 	u64 compute_cluster;
 	u64 cdm_ctrl_stream_base;
+	u64 cdm_context_state_base_addr;
 	u32 tpu;
 	u32 cdm_resume_pds1;
 };

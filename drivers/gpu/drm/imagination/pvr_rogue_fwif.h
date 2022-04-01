@@ -106,6 +106,8 @@ struct rogue_fwif_log_group_map_entry {
  */
 #define ROGUE_FW_SIG_BUFFER_SIZE_MIN (8192)
 
+#define ROGUE_FWIF_TIMEDIFF_ID ((0x1UL << 28) | ROGUE_CR_TIMER)
+
 /*
  ****************************************************************************
  * Trace Buffer
@@ -164,8 +166,8 @@ enum rogue_fwif_pow_state {
 /* Firmware HWR states */
 /* The HW state is ok or locked up */
 #define ROGUE_FWIF_HWR_HARDWARE_OK BIT(0)
-/* The analysis of a GPU lockup has been performed */
-#define ROGUE_FWIF_HWR_ANALYSIS_DONE BIT(2)
+/* Tells if a HWR reset is in progress */
+#define ROGUE_FWIF_HWR_RESET_IN_PROGRESS BIT(1)
 /* A DM unrelated lockup has been detected */
 #define ROGUE_FWIF_HWR_GENERAL_LOCKUP BIT(3)
 /* At least one DM is running without being close to a lockup */
@@ -184,6 +186,10 @@ enum rogue_fwif_pow_state {
 #define ROGUE_FWIF_PHR_RESTART_FINISHED ((2) << ROGUE_FWIF_PHR_STATE_SHIFT)
 #define ROGUE_FWIF_PHR_RESTART_MASK \
 	(ROGUE_FWIF_PHR_RESTART_REQUESTED | ROGUE_FWIF_PHR_RESTART_FINISHED)
+
+#define ROGUE_FWIF_PHR_MODE_OFF (0UL)
+#define ROGUE_FWIF_PHR_MODE_RD_RESET (1UL)
+#define ROGUE_FWIF_PHR_MODE_FULL_RESET (2UL)
 
 /* Firmware per-DM HWR states */
 /* DM is working if all flags are cleared */
@@ -206,6 +212,8 @@ enum rogue_fwif_pow_state {
 #define ROGUE_FWIF_DM_STATE_INNOCENT_OVERRUNING BIT(8)
 /* DM was forced into HWR as it delayed more important workloads */
 #define ROGUE_FWIF_DM_STATE_HARD_CONTEXT_SWITCH BIT(9)
+/* DM was forced into HWR due to an uncorrected GPU ECC error */
+#define ROGUE_FWIF_DM_STATE_GPU_ECC_HWR BIT(10)
 
 /* Firmware's connection state */
 enum rogue_fwif_connection_fw_state {
@@ -292,24 +300,13 @@ struct rogue_fwif_sysdata {
 	/* State flags for each Operating System mirrored from Fw coremem */
 	struct rogue_fwif_os_runtime_flags
 		os_runtime_flags_mirror[ROGUE_FW_MAX_NUM_OS];
-	/* Priority for each Operating System mirrored from Fw coremem */
-	u32 osid_prio_mirror[ROGUE_FW_MAX_NUM_OS];
 
-	/* Periodic Hardware Reset Mode mirrored from Fw coremem */
-	u32 phr_mode_mirror;
 	struct rogue_fw_fault_info fault_info[ROGUE_FWIF_FWFAULTINFO_MAX];
 	u32 fw_faults;
 	u32 cr_poll_addr[ROGUE_FW_THREAD_NUM];
 	u32 cr_poll_mask[ROGUE_FW_THREAD_NUM];
 	u32 cr_poll_count[ROGUE_FW_THREAD_NUM];
 	aligned_u64 start_idle_time;
-
-	/*
-	 * Non-volatile power monitoring results:
-	 * * static power (by default)
-	 * * energy count (PVR_POWER_MONITOR_DYNAMIC_ENERGY)
-	 */
-	u32 pow_mon_estimate;
 
 #if defined(SUPPORT_ROGUE_FW_STATS_FRAMEWORK)
 #	define ROGUE_FWIF_STATS_FRAMEWORK_LINESIZE (8)
@@ -321,6 +318,8 @@ struct rogue_fwif_sysdata {
 	u32 hwr_recovery_flags[PVR_FWIF_DM_MAX];
 	/* Compatibility and other flags */
 	u32 fw_sys_data_flags;
+	/* Identify whether MC config is P-P or P-S */
+	u32 mc_config;
 } __aligned(8);
 
 /* per-os firmware shared data */
@@ -410,6 +409,7 @@ enum rogue_hwrtype {
 	ROGUE_HWRTYPE_MMUMETAFAULT = 7,
 	ROGUE_HWRTYPE_MIPSTLBFAULT = 8,
 	ROGUE_HWRTYPE_ECCFAULT = 9,
+	ROGUE_HWRTYPE_MMURISCVFAULT = 10,
 };
 
 #define ROGUE_FWIF_HWRTYPE_BIF_BANK_GET(hwr_type) \
@@ -421,7 +421,8 @@ enum rogue_hwrtype {
 	  ((hwr_type) == ROGUE_HWRTYPE_TEXASBIF0FAULT) || \
 	  ((hwr_type) == ROGUE_HWRTYPE_MMUFAULT) ||       \
 	  ((hwr_type) == ROGUE_HWRTYPE_MMUMETAFAULT) ||   \
-	  ((hwr_type) == ROGUE_HWRTYPE_MIPSTLBFAULT))     \
+	  ((hwr_type) == ROGUE_HWRTYPE_MIPSTLBFAULT) ||   \
+	  ((hwr_type) == ROGUE_HWRTYPE_MMURISCVFAULT))    \
 		 ? true                                   \
 		 : false)
 
@@ -437,7 +438,7 @@ struct rogue_eccinfo {
 };
 
 struct rogue_mmuinfo {
-	aligned_u64 mmu_status;
+	aligned_u64 mmu_status[2];
 	aligned_u64 pc_address; /* phys address of the page catalogue */
 	aligned_u64 reserved;
 };
@@ -504,35 +505,6 @@ struct rogue_fwif_hwrinfobuf {
 	u32 hwr_dm_false_detect_count[PVR_FWIF_DM_MAX];
 } __aligned(8);
 
-enum rogue_activepm_conf {
-	ROGUE_ACTIVEPM_FORCE_OFF = 0,
-	ROGUE_ACTIVEPM_FORCE_ON = 1,
-	ROGUE_ACTIVEPM_DEFAULT = 2
-};
-
-enum rogue_rd_power_island_conf {
-	ROGUE_RD_POWER_ISLAND_FORCE_OFF = 0,
-	ROGUE_RD_POWER_ISLAND_FORCE_ON = 1,
-	ROGUE_RD_POWER_ISLAND_DEFAULT = 2
-};
-
-/*
- ******************************************************************************
- * Querying DM state
- ******************************************************************************
- */
-
-struct rogue_fw_register_list {
-	/* Register number */
-	u16 reg_num;
-	/* Indirect register number (or 0 if not used) */
-	u16 indirect_reg_num;
-	/* Start value for indirect register */
-	u16 indirect_start_val;
-	/* End value for indirect register */
-	u16 indirect_end_val;
-};
-
 #define ROGUE_FWIF_CTXSWITCH_PROFILE_FAST_EN (1)
 #define ROGUE_FWIF_CTXSWITCH_PROFILE_MEDIUM_EN (2)
 #define ROGUE_FWIF_CTXSWITCH_PROFILE_SLOW_EN (3)
@@ -559,25 +531,13 @@ struct rogue_fw_register_list {
 #define ROGUE_FWIF_INICFG_FBCDC_V3_1_EN BIT(6)
 #define ROGUE_FWIF_INICFG_CHECK_MLIST_EN BIT(7)
 #define ROGUE_FWIF_INICFG_DISABLE_CLKGATING_EN BIT(8)
-#define ROGUE_FWIF_INICFG_POLL_COUNTERS_EN BIT(9)
-#define ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_SHIFT (10)
-#define ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_INDEX  \
-	(ROGUE_CR_VDM_CONTEXT_STORE_MODE_MODE_INDEX \
-	 << ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_SHIFT)
-#define ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_INSTANCE  \
-	(ROGUE_CR_VDM_CONTEXT_STORE_MODE_MODE_INSTANCE \
-	 << ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_SHIFT)
-#define ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_LIST  \
-	(ROGUE_CR_VDM_CONTEXT_STORE_MODE_MODE_LIST \
-	 << ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_SHIFT)
-#define ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_MASK        \
-	(ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_INDEX |    \
-	 ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_INSTANCE | \
-	 ROGUE_FWIF_INICFG_VDM_CTX_STORE_MODE_LIST)
+/* Bit 9 is reserved. */
+/* Bit 10 is reserved. */
+/* Bit 11 is reserved. */
 #define ROGUE_FWIF_INICFG_REGCONFIG_EN BIT(12)
 #define ROGUE_FWIF_INICFG_ASSERT_ON_OUTOFMEMORY BIT(13)
 #define ROGUE_FWIF_INICFG_HWP_DISABLE_FILTER BIT(14)
-#define ROGUE_FWIF_INICFG_CUSTOM_PERF_TIMER_EN BIT(15)
+/* Bit 15 is reserved. */
 #define ROGUE_FWIF_INICFG_CTXSWITCH_PROFILE_SHIFT (16)
 #define ROGUE_FWIF_INICFG_CTXSWITCH_PROFILE_FAST \
 	(ROGUE_FWIF_CTXSWITCH_PROFILE_FAST_EN    \
@@ -626,7 +586,14 @@ struct rogue_fw_register_list {
 #define ROGUE_FWIF_INICFG_ALL (0xFFFFFFFFU)
 
 /* Extended Flag definitions affecting the firmware globally */
-#define ROGUE_FWIF_INICFG_EXT_ALL (0x0U)
+#define ROGUE_FWIF_INICFG_EXT_TFBC_CONTROL_SHIFT (0)
+/* [7]   YUV10 override
+ * [6:4] Quality
+ * [3]   Quality enable
+ * [2:1] Compression scheme
+ * [0]   Lossy group */
+#define ROGUE_FWIF_INICFG_EXT_TFBC_CONTROL_MASK (0xFF)
+#define ROGUE_FWIF_INICFG_EXT_ALL (ROGUE_FWIF_INICFG_EXT_TFBC_CONTROL_MASK)
 
 /* Flag definitions affecting only workloads submitted by a particular OS */
 #define ROGUE_FWIF_INICFG_OS_CTXSWITCH_TDM_EN BIT(0)
@@ -641,10 +608,6 @@ struct rogue_fw_register_list {
 
 #define ROGUE_FWIF_INICFG_OS_ALL (0xFF)
 
-#define ROGUE_FWIF_INICFG_SYS_CTXSWITCH_CLRMSK    \
-	~(ROGUE_FWIF_INICFG_CTXSWITCH_MODE_RAND | \
-	  ROGUE_FWIF_INICFG_CTXSWITCH_SRESET_EN)
-
 #define ROGUE_FWIF_INICFG_OS_CTXSWITCH_DM_ALL     \
 	(ROGUE_FWIF_INICFG_OS_CTXSWITCH_TDM_EN |  \
 	 ROGUE_FWIF_INICFG_OS_CTXSWITCH_GEOM_EN | \
@@ -657,6 +620,18 @@ struct rogue_fw_register_list {
 #define ROGUE_FWIF_FILTCFG_TRUNCATE_HALF BIT(3)
 #define ROGUE_FWIF_FILTCFG_TRUNCATE_INT BIT(2)
 #define ROGUE_FWIF_FILTCFG_NEW_FILTER_MODE BIT(1)
+
+enum rogue_activepm_conf {
+	ROGUE_ACTIVEPM_FORCE_OFF = 0,
+	ROGUE_ACTIVEPM_FORCE_ON = 1,
+	ROGUE_ACTIVEPM_DEFAULT = 2
+};
+
+enum rogue_rd_power_island_conf {
+	ROGUE_RD_POWER_ISLAND_FORCE_OFF = 0,
+	ROGUE_RD_POWER_ISLAND_FORCE_ON = 1,
+	ROGUE_RD_POWER_ISLAND_DEFAULT = 2
+};
 
 #if defined(ROGUE_FW_IRQ_OS_COUNTERS)
 /* clang-format off */
@@ -676,6 +651,17 @@ struct rogue_fw_register_list {
 /* clang-format on */
 #endif
 
+struct rogue_fw_register_list {
+	/* Register number */
+	u16 reg_num;
+	/* Indirect register number (or 0 if not used) */
+	u16 indirect_reg_num;
+	/* Start value for indirect register */
+	u16 indirect_start_val;
+	/* End value for indirect register */
+	u16 indirect_end_val;
+};
+
 struct rogue_fwif_dllist_node {
 	u32 p;
 	u32 n;
@@ -687,17 +673,17 @@ struct rogue_fwif_dllist_node {
 #define ROGUE_FWIF_INVALID_PC_PHYADDR 0xFFFFFFFFFFFFFFFFLLU
 
 /* This number is used to represent unallocated page catalog base register */
-#define ROGUE_FW_BIF_INVALID_PCREG 0xFFFFFFFFU
+#define ROGUE_FW_BIF_INVALID_PCSET 0xFFFFFFFFU
 
 /* Firmware memory context. */
 struct rogue_fwif_fwmemcontext {
 	/* device physical address of context's page catalogue */
 	aligned_u64 pc_dev_paddr;
 	/*
-	 * associated page catalog base register (ROGUE_FW_BIF_INVALID_PCREG ==
+	 * associated page catalog base register (ROGUE_FW_BIF_INVALID_PCSET ==
 	 * unallocated)
 	 */
-	u32 page_cat_base_reg_id;
+	u32 page_cat_base_reg_set;
 	/* breakpoint address */
 	u32 breakpoint_addr;
 	/* breakpoint handler address */
@@ -714,41 +700,31 @@ struct rogue_fwif_fwmemcontext {
 #define ROGUE_FWIF_CONTEXT_FLAGS_NEED_RESUME (0x00000001U)
 #define ROGUE_FWIF_CONTEXT_FLAGS_MC_NEED_RESUME_MASKFULL (0x000000FFU)
 #define ROGUE_FWIF_CONTEXT_FLAGS_TDM_HEADER_STALE (0x00000100U)
-
-/*
- * Fast scale blit renders can be divided into smaller slices. The maximum
- * screen size is 8192x8192 pixels or 256x256 tiles. The blit is sliced
- * into 512x512 pixel blits or 16x16 tiles. Therefore, there are at most
- * 256 slices of 16x16 tiles, which means we need 8bits to count up to
- * which slice we have blitted so far.
- */
-#define ROGUE_FWIF_CONTEXT_SLICE_BLIT_X_MASK (0x00000F00)
-#define ROGUE_FWIF_CONTEXT_SLICE_BLIT_X_SHIFT (8)
-#define ROGUE_FWIF_CONTEXT_SLICE_BLIT_Y_MASK (0x0000F000)
-#define ROGUE_FWIF_CONTEXT_SLICE_BLIT_Y_SHIFT (12)
+#define ROGUE_FWIF_CONTEXT_FLAGS_LAST_KICK_SECURE (0x00000200U)
 
 /*
  * FW-accessible TA state which must be written out to memory on context store
  */
-struct rogue_fwif_geom_ctx_state {
+struct rogue_fwif_geom_ctx_state_per_geom {
 	/* To store in mid-TA */
 	aligned_u64 geom_reg_vdm_call_stack_pointer;
 	/* Initial value (in case is 'lost' due to a lock-up */
 	aligned_u64 geom_reg_vdm_call_stack_pointer_init;
-	aligned_u64 geom_reg_vdm_batch;
-	aligned_u64 geom_reg_vbs_so_prim0;
-	aligned_u64 geom_reg_vbs_so_prim1;
-	aligned_u64 geom_reg_vbs_so_prim2;
-	aligned_u64 geom_reg_vbs_so_prim3;
+	u32 geom_reg_vbs_so_prim[4];
 	s16 geom_current_idx;
+} __aligned(8);
+
+struct rogue_fwif_geom_ctx_state {
+	/* FW-accessible TA state which must be written out to memory on context store */
+	struct rogue_fwif_geom_ctx_state_per_geom geom_core[ROGUE_NUM_GEOM_CORES];
 } __aligned(8);
 
 /*
  * FW-accessible ISP state which must be written out to memory on context store
  */
 struct rogue_fwif_frag_ctx_state {
-	aligned_u64 frag_reg_pm_deallocated_mask_status;
-	aligned_u64 frag_reg_dm_pds_mtilefree_status;
+	u32 frag_reg_pm_deallocated_mask_status;
+	u32 frag_reg_dm_pds_mtilefree_status;
 	/* Compatibility and other flags */
 	u32 ctx_state_flags;
 	/*
@@ -772,34 +748,18 @@ struct rogue_fwif_fwcommoncontext {
 	u32 ccb_fw_addr; /* CCB base */
 	struct rogue_fwif_dma_addr ccb_meta_dma_addr;
 
-	/* List entry for the waiting list */
-	struct rogue_fwif_dllist_node waiting_node __aligned(8);
-	/* List entry for the run list */
-	struct rogue_fwif_dllist_node run_node __aligned(8);
-	/* UFO that last failed (or NULL) */
-	struct rogue_fwif_ufo last_failed_ufo;
-
-	/* Memory context */
-	u32 fw_mem_context_fw_addr;
-
 	/* Context suspend state */
 	/* geom/frag context suspend state, read/written by FW */
 	u32 context_state_addr __aligned(8);
-
-	/* Framework state */
-	/* Register updates for Framework */
-	u32 rf_cmd_addr __aligned(8);
 
 	/* Flags e.g. for context switching */
 	u32 fw_com_ctx_flags;
 	u32 priority;
 	u32 priority_seq_num;
 
-	/* References to the host side originators */
-	/* the Server Common Context */
-	u32 server_common_context_id;
-	/* associated process ID */
-	u32 pid;
+	/* Framework state */
+	/* Register updates for Framework */
+	u32 rf_cmd_addr __aligned(8);
 
 	/* Statistic updates waiting to be passed back to the host... */
 	/* True when some stats are pending */
@@ -826,6 +786,25 @@ struct rogue_fwif_fwcommoncontext {
 	u32 max_deadline_ms;
 	/* Following HWR circular buffer read-offset needs resetting */
 	bool read_offset_needs_reset __aligned(4);
+
+	/* List entry for the waiting list */
+	struct rogue_fwif_dllist_node waiting_node __aligned(8);
+	/* List entry for the run list */
+	struct rogue_fwif_dllist_node run_node __aligned(8);
+	/* UFO that last failed (or NULL) */
+	struct rogue_fwif_ufo last_failed_ufo;
+
+	/* Memory context */
+	u32 fw_mem_context_fw_addr;
+
+	/* References to the host side originators */
+	/* the Server Common Context */
+	u32 server_common_context_id;
+	/* associated process ID */
+	u32 pid;
+
+	/* True when Geom DM OOM is not allowed */
+	bool geom_oom_disabled __aligned(4);
 } __aligned(8);
 
 /* Firmware render context. */
@@ -858,8 +837,8 @@ struct rogue_fwif_fwcomputecontext {
 	/* Compatibility and other flags */
 	u32 compute_ctx_flags;
 
-	u32 kz_state;
-	u32 kz_checksum;
+	u32 wgp_state;
+	u32 wgp_checksum;
 	u32 core_mask_a;
 	u32 core_mask_b;
 } __aligned(8);
@@ -994,20 +973,6 @@ struct rogue_fwif_kccb_cmd_force_update_data {
 	u32 ccb_fence_offset;
 };
 
-struct rogue_fwif_kccb_cmd_phr_cfg_data {
-	/* Variable containing PHR configuration values */
-	u32 phr_mode;
-};
-
-#define ROGUEIF_PHR_MODE_OFF (0UL)
-#define ROGUEIF_PHR_MODE_RD_RESET (1UL)
-#define ROGUEIF_PHR_MODE_FULL_RESET (2UL)
-
-struct rogue_fwif_kccb_cmd_wdg_cfg_data {
-	/* Variable containing the requested watchdog period in microseconds */
-	u32 wdg_period_us;
-};
-
 enum rogue_fwif_cleanup_type {
 	/* FW common context cleanup */
 	ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
@@ -1060,8 +1025,6 @@ struct rogue_fwif_power_request {
 		 * Idle, Host Timeout
 		 */
 		enum rogue_fwif_power_force_idle_type pow_request_type;
-		/* Number of milliseconds to set APM latency */
-		u32 active_pm_latency_ms;
 	} power_req_data;
 };
 
@@ -1072,11 +1035,10 @@ struct rogue_fwif_slcflushinvaldata {
 	bool inval __aligned(4);
 	/* The data to flush/invalidate belongs to a specific DM context */
 	bool dm_context __aligned(4);
-};
-
-struct rogue_fwif_hcs_ctl {
-	/* New number of milliseconds C/S is allowed to last */
-	u32 hcs_deadling_ms;
+	/* Optional address of range (only useful when bDMContext == FALSE) */
+	aligned_u64 address;
+	/* Optional size of range (only useful when bDMContext == FALSE) */
+	aligned_u64 size;
 };
 
 enum rogue_fwif_hwperf_update_config {
@@ -1091,6 +1053,13 @@ struct rogue_fwif_hwperf_ctrl {
 };
 
 struct rogue_fwif_hwperf_config_enable_blks {
+	/* Number of ROGUE_HWPERF_CONFIG_MUX_CNTBLK in the array */
+	u32 num_blocks;
+	/* Address of the ROGUE_HWPERF_CONFIG_MUX_CNTBLK array */
+	u32 block_configs_fw_addr;
+};
+
+struct rogue_fwif_hwperf_config_da_blks {
 	/* Number of ROGUE_HWPERF_CONFIG_CNTBLK in the array */
 	u32 num_blocks;
 	/* Address of the ROGUE_HWPERF_CONFIG_CNTBLK array */
@@ -1141,13 +1110,6 @@ struct rogue_fwif_freelists_reconstruction_data {
 	u32 freelist_count;
 	u32 freelist_ids[ROGUE_FWIF_MAX_FREELISTS_TO_RECONSTRUCT];
 };
-
-struct rogue_fwif_signal_update_data {
-	/* device virtual address of the updated signal */
-	aligned_u64 dev_signal_address;
-	/* Memory context */
-	u32 fw_mem_context_fw_addr;
-} __aligned(8);
 
 struct rogue_fwif_write_offset_update_data {
 	/*
@@ -1238,12 +1200,6 @@ struct rogue_fwif_reg_cfg {
 		reg_configs[ROGUE_FWIF_REG_CFG_MAX_SIZE] __aligned(8);
 } __aligned(8);
 
-/* OSid Scheduling Priority Change */
-struct rogue_fwif_osid_priority_data {
-	u32 osid_num;
-	u32 priority;
-};
-
 /* clang-format off */
 enum rogue_fwif_os_state_change {
 	ROGUE_FWIF_OS_ONLINE = 1,
@@ -1293,9 +1249,6 @@ enum rogue_fwif_kccb_cmd_type {
 	/* Freelists Reconstruction done */
 	ROGUE_FWIF_KCCB_CMD_FREELISTS_RECONSTRUCTION_UPDATE =
 		112U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Informs the firmware that the host has performed a signal update */
-	ROGUE_FWIF_KCCB_CMD_NOTIFY_SIGNAL_UPDATE =
-		113U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 	/*
 	 * Informs the firmware that the host has added more data to a CDM2
 	 * Circular Buffer
@@ -1309,66 +1262,51 @@ enum rogue_fwif_kccb_cmd_type {
 
 	/* There is a geometry and a fragment command in this single kick */
 	ROGUE_FWIF_KCCB_CMD_COMBINED_GEOM_FRAG_KICK = 117U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Informs the FW that a Guest OS has come online / offline. */
+	ROGUE_FWIF_KCCB_CMD_OS_ONLINE_STATE_CONFIGURE	= 118U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 
 	/* Commands only permitted to the native or host OS */
 	ROGUE_FWIF_KCCB_CMD_REGCONFIG = 200U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Configure the custom counters for HWPerf */
-	ROGUE_FWIF_KCCB_CMD_HWPERF_SELECT_CUSTOM_CNTRS =
-		201U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/*
-	 * Ask the firmware to update its cached ui32LogType value from the
-	 * (shared) tracebuf control structure
-	 */
-	ROGUE_FWIF_KCCB_CMD_LOGTYPE_UPDATE = 202U |
-					     ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Set a maximum frequency/OPP point */
-	ROGUE_FWIF_KCCB_CMD_PDVFS_LIMIT_MAX_FREQ =
-		203U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/*
-	 * Changes the relative scheduling priority for a particular OSid. It
-	 * can only be serviced for the Host DDK
-	 */
-	ROGUE_FWIF_KCCB_CMD_OSID_PRIORITY_CHANGE =
-		204U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Set or clear firmware state flags */
-	ROGUE_FWIF_KCCB_CMD_STATEFLAGS_CTRL = 205U |
-					      ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Set hard context switching deadline */
-	ROGUE_FWIF_KCCB_CMD_HCS_SET_DEADLINE = 206U |
-					       ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/*
-	 * Informs the FW that a Guest OS has come online / offline. It can only
-	 * be serviced for the Host DDK
-	 */
-	ROGUE_FWIF_KCCB_CMD_OS_ONLINE_STATE_CONFIGURE =
-		207U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Controls counter dumping in the FW */
-	ROGUE_FWIF_KCCB_CMD_COUNTER_DUMP = 208U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/*
-	 * Configure HWPerf events (to be generated) and HWPerf buffer address
-	 * (if required)
-	 */
-	ROGUE_FWIF_KCCB_CMD_HWPERF_UPDATE_CONFIG =
-		209U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/* Configure, clear and enable multiple HWPerf blocks */
-	ROGUE_FWIF_KCCB_CMD_HWPERF_CONFIG_ENABLE_BLKS =
-		210U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
-	/*
-	 * Enable or disable multiple HWPerf blocks (reusing existing
-	 * configuration)
-	 */
-	ROGUE_FWIF_KCCB_CMD_HWPERF_CTRL_BLKS = 211U |
-					       ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
+	/* Configure HWPerf events (to be generated) and HWPerf buffer address (if required) */
+	ROGUE_FWIF_KCCB_CMD_HWPERF_UPDATE_CONFIG = 201U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
+	/* Enable or disable multiple HWPerf blocks (reusing existing configuration) */
+	ROGUE_FWIF_KCCB_CMD_HWPERF_CTRL_BLKS = 203U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 	/* Core clock speed change event */
-	ROGUE_FWIF_KCCB_CMD_CORECLKSPEEDCHANGE = 212U |
-						 ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	ROGUE_FWIF_KCCB_CMD_CORECLKSPEEDCHANGE = 204U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
+	/*
+	 * Ask the firmware to update its cached ui32LogType value from the (shared)
+	 * tracebuf control structure
+	 */
+	ROGUE_FWIF_KCCB_CMD_LOGTYPE_UPDATE = 206U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Set a maximum frequency/OPP point */
+	ROGUE_FWIF_KCCB_CMD_PDVFS_LIMIT_MAX_FREQ = 207U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/*
+	 * Changes the relative scheduling priority for a particular OSid. It can
+	 * only be serviced for the Host DDK
+	 */
+	ROGUE_FWIF_KCCB_CMD_OSID_PRIORITY_CHANGE = 208U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Set or clear firmware state flags */
+	ROGUE_FWIF_KCCB_CMD_STATEFLAGS_CTRL = 209U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
 	/* Set a minimum frequency/OPP point */
-	ROGUE_FWIF_KCCB_CMD_PDVFS_LIMIT_MIN_FREQ =
-		213U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	ROGUE_FWIF_KCCB_CMD_PDVFS_LIMIT_MIN_FREQ = 212U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 	/* Configure Periodic Hardware Reset behaviour */
-	ROGUE_FWIF_KCCB_CMD_PHR_CFG = 214U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	ROGUE_FWIF_KCCB_CMD_PHR_CFG = 213U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
 	/* Configure Safety Firmware Watchdog */
-	ROGUE_FWIF_KCCB_CMD_WDG_CFG = 216U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	ROGUE_FWIF_KCCB_CMD_WDG_CFG = 215U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Controls counter dumping in the FW */
+	ROGUE_FWIF_KCCB_CMD_COUNTER_DUMP = 216U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Configure, clear and enable multiple HWPerf blocks */
+	ROGUE_FWIF_KCCB_CMD_HWPERF_CONFIG_ENABLE_BLKS = 217U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+	/* Configure the custom counters for HWPerf */
+	ROGUE_FWIF_KCCB_CMD_HWPERF_SELECT_CUSTOM_CNTRS = 218U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
+	/* Configure directly addressable counters for HWPerf */
+	ROGUE_FWIF_KCCB_CMD_HWPERF_CONFIG_BLKS = 220U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 };
 
 #define ROGUE_FWIF_LAST_ALLOWED_GUEST_KCCB_CMD \
@@ -1418,6 +1356,8 @@ struct rogue_fwif_kccb_cmd {
 		/* Data for HWPerf configure the custom counters to read */
 		struct rogue_fwif_hwperf_select_custom_cntrs
 			hw_perf_select_cstm_cntrs;
+		/* Data for HWPerf configure Directly Addressable blocks */
+		struct rogue_fwif_hwperf_config_da_blks hw_perf_cfg_da_blks;
 		/* Data for core clock speed change */
 		struct rogue_fwif_coreclkspeedchange_data
 			core_clk_speed_change_data;
@@ -1430,8 +1370,6 @@ struct rogue_fwif_kccb_cmd {
 			free_lists_reconstruction_data;
 		/* Data for custom register configuration */
 		struct rogue_fwif_regconfig_data reg_config_data;
-		/* Data for informing the FW about the signal update */
-		struct rogue_fwif_signal_update_data signal_update_data;
 		/* Data for informing the FW about the write offset update */
 		struct rogue_fwif_write_offset_update_data
 			write_offset_update_data;
@@ -1439,10 +1377,6 @@ struct rogue_fwif_kccb_cmd {
 		struct rogue_fwif_pdvfs_max_freq_data pdvfs_max_freq_data;
 		/* Data for setting the min frequency/OPP */
 		struct rogue_fwif_pdvfs_min_freq_data pdvfs_min_freq_data;
-		/* Data for updating an OSid priority */
-		struct rogue_fwif_osid_priority_data cmd_osid_priority_data;
-		/* Data for Hard Context Switching */
-		struct rogue_fwif_hcs_ctl hcs_ctrl;
 		/* Data for updating the Guest Online states */
 		struct rogue_fwif_os_state_change_data cmd_os_online_state_data;
 		/* Dev address for TBI buffer allocated on demand */
@@ -1451,10 +1385,6 @@ struct rogue_fwif_kccb_cmd {
 		struct rogue_fwif_counter_dump_data counter_dump_config_data;
 		/* Data for signalling all unmet fences for a given CCB */
 		struct rogue_fwif_kccb_cmd_force_update_data force_update_data;
-		/* Data for configuring the Periodic Hw Reset behaviour */
-		struct rogue_fwif_kccb_cmd_phr_cfg_data periodic_hw_reset_cfg;
-		/* Data for configuring the Safety Firmware Watchdog */
-		struct rogue_fwif_kccb_cmd_wdg_cfg_data safety_watchdog_cfg;
 	} cmd_data __aligned(8);
 } __aligned(8);
 
@@ -1480,6 +1410,11 @@ struct rogue_fwif_fwccb_cmd_freelists_reconstruction_data {
 	u32 freelist_ids[ROGUE_FWIF_MAX_FREELISTS_TO_RECONSTRUCT];
 };
 
+/* 1 if a page fault happened */
+#define ROGUE_FWIF_FWCCB_CMD_CONTEXT_RESET_FLAG_PF BIT(0)
+/* 1 if applicable to all contexts */
+#define ROGUE_FWIF_FWCCB_CMD_CONTEXT_RESET_FLAG_ALL_CTXS BIT(1)
+
 struct rogue_fwif_fwccb_cmd_context_reset_data {
 	/* Context affected by the reset */
 	u32 server_common_context_id;
@@ -1489,12 +1424,17 @@ struct rogue_fwif_fwccb_cmd_context_reset_data {
 	u32 dm;
 	/* Job ref running at the time of reset */
 	u32 reset_job_ref;
-	/* Did a page fault happen */
-	bool page_fault __aligned(4);
+	/* ROGUE_FWIF_FWCCB_CMD_CONTEXT_RESET_FLAG bitfield */
+	u32 flags;
 	/* At what page catalog address */
 	aligned_u64 pc_address;
 	/* Page fault address (only when applicable) */
 	aligned_u64 fault_address;
+};
+
+struct rogue_fwif_fwccb_cmd_fw_pagefault_data {
+	/* Page fault address */
+	u64 fw_fault_addr;
 };
 
 enum rogue_fwif_fwccb_cmd_type {
@@ -1523,6 +1463,10 @@ enum rogue_fwif_fwccb_cmd_type {
 		108U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 	ROGUE_FWIF_FWCCB_CMD_REQUEST_GPU_RESTART =
 		109U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
+
+	/* Notifies host of a FW pagefault */
+	ROGUE_FWIF_FWCCB_CMD_CONTEXT_FW_PF_NOTIFICATION =
+		112U | ROGUE_CMD_MAGIC_DWORD_SHIFTED,
 };
 
 enum rogue_fwif_fwccb_cmd_update_stats_type {
@@ -1594,6 +1538,7 @@ struct rogue_fwif_fwccb_cmd {
 			cmd_update_stats_data;
 		struct rogue_fwif_fwccb_cmd_core_clk_rate_change_data
 			cmd_core_clk_rate_change;
+		struct rogue_fwif_fwccb_cmd_fw_pagefault_data cmd_fw_pagefault;
 	} cmd_data __aligned(8);
 } __aligned(8);
 
@@ -1606,9 +1551,9 @@ PVR_FW_STRUCT_SIZE_ASSERT(struct rogue_fwif_fwccb_cmd);
  */
 struct rogue_fwif_workest_fwccb_cmd {
 	/* Index for return data array */
-	aligned_u64 return_data_index;
+	u16 return_data_index;
 	/* The cycles the workload took on the hardware */
-	aligned_u64 cycles_taken;
+	u32 cycles_taken;
 };
 
 /*
@@ -1650,35 +1595,37 @@ struct rogue_fwif_workest_fwccb_cmd {
 	(209U | ROGUE_CMD_MAGIC_DWORD_SHIFTED | ROGUE_CCB_TYPE_TASK)
 #define ROGUE_FWIF_CCB_CMD_TYPE_NULL \
 	(210U | ROGUE_CMD_MAGIC_DWORD_SHIFTED | ROGUE_CCB_TYPE_TASK)
+#define ROGUE_FWIF_CCB_CMD_TYPE_ABORT \
+	(211U | ROGUE_CMD_MAGIC_DWORD_SHIFTED | ROGUE_CCB_TYPE_TASK)
 
 /* Leave a gap between CCB specific commands and generic commands */
-#define ROGUE_FWIF_CCB_CMD_TYPE_FENCE (211U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
-#define ROGUE_FWIF_CCB_CMD_TYPE_UPDATE (212U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_FENCE (212U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_UPDATE (213U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
 #define ROGUE_FWIF_CCB_CMD_TYPE_RMW_UPDATE \
-	(213U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
-#define ROGUE_FWIF_CCB_CMD_TYPE_FENCE_PR (214U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
-#define ROGUE_FWIF_CCB_CMD_TYPE_PRIORITY (215U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+	(214U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_FENCE_PR (215U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_PRIORITY (216U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
 /*
  * Pre and Post timestamp commands are supposed to sandwich the DM cmd. The
  * padding code with the CCB wrap upsets the FW if we don't have the task type
  * bit cleared for POST_TIMESTAMPs. That's why we have 2 different cmd types.
  */
 #define ROGUE_FWIF_CCB_CMD_TYPE_POST_TIMESTAMP \
-	(216U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
-#define ROGUE_FWIF_CCB_CMD_TYPE_UNFENCED_UPDATE \
 	(217U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
-#define ROGUE_FWIF_CCB_CMD_TYPE_UNFENCED_RMW_UPDATE \
+#define ROGUE_FWIF_CCB_CMD_TYPE_UNFENCED_UPDATE \
 	(218U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_UNFENCED_RMW_UPDATE \
+	(219U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
 
-#define ROGUE_FWIF_CCB_CMD_TYPE_PADDING (220U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
+#define ROGUE_FWIF_CCB_CMD_TYPE_PADDING (221U | ROGUE_CMD_MAGIC_DWORD_SHIFTED)
 
 struct rogue_fwif_workest_kick_data {
 	/* Index for the KM Workload estimation return data array */
-	aligned_u64 return_data_index;
+	u16 return_data_index __aligned(8);
+	/* Predicted time taken to do the work in cycles */
+	u32 cycles_prediction __aligned(8);
 	/* Deadline for the workload */
 	aligned_u64 deadline;
-	/* Predicted time taken to do the work in cycles */
-	aligned_u64 cycles_prediction;
 };
 
 struct rogue_fwif_ccb_cmd_header {
@@ -1695,7 +1642,7 @@ struct rogue_fwif_ccb_cmd_header {
 	 */
 	u32 int_job_ref;
 	/* Workload Estimation - Workload Estimation Data */
-	struct rogue_fwif_workest_kick_data work_est_kick_data;
+	struct rogue_fwif_workest_kick_data work_est_kick_data __aligned(8);
 };
 
 /*
@@ -1704,7 +1651,7 @@ struct rogue_fwif_ccb_cmd_header {
  ******************************************************************************
  */
 struct rogue_fwif_cmd_priority {
-	u32 priority;
+	s32 priority;
 };
 
 /*
@@ -1805,6 +1752,14 @@ struct rogue_fwif_runtime_cfg {
 	u32 core_clock_speed;
 	/* Last number of dusts change requested by the host */
 	u32 default_dusts_num_init;
+	/* Periodic Hardware Reset configuration values */
+	u32 phr_mode;
+	/* New number of milliseconds C/S is allowed to last */
+	u32 hcs_deadline_ms;
+	/* The watchdog period in microseconds */
+	u32 wdg_period_us;
+	/* Array of priorities per OS */
+	u32 osid_priority[ROGUE_FW_MAX_NUM_OS];
 	/* On-demand allocated HWPerf buffer address, to be passed to the FW */
 	u32 hwperf_buf_fw_addr;
 };
@@ -1840,6 +1795,10 @@ enum rogue_fwif_gpio_val_mode {
 	ROGUE_FWIF_GPIO_VAL_AP = 2,
 	/* Validates the GPIO Testbench. */
 	ROGUE_FWIF_GPIO_VAL_TESTBENCH = 5,
+	/* Send and then receive each byte in the range 0-255. */
+	ROGUE_FWIF_GPIO_VAL_LOOPBACK = 6,
+	/* Send and then receive each power-of-2 byte in the range 0-255. */
+	ROGUE_FWIF_GPIO_VAL_LOOPBACK_LITE = 7,
 	ROGUE_FWIF_GPIO_VAL_LAST
 };
 
@@ -1847,8 +1806,6 @@ enum fw_perf_conf {
 	FW_PERF_CONF_NONE = 0,
 	FW_PERF_CONF_ICACHE = 1,
 	FW_PERF_CONF_DCACHE = 2,
-	FW_PERF_CONF_POLLS = 3,
-	FW_PERF_CONF_CUSTOM_TIMER = 4,
 	FW_PERF_CONF_JTLB_INSTR = 5,
 	FW_PERF_CONF_INSTRUCTIONS = 6
 };
@@ -1947,27 +1904,45 @@ struct rogue_hwperf_bvnc {
 PVR_FW_STRUCT_SIZE_ASSERT(struct rogue_hwperf_bvnc);
 
 struct rogue_fwif_sysinit {
+	/* Fault read address */
 	aligned_u64 fault_phys_addr;
 
+	/* PDS execution base */
 	aligned_u64 pds_exec_base;
+	/* UCS execution base */
 	aligned_u64 usc_exec_base;
+	/* FBCDC bindless texture state table base */
+	aligned_u64 fbcdc_state_table_base;
+	aligned_u64 fbcdc_large_state_table_base;
+	/* Texture state base */
+	aligned_u64 texture_heap_base;
+
+	/* Event filter for Firmware events */
+	u64 hw_perf_filter;
+
+	aligned_u64 slc3_fence_dev_vaddr;
+
+	u32 tpu_trilinear_frac_mask[ROGUE_FWIF_TPU_DM_LAST] __aligned(8);
+
+	/* Signature and Checksum Buffers for DMs */
+	struct rogue_fwif_sigbuf_ctl sigbuf_ctl[PVR_FWIF_DM_MAX];
+
+	struct rogue_fwif_pdvfs_opp pdvfs_opp_info;
+
+	struct rogue_fwif_dma_addr coremem_data_store;
+
+	struct rogue_fwif_counter_dump_ctl counter_dump_ctl;
 
 	u32 filter_flags;
-
-	struct rogue_fwif_sigbuf_ctl sig_buf_ctl[PVR_FWIF_DM_MAX];
 
 	u32 runtime_cfg_fw_addr;
 
 	u32 trace_buf_ctl_fw_addr;
 	u32 fw_sys_data_fw_addr;
 
-	aligned_u64 hw_perf_filter;
-
 	u32 gpu_util_fw_cb_ctl_fw_addr;
 	u32 reg_cfg_fw_addr;
 	u32 hwperf_ctl_fw_addr;
-
-	struct rogue_fwif_counter_dump_ctl counter_dump_ctl;
 
 	u32 align_checks;
 
@@ -1980,19 +1955,16 @@ struct rogue_fwif_sysinit {
 	/* Flag to be set by the Firmware after successful start */
 	bool firmware_started __aligned(4);
 
+	/* Host/FW Trace synchronisation Partition Marker */
 	u32 marker_val;
 
+	/* Firmware initialization complete time */
 	u32 firmware_started_timestamp;
 
 	u32 jones_disable_mask;
 
-	struct rogue_fwif_dma_addr coremem_data_store;
-
+	/* Firmware performance counter config */
 	enum fw_perf_conf firmware_perf;
-
-	aligned_u64 slc3_fence_dev_addr;
-
-	struct rogue_fwif_pdvfs_opp pdvfs_opp_info;
 
 	/*
 	 * FW Pointer to memory containing core clock rate in Hz.
@@ -2002,10 +1974,13 @@ struct rogue_fwif_sysinit {
 	u32 core_clock_rate_fw_addr;
 
 	enum rogue_fwif_gpio_val_mode gpio_validation_mode;
-	u32 tpu_trilinear_frac_mask[ROGUE_FWIF_TPU_DM_LAST] __aligned(8);
 
 	/* Used in HWPerf for decoding BVNC Features */
 	struct rogue_hwperf_bvnc bvnc_km_feature_flags;
+
+
+	/* Value to write into ROGUE_CR_TFBC_COMPRESSION_CONTROL */
+	u32 tfbc_compression_control;
 } __aligned(8);
 
 /*
@@ -2117,14 +2092,14 @@ struct rogue_fwif_gpu_util_fwcb {
 	struct rogue_fwif_time_corr time_corr[ROGUE_FWIF_TIME_CORR_ARRAY_SIZE];
 	u32 time_corr_seq_count;
 
+	/* Compatibility and other flags */
+	u32 gpu_util_flags;
+
 	/* Last GPU state + OS time of the last state update */
 	aligned_u64 last_word;
 
 	/* Counters for the amount of time the GPU was active/idle/blocked */
 	aligned_u64 stats_counters[PVR_FWIF_GPU_UTIL_STATE_NUM];
-
-	/* Compatibility and other flags */
-	u32 gpu_util_flags;
 } __aligned(8);
 
 struct rogue_fwif_rta_ctl {
@@ -2166,52 +2141,6 @@ struct rogue_fwif_freelist {
 
 /*
  ******************************************************************************
- * Parameter Management (PM) control data for ROGUE
- ******************************************************************************
- */
-
-/*
- * Used only by Firmware but defined here for similarity with Volcanic where
- * it's required for SW TRP
- */
-
-enum rogue_fw_spm_state {
-	ROGUE_FW_SPM_STATE_NONE = 0,
-	ROGUE_FW_SPM_STATE_PR_BLOCKED,
-	ROGUE_FW_SPM_STATE_WAIT_FOR_GROW,
-	ROGUE_FW_SPM_STATE_WAIT_FOR_HW,
-	ROGUE_FW_SPM_STATE_PR_RUNNING,
-	ROGUE_FW_SPM_STATE_PR_AVOIDED,
-	ROGUE_FW_SPM_STATE_PR_EXECUTED,
-};
-
-struct rogue_fw_spmctl {
-	/* Current owner of this PM data structure */
-	enum rogue_fw_spm_state spm_state;
-	/*
-	 * Geometry/fragment fence object holding the value to let through the fragment partial
-	 * command
-	 */
-	struct rogue_fwif_ufo partial_render_geom_frag_fence;
-	/* Pointer to the fragment context holding the partial render */
-	struct rogue_fwif_fwcommoncontext *frag_context;
-	/* Pointer to the header of the command holding the partial render */
-	struct rogue_fwif_ccb_cmd_header *cmd_header;
-	/* Pointer to the fragment command holding the partial render register info */
-	struct rogue_fwif_cmd_frag_struct *frag_cmd;
-	/*
-	 * Array of pointers to PR Buffers which may be used if partial render
-	 * is needed
-	 */
-	struct rogue_fwif_prbuffer *pr_buffer[ROGUE_FWIF_PRBUFFER_MAXSUPPORTED];
-	/* Indicates the freelist type that went out of memory */
-	u32 oom_freelist_type;
-	/* Indicates if a fragment Memory Free has been detected, which resolves OOM. */
-	bool frag_mem_free_detected __aligned(4);
-};
-
-/*
- ******************************************************************************
  * HWRTData
  ******************************************************************************
  */
@@ -2232,6 +2161,7 @@ enum rogue_fwif_rtdata_state {
 	ROGUE_FWIF_RTDATA_STATE_GEOM_FINISHED,
 	ROGUE_FWIF_RTDATA_STATE_KICK_FRAG,
 	ROGUE_FWIF_RTDATA_STATE_FRAG_FINISHED,
+	ROGUE_FWIF_RTDATA_STATE_FRAG_CONTEXT_STORED,
 	ROGUE_FWIF_RTDATA_STATE_GEOM_OUTOFMEM,
 	ROGUE_FWIF_RTDATA_STATE_PARTIALRENDERFINISHED,
 	/*
@@ -2245,14 +2175,28 @@ enum rogue_fwif_rtdata_state {
 
 struct rogue_fwif_hwrtdata_common {
 	bool geom_caches_need_zeroing __aligned(4);
-} __aligned(8);
+
+	u32 screen_pixel_max;
+	aligned_u64 multi_sample_ctl;
+	u64 flipped_multi_sample_ctl;
+	u32 tpc_stride;
+	u32 tpc_size;
+	u32 te_screen;
+	u32 mtile_stride;
+	u32 teaa;
+	u32 te_mtile1;
+	u32 te_mtile2;
+	u32 isp_merge_lower_x;
+	u32 isp_merge_lower_y;
+	u32 isp_merge_upper_x;
+	u32 isp_mergy_upper_y;
+	u32 isp_merge_scale_x;
+	u32 isp_merge_scale_y;
+	u32 rgn_header_size;
+	u32 isp_mtile_size;
+};
 
 struct rogue_fwif_hwrtdata {
-	u32 hwrt_data_common_fw_addr;
-
-	u32 hwrt_data_flags;
-	enum rogue_fwif_rtdata_state state;
-
 	/* MList Data Store */
 	aligned_u64 pm_mlist_dev_addr;
 
@@ -2266,6 +2210,11 @@ struct rogue_fwif_hwrtdata {
 	aligned_u64 pm_alist_stack_pointer;
 	u32 pm_mlist_stack_pointer;
 
+	u32 hwrt_data_common_fw_addr;
+
+	u32 hwrt_data_flags;
+	enum rogue_fwif_rtdata_state state;
+
 	u32 freelists_fw_addr[ROGUE_FW_MAX_FREELISTS] __aligned(8);
 	u32 freelist_hwr_snapshot[ROGUE_FW_MAX_FREELISTS];
 
@@ -2275,28 +2224,11 @@ struct rogue_fwif_hwrtdata {
 
 	struct rogue_fwif_rta_ctl rta_ctl;
 
-	u32 screen_pixel_max;
-	aligned_u64 multi_sample_ctl;
-	u64 flipped_multi_sample_ctl;
-	u32 tpc_stride;
 	aligned_u64 tail_ptrs_dev_addr;
-	u32 tpc_size;
-	u32 te_screen;
-	u32 mtile_stride;
-	u32 teaa;
-	u32 te_mtile1;
-	u32 te_mtile2;
-	u32 isp_merge_lower_x;
-	u32 isp_merge_lower_y;
-	u32 isp_merge_upper_x;
-	u32 isp_mergy_upper_y;
-	u32 isp_merge_scale_x;
-	u32 isp_merge_scale_y;
 	aligned_u64 macrotile_array_dev_addr;
 	aligned_u64 rgn_header_dev_addr;
 	aligned_u64 rtc_dev_addr;
-	aligned_u64 rgn_header_size;
-	u32 isp_mtile_size;
+
 	u32 owner_geom_not_used_by_host __aligned(8);
 } __aligned(8);
 

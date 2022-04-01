@@ -791,6 +791,8 @@ convert_cmd_compute(struct rogue_fwif_cmd_compute *cmd_compute,
 	cmd_compute->cmd_regs.compute_cluster = cmd_compute_format_1->regs.compute_cluster;
 	cmd_compute->cmd_regs.cdm_ctrl_stream_base =
 		cmd_compute_format_1->regs.cdm_ctrl_stream_base;
+	cmd_compute->cmd_regs.cdm_context_state_base_addr =
+		cmd_compute_format_1->regs.cdm_context_state_base_addr;
 	cmd_compute->cmd_regs.tpu = cmd_compute_format_1->regs.tpu;
 	cmd_compute->cmd_regs.cdm_resume_pds1 = cmd_compute_format_1->regs.cdm_resume_pds1;
 

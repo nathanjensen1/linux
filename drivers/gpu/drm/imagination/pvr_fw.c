@@ -974,9 +974,8 @@ int pvr_fw_mem_context_create(struct pvr_file *pvr_file)
 		goto err_out;
 	}
 
-	fw_mem_ctx->pc_dev_paddr =
-		pvr_vm_get_page_table_root_addr(pvr_file->user_vm_ctx);
-	fw_mem_ctx->page_cat_base_reg_id = ROGUE_FW_BIF_INVALID_PCREG;
+	fw_mem_ctx->pc_dev_paddr = pvr_vm_get_page_table_root_addr(pvr_file->user_vm_ctx);
+	fw_mem_ctx->page_cat_base_reg_set = ROGUE_FW_BIF_INVALID_PCSET;
 
 	pvr_fw_object_vunmap(pvr_file->fw_mem_ctx_obj, fw_mem_ctx, true);
 

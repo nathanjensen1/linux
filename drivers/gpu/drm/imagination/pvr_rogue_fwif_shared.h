@@ -10,6 +10,7 @@
 #define ROGUE_FWIF_NUM_RTDATAS 2U
 #define ROGUE_FWIF_NUM_GEOMDATAS 1U
 #define ROGUE_FWIF_NUM_RTDATA_FREELISTS 2U
+#define ROGUE_NUM_GEOM_CORES 1U
 
 /*
  * Maximum number of UFOs in a CCB command.
@@ -159,7 +160,6 @@ struct rogue_fwif_geom_registers_caswitch {
 	sizeof(struct rogue_fwif_geom_registers_caswitch)
 
 struct rogue_fwif_cdm_registers_cswitch {
-	u64 cdmreg_cdm_context_state_base_addr;
 	u64 cdmreg_cdm_context_pds0;
 	u64 cdmreg_cdm_context_pds1;
 	u64 cdmreg_cdm_terminate_pds;
@@ -173,7 +173,8 @@ struct rogue_fwif_cdm_registers_cswitch {
 
 struct rogue_fwif_static_rendercontext_state {
 	/* Geom registers for ctx switch */
-	struct rogue_fwif_geom_registers_caswitch ctxswitch_regs __aligned(8);
+	struct rogue_fwif_geom_registers_caswitch ctxswitch_regs[ROGUE_NUM_GEOM_CORES]
+		__aligned(8);
 };
 
 #define ROGUE_FWIF_STATIC_RENDERCONTEXT_SIZE \
@@ -222,9 +223,27 @@ enum rogue_context_reset_reason {
 	/* Forced reset to ensure scheduling requirements */
 	ROGUE_CONTEXT_RESET_REASON_HARD_CONTEXT_SWITCH = 5,
 	/* CDM Mission/safety checksum mismatch */
-	ROGUE_CONTEXT_RESET_REASON_KZ_CHECKSUM = 6,
+	ROGUE_CONTEXT_RESET_REASON_WGP_CHECKSUM = 6,
 	/* TRP checksum mismatch */
 	ROGUE_CONTEXT_RESET_REASON_TRP_CHECKSUM = 7,
+	/* GPU ECC error (corrected, OK) */
+	ROGUE_CONTEXT_RESET_REASON_GPU_ECC_OK = 8,
+	/* GPU ECC error (uncorrected, HWR) */
+	ROGUE_CONTEXT_RESET_REASON_GPU_ECC_HWR = 9,
+	/* FW ECC error (corrected, OK) */
+	ROGUE_CONTEXT_RESET_REASON_FW_ECC_OK = 10,
+	/* FW ECC error (uncorrected, ERR) */
+	ROGUE_CONTEXT_RESET_REASON_FW_ECC_ERR = 11,
+	/* FW Safety watchdog triggered */
+	ROGUE_CONTEXT_RESET_REASON_FW_WATCHDOG = 12,
+	/* FW page fault (no HWR) */
+	ROGUE_CONTEXT_RESET_REASON_FW_PAGEFAULT = 13,
+	/* FW execution error (GPU reset requested) */
+	ROGUE_CONTEXT_RESET_REASON_FW_EXEC_ERR = 14,
+	/* Host watchdog detected FW error */
+	ROGUE_CONTEXT_RESET_REASON_HOST_WDG_FW_ERR = 15,
+	/* Geometry DM OOM event is not allowed */
+	ROGUE_CONTEXT_GEOM_OOM_DISABLED = 16,
 };
 
 struct rogue_context_reset_reason_data {
