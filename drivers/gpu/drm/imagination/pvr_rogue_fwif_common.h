@@ -20,23 +20,28 @@
 
 /* The master definition for data masters known to the firmware. */
 
-#define PVR_FWIF_DM_GP 0U
+#define PVR_FWIF_DM_GP (0)
 /* Either TDM or 2D DM is present. */
 /* When the 'tla' feature is present in the hw (as per @pvr_device_features). */
-#define PVR_FWIF_DM_2D 1U
+#define PVR_FWIF_DM_2D (1)
 /*
  * When the 'fastrender_dm' feature is present in the hw (as per
  * @pvr_device_features).
  */
-#define PVR_FWIF_DM_TDM 1U
-#define PVR_FWIF_DM_GEOM 2U
-#define PVR_FWIF_DM_FRAG 3U
-#define PVR_FWIF_DM_CDM 4U
-#define PVR_FWIF_DM_LAST PVR_FWIF_DM_CDM
+#define PVR_FWIF_DM_TDM (1)
 
-/* Maximum number of DM in use: GP, 2D/TDM, GEOM, FRAG, CDM */
+#define PVR_FWIF_DM_GEOM (2)
+#define PVR_FWIF_DM_FRAG (3)
+#define PVR_FWIF_DM_CDM (4)
+#define PVR_FWIF_DM_RAY (5)
+#define PVR_FWIF_DM_GEOM2 (6)
+#define PVR_FWIF_DM_GEOM3 (7)
+#define PVR_FWIF_DM_GEOM4 (8)
+
+#define PVR_FWIF_DM_LAST PVR_FWIF_DM_GEOM4
+
+/* Maximum number of DM in use: GP, 2D/TDM, GEOM, 3D, CDM, RAY, GEOM2, GEOM3, GEOM4 */
 #define PVR_FWIF_DM_MAX (PVR_FWIF_DM_LAST + 1U)
-#define PVR_FWIF_HWDM_MAX PVR_FWIF_DM_MAX
 
 /* GPU Utilisation states */
 #define PVR_FWIF_GPU_UTIL_STATE_IDLE 0U
