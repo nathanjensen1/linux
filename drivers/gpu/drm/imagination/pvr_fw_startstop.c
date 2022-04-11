@@ -137,7 +137,7 @@ pvr_fw_start(struct pvr_device *pvr_dev)
 		goto err_reset;
 
 	/* Initialise Firmware wrapper. */
-	pvr_dev->fw_funcs->wrapper_init(pvr_dev);
+	pvr_dev->fw_dev.funcs->wrapper_init(pvr_dev);
 
 	/* We must init the AXI-ACE interface before first BIF transaction. */
 	rogue_axi_ace_list_init(pvr_dev);
@@ -262,7 +262,7 @@ pvr_fw_stop(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_out;
 
-	if (pvr_dev->fw_processor_type == PVR_FW_PROCESSOR_TYPE_META) {
+	if (pvr_dev->fw_dev.processor_type == PVR_FW_PROCESSOR_TYPE_META) {
 		err = pvr_meta_cr_read32(pvr_dev, META_CR_TxVECINT_BHALT, &reg_value);
 		if (err)
 			goto err_out;

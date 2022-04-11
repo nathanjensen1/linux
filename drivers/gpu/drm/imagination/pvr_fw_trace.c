@@ -24,8 +24,8 @@ static const struct rogue_km_stid_fmt stid_fmts[] = {
 
 int pvr_fw_trace_init(struct pvr_device *pvr_dev)
 {
+	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_dev.fw_trace;
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_trace;
 	u32 thread_nr;
 	int err;
 
@@ -99,7 +99,7 @@ err_out:
 
 void pvr_fw_trace_fini(struct pvr_device *pvr_dev)
 {
-	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_trace;
+	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_dev.fw_trace;
 	u32 thread_nr;
 
 	for (thread_nr = 0; thread_nr < ARRAY_SIZE(fw_trace->buffers); thread_nr++) {
@@ -124,7 +124,7 @@ void pvr_fw_trace_fini(struct pvr_device *pvr_dev)
 static int
 update_logtype(struct pvr_device *pvr_dev, u32 group_mask)
 {
-	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_trace;
+	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_dev.fw_trace;
 	struct rogue_fwif_kccb_cmd cmd;
 
 	if (group_mask)
@@ -142,7 +142,7 @@ static int fw_trace_group_mask_show(struct seq_file *m, void *data)
 {
 	struct pvr_device *pvr_dev = m->private;
 
-	seq_printf(m, "%08x\n", pvr_dev->fw_trace.group_mask);
+	seq_printf(m, "%08x\n", pvr_dev->fw_dev.fw_trace.group_mask);
 
 	return 0;
 }
@@ -168,7 +168,7 @@ static ssize_t fw_trace_group_mask_write(struct file *file, const char __user *u
 	if (err)
 		goto err_out;
 
-	pvr_dev->fw_trace.group_mask = new_group_mask;
+	pvr_dev->fw_dev.fw_trace.group_mask = new_group_mask;
 
 err_out:
 	return err ? err : len;
@@ -472,14 +472,15 @@ static const struct file_operations pvr_fw_trace_fops = {
 void pvr_fw_trace_debugfs_init(struct drm_minor *minor)
 {
 	struct pvr_device *pvr_dev = to_pvr_device(minor->dev);
+	struct pvr_fw_trace *fw_trace = &pvr_dev->fw_dev.fw_trace;
 	u32 thread_nr;
 
-	for (thread_nr = 0; thread_nr < ARRAY_SIZE(pvr_dev->fw_trace.buffers); thread_nr++) {
+	for (thread_nr = 0; thread_nr < ARRAY_SIZE(fw_trace->buffers); thread_nr++) {
 		char fn[14];
 
 		sprintf(fn, "pvr_fw_trace%u", thread_nr);
 		debugfs_create_file(fn, 0444, minor->debugfs_root,
-				    &pvr_dev->fw_trace.buffers[thread_nr], &pvr_fw_trace_fops);
+				    &fw_trace->buffers[thread_nr], &pvr_fw_trace_fops);
 	}
 
 	debugfs_create_file("pvr_fw_trace_group_mask", 0644, minor->debugfs_root, pvr_dev,
