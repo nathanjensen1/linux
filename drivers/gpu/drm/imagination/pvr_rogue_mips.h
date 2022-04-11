@@ -24,10 +24,10 @@
 #define ROGUE_MIPSFW_PAGE_MASK_4MB (ROGUE_MIPSFW_PAGE_SIZE_4MB - 1)
 #define ROGUE_MIPSFW_LOG2_PTE_ENTRY_SIZE (2)
 /* log2 page table sizes dependent on FW heap size and page size (for each OS). */
-#define ROGUE_MIPSFW_LOG2_PAGETABLE_SIZE_4K(pvr_dev) ((pvr_dev)->fw_heap_info.log2_size - \
+#define ROGUE_MIPSFW_LOG2_PAGETABLE_SIZE_4K(pvr_dev) ((pvr_dev)->fw_dev.fw_heap_info.log2_size - \
 						      ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K +    \
 						      ROGUE_MIPSFW_LOG2_PTE_ENTRY_SIZE)
-#define ROGUE_MIPSFW_LOG2_PAGETABLE_SIZE_64K(pvr_dev) ((pvr_dev)->fw_heap_info.log2_size - \
+#define ROGUE_MIPSFW_LOG2_PAGETABLE_SIZE_64K(pvr_dev) ((pvr_dev)->fw_dev.fw_heap_info.log2_size - \
 						       ROGUE_MIPSFW_LOG2_PAGE_SIZE_64K +   \
 						       ROGUE_MIPSFW_LOG2_PTE_ENTRY_SIZE)
 /* Maximum number of page table pages (both Host and MIPS pages). */
