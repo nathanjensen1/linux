@@ -98,7 +98,8 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 		    u8 *fw_code_ptr, u8 *fw_data_ptr, u8 *fw_core_code_ptr, u8 *fw_core_data_ptr,
 		    u32 core_code_alloc_size)
 {
-	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mips_data *mips_data = fw_dev->processor_data.mips_data;
 	const struct pvr_fw_layout_entry *boot_code_entry;
 	const struct pvr_fw_layout_entry *boot_data_entry;
 	const struct pvr_fw_layout_entry *exception_code_entry;
@@ -125,11 +126,11 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 		goto err_out;
 	}
 
-	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_code_obj->base, boot_code_entry->alloc_offset,
+	WARN_ON(pvr_gem_get_dma_addr(&fw_dev->mem.code_obj->base, boot_code_entry->alloc_offset,
 				     &mips_data->boot_code_dma_addr));
-	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_data_obj->base, boot_data_entry->alloc_offset,
+	WARN_ON(pvr_gem_get_dma_addr(&fw_dev->mem.data_obj->base, boot_data_entry->alloc_offset,
 				     &mips_data->boot_data_dma_addr));
-	WARN_ON(pvr_gem_get_dma_addr(&pvr_dev->fw_code_obj->base,
+	WARN_ON(pvr_gem_get_dma_addr(&fw_dev->mem.code_obj->base,
 				     exception_code_entry->alloc_offset,
 				     &mips_data->exception_code_dma_addr));
 
@@ -142,7 +143,8 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 	boot_data = (struct rogue_mipsfw_boot_data *)(fw_data_ptr + boot_data_entry->alloc_offset +
 						      ROGUE_MIPSFW_BOOTLDR_CONF_OFFSET);
 
-	WARN_ON(pvr_fw_get_dma_addr(pvr_dev->fw_data_obj, stack_entry->alloc_offset, &dma_addr));
+	WARN_ON(pvr_fw_get_dma_addr(fw_dev->mem.data_obj, stack_entry->alloc_offset,
+				    &dma_addr));
 	boot_data->stack_phys_addr = dma_addr;
 
 	boot_data->reg_base = pvr_dev->regs_resource->start;
@@ -168,7 +170,7 @@ err_out:
 static int
 pvr_mips_wrapper_init(struct pvr_device *pvr_dev)
 {
-	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_dev.processor_data.mips_data;
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	u64 remap_settings = ROGUE_MIPSFW_BOOT_REMAP_LOG2_SEGMENT_SIZE;
 	u32 phys_bus_width;
@@ -239,7 +241,7 @@ pvr_mips_get_fw_addr_with_offset(struct pvr_fw_object *fw_obj, u32 offset)
 	struct pvr_device *pvr_dev = fw_obj->base.pvr_dev;
 
 	/* MIPS cacheability is determined by page table. */
-	return ((fw_obj->fw_addr_offset + offset) & pvr_dev->fw_heap_info.offset_mask) |
+	return ((fw_obj->fw_addr_offset + offset) & pvr_dev->fw_dev.fw_heap_info.offset_mask) |
 	       ROGUE_FW_HEAP_MIPS_BASE;
 }
 

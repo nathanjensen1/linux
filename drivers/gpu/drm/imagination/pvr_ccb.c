@@ -160,8 +160,8 @@ process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *c
 		WARN_ON(pvr_power_set_state(pvr_dev, PVR_POWER_STATE_OFF));
 
 		/* Clear the FW faulted flags. */
-		pvr_dev->fw_sysdata->hwr_state_flags &= ~(ROGUE_FWIF_HWR_FW_FAULT |
-							  ROGUE_FWIF_HWR_RESTART_REQUESTED);
+		pvr_dev->fw_dev.fwif_sysdata->hwr_state_flags &= ~(ROGUE_FWIF_HWR_FW_FAULT |
+								  ROGUE_FWIF_HWR_RESTART_REQUESTED);
 
 		/* Start FW again. */
 		WARN_ON(pvr_power_set_state(pvr_dev, PVR_POWER_STATE_ON));

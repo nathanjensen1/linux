@@ -244,11 +244,11 @@ static irqreturn_t pvr_meta_irq_handler(int irq, void *data)
 {
 	struct pvr_device *pvr_dev = data;
 
-	if (!pvr_dev->fw_funcs->check_and_ack_irq(pvr_dev))
+	if (!pvr_dev->fw_dev.funcs->check_and_ack_irq(pvr_dev))
 		return IRQ_NONE; /* Spurious IRQ - ignore. */
 
 	/* Only process IRQ work if FW is currently running. */
-	if (pvr_dev->fw_booted) {
+	if (pvr_dev->fw_dev.booted) {
 		queue_work(pvr_dev->irq_wq, &pvr_dev->fwccb_work);
 		wake_up(&pvr_dev->kccb_rtn_q);
 		queue_work(pvr_dev->irq_wq, &pvr_dev->fence_work);
@@ -381,7 +381,7 @@ pvr_request_firmware(struct pvr_device *pvr_dev)
 	drm_info(drm_dev, "loaded firmware %s\n", filename);
 	kfree(filename);
 
-	pvr_dev->fw = fw;
+	pvr_dev->fw_dev.firmware = fw;
 
 	return 0;
 
@@ -501,11 +501,11 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 		goto err_out;
 
 	if (PVR_HAS_FEATURE(pvr_dev, meta)) {
-		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_META;
+		pvr_dev->fw_dev.processor_type = PVR_FW_PROCESSOR_TYPE_META;
 	} else if (PVR_HAS_FEATURE(pvr_dev, mips)) {
-		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_MIPS;
+		pvr_dev->fw_dev.processor_type = PVR_FW_PROCESSOR_TYPE_MIPS;
 	} else if (PVR_HAS_FEATURE(pvr_dev, riscv_fw_processor)) {
-		pvr_dev->fw_processor_type = PVR_FW_PROCESSOR_TYPE_RISCV;
+		pvr_dev->fw_dev.processor_type = PVR_FW_PROCESSOR_TYPE_RISCV;
 	} else {
 		err = -EINVAL;
 		goto err_out;
@@ -532,7 +532,7 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 	return 0;
 
 err_release_firmware:
-	release_firmware(pvr_dev->fw);
+	release_firmware(pvr_dev->fw_dev.firmware);
 
 err_vm_ctx_destroy:
 	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
@@ -550,7 +550,7 @@ static void
 pvr_device_gpu_fini(struct pvr_device *pvr_dev)
 {
 	pvr_fw_fini(pvr_dev);
-	release_firmware(pvr_dev->fw);
+	release_firmware(pvr_dev->fw_dev.firmware);
 
 	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
 }

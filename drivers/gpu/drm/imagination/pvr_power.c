@@ -20,18 +20,19 @@
 static int
 pvr_power_send_command(struct pvr_device *pvr_dev, struct rogue_fwif_kccb_cmd *pow_cmd)
 {
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	u32 slot_nr;
 	u32 value;
 	int err;
 
-	WRITE_ONCE(*pvr_dev->fw_power_sync, 0);
+	WRITE_ONCE(*fw_dev->power_sync, 0);
 
 	err = pvr_kccb_send_cmd_power_locked(pvr_dev, pow_cmd, &slot_nr);
 	if (err)
 		goto err_out;
 
 	/* Wait for FW to acknowledge. */
-	err = readl_poll_timeout(pvr_dev->fw_power_sync, value, value != 0, 100,
+	err = readl_poll_timeout(pvr_dev->fw_dev.power_sync, value, value != 0, 100,
 				 POWER_SYNC_TIMEOUT_US);
 	if (err)
 		goto err_out;
@@ -155,7 +156,7 @@ pvr_delayed_idle_worker(struct work_struct *work)
 
 	mutex_lock(&pvr_dev->power_lock);
 
-	if (pvr_dev->fw_sysdata->pow_state == ROGUE_FWIF_POW_IDLE)
+	if (pvr_dev->fw_dev.fwif_sysdata->pow_state == ROGUE_FWIF_POW_IDLE)
 		pvr_power_set_state(pvr_dev, PVR_POWER_STATE_OFF);
 
 	mutex_unlock(&pvr_dev->power_lock);
@@ -170,7 +171,7 @@ pvr_delayed_idle_worker(struct work_struct *work)
 void
 pvr_power_check_idle(struct pvr_device *pvr_dev)
 {
-	enum rogue_fwif_pow_state pow_state = READ_ONCE(pvr_dev->fw_sysdata->pow_state);
+	enum rogue_fwif_pow_state pow_state = READ_ONCE(pvr_dev->fw_dev.fwif_sysdata->pow_state);
 
 	if (pow_state == ROGUE_FWIF_POW_IDLE &&
 	    !delayed_work_pending(&pvr_dev->delayed_idle_work)) {
