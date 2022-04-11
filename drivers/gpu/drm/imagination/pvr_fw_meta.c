@@ -292,7 +292,7 @@ process_ldr_command_stream(struct pvr_device *pvr_dev, const u8 *fw,
 		(struct rogue_meta_ldr_block_hdr *)fw;
 	struct rogue_meta_ldr_l1_data_blk *l1_data =
 		(struct rogue_meta_ldr_l1_data_blk *)(fw + ldr_header->sl_data);
-	const u32 fw_size = pvr_dev->fw->size;
+	const u32 fw_size = pvr_dev->fw_dev.firmware->size;
 	int err;
 
 	u32 *boot_conf = boot_conf_ptr ? *boot_conf_ptr : NULL;
@@ -417,7 +417,7 @@ configure_seg_mmu(struct pvr_device *pvr_dev,
 			u32 seg_id = ROGUE_FW_SEGMMU_DATA_ID;
 			u64 seg_out_addr;
 
-			WARN_ON(!pvr_gem_get_fw_gpu_addr(pvr_dev->fw_data_obj,
+			WARN_ON(!pvr_gem_get_fw_gpu_addr(pvr_dev->fw_dev.mem.data_obj,
 							 &seg_out_addr));
 			seg_out_addr += layout_entries[i].alloc_offset;
 			seg_out_addr |= seg_out_addr_top;
@@ -486,6 +486,7 @@ pvr_meta_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 		    u8 *fw_code_ptr, u8 *fw_data_ptr, u8 *fw_core_code_ptr, u8 *fw_core_data_ptr,
 		    u32 core_code_alloc_size)
 {
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	u32 *boot_conf;
 	int err;
 
@@ -509,10 +510,10 @@ pvr_meta_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 	/* End argument list. */
 	add_boot_arg(&boot_conf, 0, 0);
 
-	if (pvr_dev->fw_core_code_obj) {
+	if (fw_dev->mem.core_code_obj) {
 		u32 core_code_fw_addr;
 
-		WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_core_code_obj, &core_code_fw_addr));
+		WARN_ON(!pvr_gem_get_fw_addr(fw_dev->mem.core_code_obj, &core_code_fw_addr));
 		add_boot_arg(&boot_conf, core_code_fw_addr, core_code_alloc_size);
 	} else {
 		add_boot_arg(&boot_conf, 0, 0);

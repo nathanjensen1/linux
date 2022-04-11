@@ -82,16 +82,16 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 		const struct pvr_fw_layout_entry **layout_entries_out)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	const u8 *fw = pvr_dev->fw->data;
-	u32 fw_offset = pvr_dev->fw->size - SZ_4K;
+	const struct firmware *firmware = pvr_dev->fw_dev.firmware;
+	const u8 *fw = firmware->data;
+	u32 fw_offset = firmware->size - SZ_4K;
 	const struct pvr_fw_layout_entry *layout_entries;
 	const struct pvr_fw_info_header *header;
 	u32 layout_table_size;
 	u32 entry;
 	int err;
 
-	if ((pvr_dev->fw->size < SZ_4K) ||
-	    (pvr_dev->fw->size % FW_BLOCK_SIZE)) {
+	if ((firmware->size < SZ_4K) || (firmware->size % FW_BLOCK_SIZE)) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -126,7 +126,7 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 	fw_offset += header->header_len;
 	layout_table_size =
 		header->layout_entry_size * header->layout_entry_num;
-	if ((fw_offset + layout_table_size) > pvr_dev->fw->size) {
+	if ((fw_offset + layout_table_size) > firmware->size) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -253,17 +253,18 @@ static int
 pvr_fw_create_fwif_connection_ctl(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	int err;
 
-	pvr_dev->fwif_connection_ctl = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		pvr_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_CONNECTION_CTL_OFFSET,
-		sizeof(*pvr_dev->fwif_connection_ctl),
+	fw_dev->fwif_connection_ctl = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_CONNECTION_CTL_OFFSET,
+		sizeof(*fw_dev->fwif_connection_ctl),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fwif_connection_ctl_obj);
-	if (IS_ERR(pvr_dev->fwif_connection_ctl)) {
+		&fw_dev->mem.fwif_connection_ctl_obj);
+	if (IS_ERR(fw_dev->fwif_connection_ctl)) {
 		drm_err(drm_dev,
 			"Unable to allocate FWIF connection control memory\n");
-		err = PTR_ERR(pvr_dev->fwif_connection_ctl);
+		err = PTR_ERR(fw_dev->fwif_connection_ctl);
 		goto err_out;
 	}
 
@@ -276,52 +277,59 @@ err_out:
 static void
 pvr_fw_fini_fwif_connection_ctl(struct pvr_device *pvr_dev)
 {
-	pvr_fw_object_vunmap(pvr_dev->fwif_connection_ctl_obj,
-			     pvr_dev->fwif_connection_ctl, false);
-	pvr_fw_object_release(pvr_dev->fwif_connection_ctl_obj);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+
+	pvr_fw_object_vunmap(fw_dev->mem.fwif_connection_ctl_obj,
+			     fw_dev->fwif_connection_ctl, false);
+	pvr_fw_object_release(fw_dev->mem.fwif_connection_ctl_obj);
 }
 
 static int
 pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
 	struct rogue_fwif_hwrinfobuf *hwrinfobuf;
+	struct rogue_fwif_osinit *fwif_osinit;
 	int err;
 
-	pvr_dev->fw_osinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		pvr_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_OSINIT_OFFSET,
-		sizeof(*pvr_dev->fw_osinit), PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_osinit_obj);
-	if (IS_ERR(pvr_dev->fw_osinit)) {
+	fw_dev->fwif_osinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_OSINIT_OFFSET,
+		sizeof(*fw_dev->fwif_osinit),
+		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+		&fw_mem->osinit_obj);
+	if (IS_ERR(fw_dev->fwif_osinit)) {
 		drm_err(drm_dev, "Unable to allocate FW OSINIT structure\n");
-		err = PTR_ERR(pvr_dev->fw_osinit);
+		err = PTR_ERR(fw_dev->fwif_osinit);
 		goto err_out;
 	}
+	fwif_osinit = fw_dev->fwif_osinit;
 
-	pvr_dev->fw_osdata = pvr_gem_create_and_map_fw_object(
-		pvr_dev, sizeof(*pvr_dev->fw_osdata),
+	fw_dev->fwif_osdata = pvr_gem_create_and_map_fw_object(
+		pvr_dev, sizeof(*fw_dev->fwif_osdata),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_osdata_obj);
-	if (IS_ERR(pvr_dev->fw_osdata)) {
+		&fw_mem->osdata_obj);
+	if (IS_ERR(fw_dev->fwif_osdata)) {
 		drm_err(drm_dev, "Unable to allocate FW OSDATA structure\n");
-		err = PTR_ERR(pvr_dev->fw_osdata);
+		err = PTR_ERR(fw_dev->fwif_osdata);
 		goto err_release_osinit;
 	}
 
-	pvr_dev->fw_power_sync = pvr_gem_create_and_map_fw_object(
-		pvr_dev, sizeof(*pvr_dev->fw_power_sync),
+	fw_dev->power_sync = pvr_gem_create_and_map_fw_object(
+		pvr_dev, sizeof(*fw_dev->power_sync),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_power_sync_obj);
-	if (IS_ERR(pvr_dev->fw_power_sync)) {
+		&fw_mem->power_sync_obj);
+	if (IS_ERR(fw_dev->power_sync)) {
 		drm_err(drm_dev, "Unable to allocate FW power_sync structure\n");
-		err = PTR_ERR(pvr_dev->fw_power_sync);
+		err = PTR_ERR(fw_dev->power_sync);
 		goto err_release_osdata;
 	}
 
 	hwrinfobuf = pvr_gem_create_and_map_fw_object(
 		pvr_dev, sizeof(*hwrinfobuf),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_hwrinfobuf_obj);
+		&fw_mem->hwrinfobuf_obj);
 	if (IS_ERR(hwrinfobuf)) {
 		drm_err(drm_dev,
 			"Unable to allocate FW hwrinfobuf structure\n");
@@ -332,60 +340,54 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	err = pvr_gem_create_fw_object(pvr_dev, PVR_SYNC_OBJ_SIZE,
 				       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 				       DRM_PVR_BO_CREATE_ZEROED,
-				       &pvr_dev->fw_mmucache_sync_obj);
+				       &fw_mem->mmucache_sync_obj);
 	if (err) {
 		drm_err(drm_dev,
 			"Unable to allocate MMU cache sync object\n");
 		goto err_release_hwrinfobuf;
 	}
 
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_power_sync_obj,
-				     &pvr_dev->fw_osdata->power_sync_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->power_sync_obj,
+				     &fw_dev->fwif_osdata->power_sync_fw_addr));
 
-	pvr_dev->fw_osinit->kernel_ccbctl_fw_addr =
-		pvr_dev->kccb.ctrl_fw_addr;
-	pvr_dev->fw_osinit->kernel_ccb_fw_addr = pvr_dev->kccb.ccb_fw_addr;
+	fwif_osinit->kernel_ccbctl_fw_addr = pvr_dev->kccb.ctrl_fw_addr;
+	fwif_osinit->kernel_ccb_fw_addr = pvr_dev->kccb.ccb_fw_addr;
 	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->kccb_rtn_obj,
-				     &pvr_dev->fw_osinit->kernel_ccb_rtn_slots_fw_addr));
+				     &fwif_osinit->kernel_ccb_rtn_slots_fw_addr));
 
-	pvr_dev->fw_osinit->firmware_ccbctl_fw_addr =
-		pvr_dev->fwccb.ctrl_fw_addr;
-	pvr_dev->fw_osinit->firmware_ccb_fw_addr = pvr_dev->fwccb.ccb_fw_addr;
+	fwif_osinit->firmware_ccbctl_fw_addr = pvr_dev->fwccb.ctrl_fw_addr;
+	fwif_osinit->firmware_ccb_fw_addr = pvr_dev->fwccb.ccb_fw_addr;
 
-	pvr_dev->fw_osinit->work_est_firmware_ccbctl_fw_addr = 0;
-	pvr_dev->fw_osinit->work_est_firmware_ccb_fw_addr = 0;
+	fwif_osinit->work_est_firmware_ccbctl_fw_addr = 0;
+	fwif_osinit->work_est_firmware_ccb_fw_addr = 0;
 
-	WARN_ON(!pvr_gem_get_fw_addr(
-		pvr_dev->fw_hwrinfobuf_obj,
-		&pvr_dev->fw_osinit->rogue_fwif_hwr_info_buf_ctl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_osdata_obj,
-				&pvr_dev->fw_osinit->fw_os_data_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->hwrinfobuf_obj,
+				     &fwif_osinit->rogue_fwif_hwr_info_buf_ctl_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->osdata_obj, &fwif_osinit->fw_os_data_fw_addr));
 
-	pvr_dev->fw_osinit->hwr_debug_dump_limit = 0;
+	fwif_osinit->hwr_debug_dump_limit = 0;
 
-	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(
-		pvr_dev->fw_osinit->rogue_comp_checks.hw_bvnc);
-	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(
-		pvr_dev->fw_osinit->rogue_comp_checks.fw_bvnc);
+	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(fwif_osinit->rogue_comp_checks.hw_bvnc);
+	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(fwif_osinit->rogue_comp_checks.fw_bvnc);
 
-	pvr_fw_object_vunmap(pvr_dev->fw_hwrinfobuf_obj, hwrinfobuf, false);
+	pvr_fw_object_vunmap(fw_mem->hwrinfobuf_obj, hwrinfobuf, false);
 	return 0;
 
 err_release_hwrinfobuf:
-	pvr_fw_object_vunmap(pvr_dev->fw_hwrinfobuf_obj, hwrinfobuf, false);
-	pvr_fw_object_release(pvr_dev->fw_hwrinfobuf_obj);
+	pvr_fw_object_vunmap(fw_mem->hwrinfobuf_obj, hwrinfobuf, false);
+	pvr_fw_object_release(fw_mem->hwrinfobuf_obj);
 
 err_release_power_sync:
-	pvr_fw_object_vunmap(pvr_dev->fw_power_sync_obj, pvr_dev->fw_power_sync, false);
-	pvr_fw_object_release(pvr_dev->fw_power_sync_obj);
+	pvr_fw_object_vunmap(fw_mem->power_sync_obj, fw_dev->power_sync, false);
+	pvr_fw_object_release(fw_mem->power_sync_obj);
 
 err_release_osdata:
-	pvr_fw_object_vunmap(pvr_dev->fw_osdata_obj, pvr_dev->fw_osdata, false);
-	pvr_fw_object_release(pvr_dev->fw_osdata_obj);
+	pvr_fw_object_vunmap(fw_mem->osdata_obj, fw_dev->fwif_osdata, false);
+	pvr_fw_object_release(fw_mem->osdata_obj);
 
 err_release_osinit:
-	pvr_fw_object_vunmap(pvr_dev->fw_osinit_obj, pvr_dev->fw_osinit, false);
-	pvr_fw_object_release(pvr_dev->fw_osinit_obj);
+	pvr_fw_object_vunmap(fw_mem->osinit_obj, fw_dev->fwif_osinit, false);
+	pvr_fw_object_release(fw_mem->osinit_obj);
 
 err_out:
 	return err;
@@ -394,14 +396,17 @@ err_out:
 static void
 pvr_fw_destroy_os_structures(struct pvr_device *pvr_dev)
 {
-	pvr_fw_object_release(pvr_dev->fw_mmucache_sync_obj);
-	pvr_fw_object_release(pvr_dev->fw_hwrinfobuf_obj);
-	pvr_fw_object_vunmap(pvr_dev->fw_power_sync_obj, pvr_dev->fw_power_sync, false);
-	pvr_fw_object_release(pvr_dev->fw_power_sync_obj);
-	pvr_fw_object_vunmap(pvr_dev->fw_osdata_obj, pvr_dev->fw_osdata, false);
-	pvr_fw_object_release(pvr_dev->fw_osdata_obj);
-	pvr_fw_object_vunmap(pvr_dev->fw_osinit_obj, pvr_dev->fw_osinit, false);
-	pvr_fw_object_release(pvr_dev->fw_osinit_obj);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
+
+	pvr_fw_object_release(fw_mem->mmucache_sync_obj);
+	pvr_fw_object_release(fw_mem->hwrinfobuf_obj);
+	pvr_fw_object_vunmap(fw_mem->power_sync_obj, fw_dev->power_sync, false);
+	pvr_fw_object_release(fw_mem->power_sync_obj);
+	pvr_fw_object_vunmap(fw_mem->osdata_obj, fw_dev->fwif_osdata, false);
+	pvr_fw_object_release(fw_mem->osdata_obj);
+	pvr_fw_object_vunmap(fw_mem->osinit_obj, fw_dev->fwif_osinit, false);
+	pvr_fw_object_release(fw_mem->osinit_obj);
 }
 
 static int
@@ -409,39 +414,43 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	struct rogue_fwif_gpu_util_fwcb *gpu_util_fwcb;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
 	struct rogue_fwif_runtime_cfg *runtime_cfg;
+	struct rogue_fwif_sysinit *fwif_sysinit;
 	u32 clock_speed_hz;
 	u32 *fault_page;
 	dma_addr_t fault_dma_addr;
 	int i;
 	int err;
 
-	pvr_dev->fw_sysinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		pvr_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_SYSINIT_OFFSET,
-		sizeof(*pvr_dev->fw_sysinit),
+	fw_dev->fwif_sysinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_SYSINIT_OFFSET,
+		sizeof(*fw_dev->fwif_sysinit),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_sysinit_obj);
-	if (IS_ERR(pvr_dev->fw_sysinit)) {
+		&fw_mem->sysinit_obj);
+	if (IS_ERR(fw_dev->fwif_sysinit)) {
 		drm_err(drm_dev, "Unable to allocate FW SYSINIT structure\n");
-		err = PTR_ERR(pvr_dev->fw_sysinit);
+		err = PTR_ERR(fw_dev->fwif_sysinit);
 		goto err_out;
 	}
+	fwif_sysinit = fw_dev->fwif_sysinit;
 
-	pvr_dev->fw_sysdata = pvr_gem_create_and_map_fw_object(pvr_dev,
-		sizeof(*pvr_dev->fw_sysdata),
+	fw_dev->fwif_sysdata = pvr_gem_create_and_map_fw_object(pvr_dev,
+		sizeof(*fw_dev->fwif_sysdata),
 		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_dev->fw_sysdata_obj);
-	if (IS_ERR(pvr_dev->fw_sysdata)) {
+		&fw_mem->sysdata_obj);
+	if (IS_ERR(fw_dev->fwif_sysdata)) {
 		drm_err(drm_dev, "Unable to allocate FW SYSDATA structure\n");
-		err = PTR_ERR(pvr_dev->fw_sysdata);
+		err = PTR_ERR(fw_dev->fwif_sysdata);
 		goto err_release_sysinit;
 	}
-	pvr_dev->fw_sysdata->config_flags = 0;
-	pvr_dev->fw_sysdata->config_flags_ext = 0;
+	fw_dev->fwif_sysdata->config_flags = 0;
+	fw_dev->fwif_sysdata->config_flags_ext = 0;
 
 	fault_page = pvr_gem_create_and_map_fw_object(pvr_dev, PVR_ROGUE_FAULT_PAGE_SIZE,
 						      PVR_BO_FW_FLAGS_DEVICE_UNCACHED,
-						      &pvr_dev->fw_fault_page_obj);
+						      &fw_mem->fault_page_obj);
 	if (IS_ERR(fault_page)) {
 		drm_err(drm_dev, "Unable to allocate FW fault page\n");
 		err = PTR_ERR(fault_page);
@@ -449,12 +458,12 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	}
 	for (i = 0; i < PVR_ROGUE_FAULT_PAGE_SIZE / sizeof(*fault_page); i++)
 		fault_page[i] = 0xdeadbee0;
-	pvr_fw_object_vunmap(pvr_dev->fw_fault_page_obj, fault_page, false);
+	pvr_fw_object_vunmap(fw_mem->fault_page_obj, fault_page, false);
 
 	gpu_util_fwcb = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*gpu_util_fwcb),
 							 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 							 DRM_PVR_BO_CREATE_ZEROED,
-							 &pvr_dev->fw_gpu_util_fwcb_obj);
+							 &fw_mem->gpu_util_fwcb_obj);
 	if (IS_ERR(gpu_util_fwcb)) {
 		drm_err(drm_dev, "Unable to allocate GPU util FWCB\n");
 		err = PTR_ERR(gpu_util_fwcb);
@@ -462,7 +471,7 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	}
 	/* TODO : add timestamp. */
 	gpu_util_fwcb->last_word = PVR_FWIF_GPU_UTIL_STATE_IDLE;
-	pvr_fw_object_vunmap(pvr_dev->fw_gpu_util_fwcb_obj, gpu_util_fwcb, false);
+	pvr_fw_object_vunmap(fw_mem->gpu_util_fwcb_obj, gpu_util_fwcb, false);
 
 	err = pvr_device_clk_core_get_freq(pvr_dev, &clock_speed_hz);
 	if (err) {
@@ -473,7 +482,7 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	runtime_cfg = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*runtime_cfg),
 						       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 						       DRM_PVR_BO_CREATE_ZEROED,
-						       &pvr_dev->fw_runtime_cfg_obj);
+						       &fw_mem->runtime_cfg_obj);
 	if (IS_ERR(runtime_cfg)) {
 		drm_err(drm_dev, "Unable to allocate FW runtime config\n");
 		err = PTR_ERR(runtime_cfg);
@@ -484,59 +493,54 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	runtime_cfg->active_pm_latency_persistant = true;
 	WARN_ON(PVR_FEATURE_VALUE(pvr_dev, num_clusters,
 				  &runtime_cfg->default_dusts_num_init) != 0);
-	pvr_fw_object_vunmap(pvr_dev->fw_runtime_cfg_obj, runtime_cfg, false);
+	pvr_fw_object_vunmap(fw_mem->runtime_cfg_obj, runtime_cfg, false);
 
 	err = pvr_fw_trace_init(pvr_dev);
 	if (err)
 		goto err_release_runtime_cfg;
 
-	err = pvr_fw_get_dma_addr(pvr_dev->fw_fault_page_obj, 0, &fault_dma_addr);
+	err = pvr_fw_get_dma_addr(fw_mem->fault_page_obj, 0, &fault_dma_addr);
 	if (err) {
 		drm_err(drm_dev,
 			"Unable to get FW fault page physical address\n");
 		goto err_trace_fini;
 	}
-	pvr_dev->fw_sysinit->fault_phys_addr = (u64)fault_dma_addr;
+	fwif_sysinit->fault_phys_addr = (u64)fault_dma_addr;
 
-	pvr_dev->fw_sysinit->pds_exec_base = ROGUE_PDSCODEDATA_HEAP_BASE;
-	pvr_dev->fw_sysinit->usc_exec_base = ROGUE_USCCODE_HEAP_BASE;
+	fwif_sysinit->pds_exec_base = ROGUE_PDSCODEDATA_HEAP_BASE;
+	fwif_sysinit->usc_exec_base = ROGUE_USCCODE_HEAP_BASE;
 
-	WARN_ON(!pvr_gem_get_fw_addr(
-		pvr_dev->fw_runtime_cfg_obj,
-		&pvr_dev->fw_sysinit->runtime_cfg_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(
-		pvr_dev->fw_trace.tracebuf_ctrl_obj,
-		&pvr_dev->fw_sysinit->trace_buf_ctl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(
-		pvr_dev->fw_sysdata_obj,
-		&pvr_dev->fw_sysinit->fw_sys_data_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(
-		pvr_dev->fw_gpu_util_fwcb_obj,
-		&pvr_dev->fw_sysinit->gpu_util_fw_cb_ctl_fw_addr));
-	if (pvr_dev->fw_core_data_obj) {
-		WARN_ON(!pvr_gem_get_fw_addr(
-			pvr_dev->fw_core_data_obj,
-			&pvr_dev->fw_sysinit->coremem_data_store.fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->runtime_cfg_obj,
+				     &fwif_sysinit->runtime_cfg_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_dev->fw_trace.tracebuf_ctrl_obj,
+				     &fwif_sysinit->trace_buf_ctl_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->sysdata_obj,
+				     &fwif_sysinit->fw_sys_data_fw_addr));
+	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->gpu_util_fwcb_obj,
+				     &fwif_sysinit->gpu_util_fw_cb_ctl_fw_addr));
+	if (fw_mem->core_data_obj) {
+		WARN_ON(!pvr_gem_get_fw_addr(fw_mem->core_data_obj,
+					     &fwif_sysinit->coremem_data_store.fw_addr));
 	}
 
 	/* Currently unsupported. */
-	pvr_dev->fw_sysinit->counter_dump_ctl.buffer_fw_addr = 0;
-	pvr_dev->fw_sysinit->counter_dump_ctl.size_in_dwords = 0;
+	fwif_sysinit->counter_dump_ctl.buffer_fw_addr = 0;
+	fwif_sysinit->counter_dump_ctl.size_in_dwords = 0;
 
 	/* Skip alignment checks. */
-	pvr_dev->fw_sysinit->align_checks = 0;
+	fwif_sysinit->align_checks = 0;
 
-	pvr_dev->fw_sysinit->filter_flags = 0;
-	pvr_dev->fw_sysinit->hw_perf_filter = 0;
-	pvr_dev->fw_sysinit->firmware_perf = FW_PERF_CONF_NONE;
-	pvr_dev->fw_sysinit->initial_core_clock_speed = clock_speed_hz;
-	pvr_dev->fw_sysinit->active_pm_latency_ms = 0;
-	pvr_dev->fw_sysinit->gpio_validation_mode = ROGUE_FWIF_GPIO_VAL_OFF;
-	pvr_dev->fw_sysinit->firmware_started = false;
-	pvr_dev->fw_sysinit->marker_val = 1;
+	fwif_sysinit->filter_flags = 0;
+	fwif_sysinit->hw_perf_filter = 0;
+	fwif_sysinit->firmware_perf = FW_PERF_CONF_NONE;
+	fwif_sysinit->initial_core_clock_speed = clock_speed_hz;
+	fwif_sysinit->active_pm_latency_ms = 0;
+	fwif_sysinit->gpio_validation_mode = ROGUE_FWIF_GPIO_VAL_OFF;
+	fwif_sysinit->firmware_started = false;
+	fwif_sysinit->marker_val = 1;
 
-	memset(&pvr_dev->fw_sysinit->bvnc_km_feature_flags, 0,
-	       sizeof(pvr_dev->fw_sysinit->bvnc_km_feature_flags));
+	memset(&fwif_sysinit->bvnc_km_feature_flags, 0,
+	       sizeof(fwif_sysinit->bvnc_km_feature_flags));
 
 	return 0;
 
@@ -544,21 +548,21 @@ err_trace_fini:
 	pvr_fw_trace_fini(pvr_dev);
 
 err_release_runtime_cfg:
-	pvr_fw_object_release(pvr_dev->fw_runtime_cfg_obj);
+	pvr_fw_object_release(fw_mem->runtime_cfg_obj);
 
 err_release_gpu_util_fwcb:
-	pvr_fw_object_release(pvr_dev->fw_gpu_util_fwcb_obj);
+	pvr_fw_object_release(fw_mem->gpu_util_fwcb_obj);
 
 err_release_fault_page:
-	pvr_fw_object_release(pvr_dev->fw_fault_page_obj);
+	pvr_fw_object_release(fw_mem->fault_page_obj);
 
 err_release_sysdata:
-	pvr_fw_object_vunmap(pvr_dev->fw_sysdata_obj, pvr_dev->fw_sysdata, false);
-	pvr_fw_object_release(pvr_dev->fw_sysdata_obj);
+	pvr_fw_object_vunmap(fw_mem->sysdata_obj, fw_dev->fwif_sysdata, false);
+	pvr_fw_object_release(fw_mem->sysdata_obj);
 
 err_release_sysinit:
-	pvr_fw_object_vunmap(pvr_dev->fw_sysinit_obj, pvr_dev->fw_sysinit, false);
-	pvr_fw_object_release(pvr_dev->fw_sysinit_obj);
+	pvr_fw_object_vunmap(fw_mem->sysinit_obj, fw_dev->fwif_sysinit, false);
+	pvr_fw_object_release(fw_mem->sysinit_obj);
 
 err_out:
 	return err;
@@ -567,14 +571,17 @@ err_out:
 static void
 pvr_fw_destroy_dev_structures(struct pvr_device *pvr_dev)
 {
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
+
 	pvr_fw_trace_fini(pvr_dev);
-	pvr_fw_object_release(pvr_dev->fw_runtime_cfg_obj);
-	pvr_fw_object_release(pvr_dev->fw_gpu_util_fwcb_obj);
-	pvr_fw_object_release(pvr_dev->fw_fault_page_obj);
-	pvr_fw_object_vunmap(pvr_dev->fw_sysdata_obj, pvr_dev->fw_sysdata, false);
-	pvr_fw_object_release(pvr_dev->fw_sysdata_obj);
-	pvr_fw_object_vunmap(pvr_dev->fw_sysinit_obj, pvr_dev->fw_sysinit, false);
-	pvr_fw_object_release(pvr_dev->fw_sysinit_obj);
+	pvr_fw_object_release(fw_mem->runtime_cfg_obj);
+	pvr_fw_object_release(fw_mem->gpu_util_fwcb_obj);
+	pvr_fw_object_release(fw_mem->fault_page_obj);
+	pvr_fw_object_vunmap(fw_mem->sysdata_obj, fw_dev->fwif_sysdata, false);
+	pvr_fw_object_release(fw_mem->sysdata_obj);
+	pvr_fw_object_vunmap(fw_mem->sysinit_obj, fw_dev->fwif_sysinit, false);
+	pvr_fw_object_release(fw_mem->sysinit_obj);
 }
 
 /**
@@ -591,7 +598,8 @@ static int
 pvr_fw_process(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	const u8 *fw = pvr_dev->fw->data;
+	struct pvr_fw_mem *fw_mem = &pvr_dev->fw_dev.mem;
+	const u8 *fw = pvr_dev->fw_dev.firmware->data;
 	const struct pvr_fw_info_header *header;
 	const struct pvr_fw_layout_entry *layout_entries;
 	const struct pvr_fw_layout_entry *private_data;
@@ -629,23 +637,24 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	 * driver, a firmware address of 0 is invalid.
 	 */
 	fw_code_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev, 0, code_alloc_size,
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED, &pvr_dev->fw_code_obj);
+		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
+		&fw_mem->code_obj);
 	if (IS_ERR(fw_code_ptr)) {
 		drm_err(drm_dev, "Unable to allocate FW code memory\n");
 		err = PTR_ERR(fw_code_ptr);
 		goto err_out;
 	}
 
-	if (pvr_dev->fw_funcs->has_fixed_data_addr) {
+	if (pvr_dev->fw_dev.funcs->has_fixed_data_addr) {
 		fw_data_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-			private_data->base_addr & pvr_dev->fw_heap_info.offset_mask,
+			private_data->base_addr & pvr_dev->fw_dev.fw_heap_info.offset_mask,
 			data_alloc_size,
 			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&pvr_dev->fw_data_obj);
+			&fw_mem->data_obj);
 	} else {
 		fw_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, data_alloc_size,
 			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&pvr_dev->fw_data_obj);
+			&fw_mem->data_obj);
 	}
 	if (IS_ERR(fw_data_ptr)) {
 		drm_err(drm_dev, "Unable to allocate FW data memory\n");
@@ -657,7 +666,7 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	if (core_code_alloc_size) {
 		fw_core_code_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, core_code_alloc_size,
 			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&pvr_dev->fw_core_code_obj);
+			&fw_mem->core_code_obj);
 		if (IS_ERR(fw_core_code_ptr)) {
 			drm_err(drm_dev,
 				"Unable to allocate FW core code memory\n");
@@ -671,7 +680,7 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	if (core_data_alloc_size) {
 		fw_core_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, core_data_alloc_size,
 			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&pvr_dev->fw_core_data_obj);
+			&fw_mem->core_data_obj);
 		if (IS_ERR(fw_core_data_ptr)) {
 			drm_err(drm_dev,
 				"Unable to allocate FW core data memory\n");
@@ -682,21 +691,22 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 		fw_core_data_ptr = NULL;
 	}
 
-	err = pvr_dev->fw_funcs->fw_process(pvr_dev, fw, layout_entries, header->layout_entry_num,
-					    fw_code_ptr, fw_data_ptr, fw_core_code_ptr,
-					    fw_core_data_ptr, core_code_alloc_size);
+	err = pvr_dev->fw_dev.funcs->fw_process(pvr_dev, fw, layout_entries,
+					       header->layout_entry_num,
+					       fw_code_ptr, fw_data_ptr, fw_core_code_ptr,
+					       fw_core_data_ptr, core_code_alloc_size);
 
 	if (err)
 		goto err_free_fw_core_data_obj;
 
 	/* We're finished with the firmware section memory on the CPU, unmap. */
 	if (fw_core_data_ptr)
-		pvr_fw_object_vunmap(pvr_dev->fw_core_data_obj, fw_core_data_ptr, false);
+		pvr_fw_object_vunmap(fw_mem->core_data_obj, fw_core_data_ptr, false);
 	if (fw_core_code_ptr)
-		pvr_fw_object_vunmap(pvr_dev->fw_core_code_obj, fw_core_code_ptr, false);
-	pvr_fw_object_vunmap(pvr_dev->fw_data_obj, fw_data_ptr, false);
+		pvr_fw_object_vunmap(fw_mem->core_code_obj, fw_core_code_ptr, false);
+	pvr_fw_object_vunmap(fw_mem->data_obj, fw_data_ptr, false);
 	fw_data_ptr = NULL;
-	pvr_fw_object_vunmap(pvr_dev->fw_code_obj, fw_code_ptr, false);
+	pvr_fw_object_vunmap(fw_mem->code_obj, fw_code_ptr, false);
 	fw_code_ptr = NULL;
 
 	err = pvr_fw_create_fwif_connection_ctl(pvr_dev);
@@ -707,25 +717,25 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 
 err_free_fw_core_data_obj:
 	if (fw_core_data_ptr) {
-		pvr_fw_object_vunmap(pvr_dev->fw_core_data_obj, fw_core_data_ptr, false);
-		pvr_fw_object_release(pvr_dev->fw_core_data_obj);
+		pvr_fw_object_vunmap(fw_mem->core_data_obj, fw_core_data_ptr, false);
+		pvr_fw_object_release(fw_mem->core_data_obj);
 	}
 
 err_free_fw_core_code_obj:
 	if (fw_core_code_ptr) {
-		pvr_fw_object_vunmap(pvr_dev->fw_core_code_obj, fw_core_code_ptr, false);
-		pvr_fw_object_release(pvr_dev->fw_core_code_obj);
+		pvr_fw_object_vunmap(fw_mem->core_code_obj, fw_core_code_ptr, false);
+		pvr_fw_object_release(fw_mem->core_code_obj);
 	}
 
 err_free_fw_data_obj:
 	if (fw_data_ptr)
-		pvr_fw_object_vunmap(pvr_dev->fw_data_obj, fw_data_ptr, false);
-	pvr_fw_object_release(pvr_dev->fw_data_obj);
+		pvr_fw_object_vunmap(fw_mem->data_obj, fw_data_ptr, false);
+	pvr_fw_object_release(fw_mem->data_obj);
 
 err_free_fw_code_obj:
 	if (fw_code_ptr)
-		pvr_fw_object_vunmap(pvr_dev->fw_code_obj, fw_code_ptr, false);
-	pvr_fw_object_release(pvr_dev->fw_code_obj);
+		pvr_fw_object_vunmap(fw_mem->code_obj, fw_code_ptr, false);
+	pvr_fw_object_release(fw_mem->code_obj);
 
 err_out:
 	return err;
@@ -734,14 +744,16 @@ err_out:
 static void
 pvr_fw_cleanup(struct pvr_device *pvr_dev)
 {
+	struct pvr_fw_mem *fw_mem = &pvr_dev->fw_dev.mem;
+
 	pvr_fw_fini_fwif_connection_ctl(pvr_dev);
 
-	if (pvr_dev->fw_core_code_obj)
-		pvr_fw_object_release(pvr_dev->fw_core_code_obj);
-	if (pvr_dev->fw_core_data_obj)
-		pvr_fw_object_release(pvr_dev->fw_core_data_obj);
-	pvr_fw_object_release(pvr_dev->fw_code_obj);
-	pvr_fw_object_release(pvr_dev->fw_data_obj);
+	if (fw_mem->core_code_obj)
+		pvr_fw_object_release(fw_mem->core_code_obj);
+	if (fw_mem->core_data_obj)
+		pvr_fw_object_release(fw_mem->core_data_obj);
+	pvr_fw_object_release(fw_mem->code_obj);
+	pvr_fw_object_release(fw_mem->data_obj);
 }
 
 /**
@@ -756,9 +768,10 @@ int
 pvr_wait_for_fw_boot(struct pvr_device *pvr_dev)
 {
 	ktime_t deadline = ktime_add_us(ktime_get(), FW_BOOT_TIMEOUT_USEC);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 
 	while (ktime_to_ns(ktime_sub(deadline, ktime_get())) > 0) {
-		if (READ_ONCE(pvr_dev->fw_sysinit->firmware_started))
+		if (READ_ONCE(fw_dev->fwif_sysinit->firmware_started))
 			return 0;
 	}
 
@@ -774,15 +787,17 @@ pvr_wait_for_fw_boot(struct pvr_device *pvr_dev)
 void
 pvr_fw_heap_info_init(struct pvr_device *pvr_dev, u32 log2_size, u32 reserved_size)
 {
-	pvr_dev->fw_heap_info.gpu_addr = PVR_ROGUE_FW_MAIN_HEAP_BASE;
-	pvr_dev->fw_heap_info.log2_size = log2_size;
-	pvr_dev->fw_heap_info.reserved_size = reserved_size;
-	pvr_dev->fw_heap_info.raw_size = 1 << pvr_dev->fw_heap_info.log2_size;
-	pvr_dev->fw_heap_info.offset_mask = pvr_dev->fw_heap_info.raw_size - 1;
-	pvr_dev->fw_heap_info.config_offset = pvr_dev->fw_heap_info.raw_size -
-					      PVR_ROGUE_FW_CONFIG_HEAP_SIZE;
-	pvr_dev->fw_heap_info.size = pvr_dev->fw_heap_info.raw_size -
-				     (PVR_ROGUE_FW_CONFIG_HEAP_SIZE + reserved_size);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+
+	fw_dev->fw_heap_info.gpu_addr = PVR_ROGUE_FW_MAIN_HEAP_BASE;
+	fw_dev->fw_heap_info.log2_size = log2_size;
+	fw_dev->fw_heap_info.reserved_size = reserved_size;
+	fw_dev->fw_heap_info.raw_size = 1 << fw_dev->fw_heap_info.log2_size;
+	fw_dev->fw_heap_info.offset_mask = fw_dev->fw_heap_info.raw_size - 1;
+	fw_dev->fw_heap_info.config_offset = fw_dev->fw_heap_info.raw_size -
+					     PVR_ROGUE_FW_CONFIG_HEAP_SIZE;
+	fw_dev->fw_heap_info.size = fw_dev->fw_heap_info.raw_size -
+				    (PVR_ROGUE_FW_CONFIG_HEAP_SIZE + reserved_size);
 }
 
 /**
@@ -803,25 +818,26 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 {
 	u32 kccb_size_log2 = ROGUE_FWIF_KCCB_NUMCMDS_LOG2_DEFAULT;
 	u32 kccb_rtn_size = (1 << kccb_size_log2) * sizeof(*pvr_dev->kccb_rtn);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	u32 ddk_version;
 	int err;
 
-	if (pvr_dev->fw_processor_type == PVR_FW_PROCESSOR_TYPE_META) {
-		pvr_dev->fw_funcs = &pvr_fw_funcs_meta;
-	} else if (pvr_dev->fw_processor_type == PVR_FW_PROCESSOR_TYPE_MIPS) {
-		pvr_dev->fw_funcs = &pvr_fw_funcs_mips;
+	if (fw_dev->processor_type == PVR_FW_PROCESSOR_TYPE_META) {
+		fw_dev->funcs = &pvr_fw_funcs_meta;
+	} else if (fw_dev->processor_type == PVR_FW_PROCESSOR_TYPE_MIPS) {
+		fw_dev->funcs = &pvr_fw_funcs_mips;
 	} else {
 		err = -EINVAL;
 		goto err_out;
 	}
 
-	err = pvr_dev->fw_funcs->init(pvr_dev);
+	err = fw_dev->funcs->init(pvr_dev);
 	if (err)
 		goto err_out;
 
-	drm_mm_init(&pvr_dev->fw_mm, ROGUE_FW_HEAP_BASE, pvr_dev->fw_heap_info.raw_size);
-	pvr_dev->fw_mm_base = ROGUE_FW_HEAP_BASE;
-	spin_lock_init(&pvr_dev->fw_mm_lock);
+	drm_mm_init(&fw_dev->fw_mm, ROGUE_FW_HEAP_BASE, fw_dev->fw_heap_info.raw_size);
+	fw_dev->fw_mm_base = ROGUE_FW_HEAP_BASE;
+	spin_lock_init(&fw_dev->fw_mm_lock);
 
 	err = pvr_fw_process(pvr_dev);
 	if (err)
@@ -860,10 +876,10 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_power_unlock;
 
-	pvr_dev->fw_booted = true;
+	fw_dev->booted = true;
 
 	/* Now that firmware has booted, we can get the firmware version. */
-	ddk_version = pvr_dev->fw_osinit->rogue_comp_checks.ddk_version;
+	ddk_version = fw_dev->fwif_osinit->rogue_comp_checks.ddk_version;
 	pvr_dev->fw_version.major = ddk_version >> 16;
 	pvr_dev->fw_version.minor = ddk_version & 0xffff;
 
@@ -893,10 +909,10 @@ err_fw_cleanup:
 	pvr_fw_cleanup(pvr_dev);
 
 err_mm_takedown:
-	drm_mm_takedown(&pvr_dev->fw_mm);
+	drm_mm_takedown(&fw_dev->fw_mm);
 
-	if (pvr_dev->fw_funcs->fini)
-		pvr_dev->fw_funcs->fini(pvr_dev);
+	if (fw_dev->funcs->fini)
+		fw_dev->funcs->fini(pvr_dev);
 
 err_out:
 	return err;
@@ -909,9 +925,11 @@ err_out:
 void
 pvr_fw_fini(struct pvr_device *pvr_dev)
 {
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+
 	pvr_power_lock(pvr_dev);
 
-	pvr_dev->fw_booted = false;
+	fw_dev->booted = false;
 	pvr_power_set_state(pvr_dev, PVR_POWER_STATE_OFF);
 
 	pvr_power_unlock(pvr_dev);
@@ -929,10 +947,10 @@ pvr_fw_fini(struct pvr_device *pvr_dev)
 	pvr_ccb_fini(&pvr_dev->kccb);
 	pvr_fw_cleanup(pvr_dev);
 
-	drm_mm_takedown(&pvr_dev->fw_mm);
+	drm_mm_takedown(&fw_dev->fw_mm);
 
-	if (pvr_dev->fw_funcs->fini)
-		pvr_dev->fw_funcs->fini(pvr_dev);
+	if (fw_dev->funcs->fini)
+		fw_dev->funcs->fini(pvr_dev);
 }
 
 /**

@@ -66,7 +66,7 @@ pvr_vm_mips_init(struct pvr_device *pvr_dev)
 	mips_data->cache_policy = (phys_bus_width > 32) ? ROGUE_MIPSFW_CACHED_POLICY_ABOVE_32BIT :
 							  ROGUE_MIPSFW_CACHED_POLICY;
 
-	pvr_dev->fw_data.mips_data = mips_data;
+	pvr_dev->fw_dev.processor_data.mips_data = mips_data;
 
 	return 0;
 
@@ -87,12 +87,13 @@ err_out:
 void
 pvr_vm_mips_fini(struct pvr_device *pvr_dev)
 {
-	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mips_data *mips_data = fw_dev->processor_data.mips_data;
 
 	pvr_gem_object_vunmap(mips_data->pt_obj, mips_data->pt, false);
 	pvr_gem_object_put(mips_data->pt_obj);
 	kfree(mips_data);
-	pvr_dev->fw_data.mips_data = NULL;
+	fw_dev->processor_data.mips_data = NULL;
 }
 
 static u32
@@ -127,7 +128,8 @@ get_mips_pte_flags(bool read, bool write, int cache_policy)
 int
 pvr_vm_mips_map(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 {
-	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mips_data *mips_data = fw_dev->processor_data.mips_data;
 	struct pvr_gem_object *pvr_obj = &fw_obj->base;
 	u64 start = fw_obj->fw_mm_node.start;
 	u64 size = fw_obj->fw_mm_node.size;
@@ -145,17 +147,17 @@ pvr_vm_mips_map(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 	}
 
 	if (start < ROGUE_FW_HEAP_BASE ||
-	    start >= ROGUE_FW_HEAP_BASE + pvr_dev->fw_heap_info.raw_size ||
+	    start >= ROGUE_FW_HEAP_BASE + fw_dev->fw_heap_info.raw_size ||
 	    end < ROGUE_FW_HEAP_BASE ||
-	    end >= ROGUE_FW_HEAP_BASE + pvr_dev->fw_heap_info.raw_size ||
+	    end >= ROGUE_FW_HEAP_BASE + fw_dev->fw_heap_info.raw_size ||
 	    (start & ROGUE_MIPSFW_PAGE_MASK_4K) ||
 	    ((end + 1) & ROGUE_MIPSFW_PAGE_MASK_4K)) {
 		err = -EINVAL;
 		goto err_out;
 	}
 
-	start_pfn = (start & pvr_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
-	end_pfn = (end & pvr_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
+	start_pfn = (start & fw_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
+	end_pfn = (end & fw_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
 
 	if (pvr_obj->flags & PVR_BO_FW_FLAGS_DEVICE_UNCACHED)
 		cache_policy = ROGUE_MIPSFW_UNCACHED_CACHE_POLICY;
@@ -203,14 +205,15 @@ err_out:
 void
 pvr_vm_mips_unmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj)
 {
-	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_data.mips_data;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
+	struct pvr_fw_mips_data *mips_data = fw_dev->processor_data.mips_data;
 	u64 start = fw_obj->fw_mm_node.start;
 	u64 size = fw_obj->fw_mm_node.size;
 	u64 end = start + size;
 
-	u32 start_pfn = (start & pvr_dev->fw_heap_info.offset_mask) >>
+	u32 start_pfn = (start & fw_dev->fw_heap_info.offset_mask) >>
 			ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
-	u32 end_pfn = (end & pvr_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
+	u32 end_pfn = (end & fw_dev->fw_heap_info.offset_mask) >> ROGUE_MIPSFW_LOG2_PAGE_SIZE_4K;
 	u32 pfn;
 
 	for (pfn = start_pfn; pfn < end_pfn; pfn++)

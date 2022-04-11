@@ -54,7 +54,7 @@ pvr_vm_mmu_flush(struct pvr_device *pvr_dev)
 	int err;
 
 	/* Can't flush MMU if the firmware hasn't booted yet. */
-	if (!pvr_dev->fw_booted) {
+	if (!pvr_dev->fw_dev.booted) {
 		err = 0;
 		goto err_out;
 	}
@@ -66,7 +66,7 @@ pvr_vm_mmu_flush(struct pvr_device *pvr_dev)
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_PC |
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_TLB |
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_INTERRUPT;
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_mmucache_sync_obj,
+	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_dev.mem.mmucache_sync_obj,
 		&cmd_mmu_cache_data->mmu_cache_sync_fw_addr));
 	cmd_mmu_cache_data->mmu_cache_sync_update_value = 0;
 

@@ -753,6 +753,7 @@ pvr_gem_fw_vmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj,
 {
 	struct pvr_gem_object *pvr_obj = from_pvr_fw_object(fw_obj);
 	struct drm_gem_object *gem_obj = from_pvr_gem_object(pvr_obj);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 
 	int err;
 
@@ -760,7 +761,7 @@ pvr_gem_fw_vmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj,
 	if (err)
 		goto err_out;
 
-	spin_lock(&pvr_dev->fw_mm_lock);
+	spin_lock(&fw_dev->fw_mm_lock);
 
 	if (drm_mm_node_allocated(&fw_obj->fw_mm_node)) {
 		err = -EINVAL;
@@ -772,40 +773,38 @@ pvr_gem_fw_vmap(struct pvr_device *pvr_dev, struct pvr_fw_object *fw_obj,
 		 * Allocate from the main heap only (firmware heap minus
 		 * config space).
 		 */
-		err = drm_mm_insert_node_in_range(&pvr_dev->fw_mm, &fw_obj->fw_mm_node,
+		err = drm_mm_insert_node_in_range(&fw_dev->fw_mm, &fw_obj->fw_mm_node,
 						  gem_obj->size, 0, 0,
-						  pvr_dev->fw_heap_info.gpu_addr,
-						  pvr_dev->fw_heap_info.gpu_addr +
-						  pvr_dev->fw_heap_info.size, 0);
+						  fw_dev->fw_heap_info.gpu_addr,
+						  fw_dev->fw_heap_info.gpu_addr +
+						  fw_dev->fw_heap_info.size, 0);
 		if (err)
 			goto err_unlock;
 	} else {
 		fw_obj->fw_mm_node.start = dev_addr;
 		fw_obj->fw_mm_node.size = gem_obj->size;
-		err = drm_mm_reserve_node(&pvr_dev->fw_mm,
-					  &fw_obj->fw_mm_node);
+		err = drm_mm_reserve_node(&fw_dev->fw_mm, &fw_obj->fw_mm_node);
 		if (err)
 			goto err_unlock;
 	}
 
-	spin_unlock(&pvr_dev->fw_mm_lock);
+	spin_unlock(&fw_dev->fw_mm_lock);
 
 	/* Map object on GPU. */
-	err = pvr_dev->fw_funcs->vm_map(pvr_dev, fw_obj);
+	err = fw_dev->funcs->vm_map(pvr_dev, fw_obj);
 	if (err)
 		goto err_remove_node;
 
-	fw_obj->fw_addr_offset =
-		(u32)(fw_obj->fw_mm_node.start - pvr_dev->fw_mm_base);
+	fw_obj->fw_addr_offset = (u32)(fw_obj->fw_mm_node.start - fw_dev->fw_mm_base);
 
 	return 0;
 
 err_remove_node:
-	spin_lock(&pvr_dev->fw_mm_lock);
+	spin_lock(&fw_dev->fw_mm_lock);
 	drm_mm_remove_node(&fw_obj->fw_mm_node);
 
 err_unlock:
-	spin_unlock(&pvr_dev->fw_mm_lock);
+	spin_unlock(&fw_dev->fw_mm_lock);
 
 	pvr_gem_object_put_pages(pvr_obj);
 
@@ -827,21 +826,22 @@ pvr_gem_fw_vunmap(struct pvr_fw_object *fw_obj)
 	struct pvr_gem_object *pvr_obj = from_pvr_fw_object(fw_obj);
 	struct drm_gem_object *gem_obj = from_pvr_gem_object(pvr_obj);
 	struct pvr_device *pvr_dev = to_pvr_device(gem_obj->dev);
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	int err;
 
-	pvr_dev->fw_funcs->vm_unmap(pvr_dev, fw_obj);
+	fw_dev->funcs->vm_unmap(pvr_dev, fw_obj);
 
-	spin_lock(&pvr_dev->fw_mm_lock);
+	spin_lock(&fw_dev->fw_mm_lock);
 
 	if (!drm_mm_node_allocated(&fw_obj->fw_mm_node)) {
-		spin_unlock(&pvr_dev->fw_mm_lock);
+		spin_unlock(&fw_dev->fw_mm_lock);
 		err = -EINVAL;
 		goto err_out;
 	}
 
 	drm_mm_remove_node(&fw_obj->fw_mm_node);
 
-	spin_unlock(&pvr_dev->fw_mm_lock);
+	spin_unlock(&fw_dev->fw_mm_lock);
 
 	pvr_gem_object_put_pages(pvr_obj);
 
@@ -1010,7 +1010,7 @@ pvr_gem_create_and_map_fw_object_offset(struct pvr_device *pvr_dev,
 					u32 dev_offset, size_t size, u64 flags,
 					struct pvr_fw_object **fw_obj_out)
 {
-	u64 dev_addr = pvr_dev->fw_mm_base + dev_offset;
+	u64 dev_addr = pvr_dev->fw_dev.fw_mm_base + dev_offset;
 
 	return pvr_gem_create_and_map_fw_common(pvr_dev, size, flags, dev_addr,
 						fw_obj_out);

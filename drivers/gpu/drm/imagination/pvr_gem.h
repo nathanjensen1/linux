@@ -334,7 +334,7 @@ pvr_gem_get_fw_addr_offset(struct pvr_fw_object *fw_obj, u32 offset, u32 *fw_add
 	struct pvr_gem_object *pvr_obj = from_pvr_fw_object(fw_obj);
 	struct pvr_device *pvr_dev = pvr_obj->pvr_dev;
 
-	*fw_addr_out = pvr_dev->fw_funcs->get_fw_addr_with_offset(fw_obj, offset);
+	*fw_addr_out = pvr_dev->fw_dev.funcs->get_fw_addr_with_offset(fw_obj, offset);
 
 	return true;
 }
@@ -371,9 +371,10 @@ pvr_gem_get_fw_gpu_addr(struct pvr_fw_object *fw_obj, u64 *gpu_addr_out)
 	/* FIXME: Move to META-specific file */
 	struct pvr_gem_object *pvr_obj = from_pvr_fw_object(fw_obj);
 	struct pvr_device *pvr_dev = pvr_obj->pvr_dev;
+	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 
-	if (pvr_dev->fw_processor_type != PVR_FW_PROCESSOR_TYPE_MIPS) {
-		*gpu_addr_out = fw_obj->fw_addr_offset + pvr_dev->fw_heap_info.gpu_addr;
+	if (fw_dev->processor_type != PVR_FW_PROCESSOR_TYPE_MIPS) {
+		*gpu_addr_out = fw_obj->fw_addr_offset + fw_dev->fw_heap_info.gpu_addr;
 		return true;
 	}
 

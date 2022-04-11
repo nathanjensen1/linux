@@ -6,7 +6,7 @@
 
 #include "pvr_ccb.h"
 #include "pvr_device_info.h"
-#include "pvr_fw_trace.h"
+#include "pvr_fw.h"
 #include "pvr_vendor.h"
 #include "pvr_vm.h"
 
@@ -144,9 +144,6 @@ struct pvr_device {
 	/** @kccb_rtn_q: Waitqueue for KCCB command return waiters. */
 	wait_queue_head_t kccb_rtn_q;
 
-	/** @fw: Handle to the firmware loaded into the device. */
-	const struct firmware *fw;
-
 	/** @vendor: Vendor specific device data. */
 	struct pvr_vendor vendor;
 
@@ -177,101 +174,8 @@ struct pvr_device {
 	/** @kernel_vm_ctx: TODO */
 	struct pvr_vm_context *kernel_vm_ctx;
 
-	/** @fw_mm: Firmware address space allocator. */
-	struct drm_mm fw_mm;
-
-	/** @fw_mm_lock: Lock protecting access to &fw_mm. */
-	spinlock_t fw_mm_lock;
-
-	/** @fw_mm_base: Base address of address space managed by @fw_mm. */
-	u64 fw_mm_base;
-
-	/** @fw_code_obj: Object representing firmware code. */
-	struct pvr_fw_object *fw_code_obj;
-
-	/** @fw_data_obj: Object representing firmware data. */
-	struct pvr_fw_object *fw_data_obj;
-
-	/**
-	 * @fw_core_code_obj: Object representing firmware core code. May be
-	 *                    %NULL if firmware does not contain this section.
-	 */
-	struct pvr_fw_object *fw_core_code_obj;
-
-	/**
-	 * @fw_core_data_obj: Object representing firmware core data. May be
-	 *                    %NULL if firmware does not contain this section.
-	 */
-	struct pvr_fw_object *fw_core_data_obj;
-
-	/**
-	 * @fwif_connection_ctl_obj: Object representing FWIF connection control
-	 *                           structure.
-	 */
-	struct pvr_fw_object *fwif_connection_ctl_obj;
-
-	/**
-	 * @fwif_connection_ctl: Pointer to CPU mapping of FWIF connection
-	 *                       control structure.
-	 */
-	struct rogue_fwif_connection_ctl *fwif_connection_ctl;
-
-	/** @fw_osinit_obj: Object representing FW OSINIT structure. */
-	struct pvr_fw_object *fw_osinit_obj;
-
-	/** @fw_osinit: Pointer to CPU mapping of FW OSINIT structure. */
-	struct rogue_fwif_osinit *fw_osinit;
-
-	/** @fw_sysinit_obj: Object representing FW SYSINIT structure. */
-	struct pvr_fw_object *fw_sysinit_obj;
-
-	/** @fw_sysinit: Pointer to CPU mapping of FW SYSINIT structure. */
-	struct rogue_fwif_sysinit *fw_sysinit;
-
-	/** @fw_osdata_obj: Object representing FW OSDATA structure. */
-	struct pvr_fw_object *fw_osdata_obj;
-
-	/** @fw_osdata: Pointer to CPU mapping of FW OSDATA structure. */
-	struct rogue_fwif_osdata *fw_osdata;
-
-	/** @fw_hwrinfobuf_obj: Object representing FW hwrinfobuf structure. */
-	struct pvr_fw_object *fw_hwrinfobuf_obj;
-
-	/** @fw_sysdata_obj: Object representing FW SYSDATA structure. */
-	struct pvr_fw_object *fw_sysdata_obj;
-
-	/** @fw_sysdata: Pointer to CPU mapping of FW SYSDATA structure. */
-	struct rogue_fwif_sysdata *fw_sysdata;
-
-	/** @fw_power_sync_obj: Object representing power sync state. */
-	struct pvr_fw_object *fw_power_sync_obj;
-
-	/** @fw_power_sync: Pointer to CPU mapping of power sync state. */
-	u32 *fw_power_sync;
-
-	/** @fw_fault_page_obj: Object representing FW fault page. */
-	struct pvr_fw_object *fw_fault_page_obj;
-
-	/**
-	 * @fw_gpu_util_fwcb_obj: Object representing FW GPU utilisation control
-	 *                        structure.
-	 */
-	struct pvr_fw_object *fw_gpu_util_fwcb_obj;
-
-	/**
-	 * @fw_runtime_cfg_obj: Object representing FW runtime config
-	 *                      structure.
-	 */
-	struct pvr_fw_object *fw_runtime_cfg_obj;
-
-	/** @fw_mmucache_sync_obj: Object used as the sync parameter in an MMU cache operation. */
-	struct pvr_fw_object *fw_mmucache_sync_obj;
-
-	/** @fw_booted: %true if the firmware has been booted, %false otherwise. */
-	bool fw_booted;
-
-	/** @fw_trace: Device firmware trace buffer state. */
-	struct pvr_fw_trace fw_trace;
+	/** @fw_dev: Firmware related data. */
+	struct pvr_fw_device fw_dev;
 
 	/**
 	 * @fence_list_spinlock: Lock protecting accesses to @fence_list and @imported_fence_list.
@@ -283,45 +187,6 @@ struct pvr_device {
 
 	/** @fence_list: List of active imported fences. */
 	struct list_head imported_fence_list;
-
-	/**
-	 * @fw_processor_type: FW processor type for this device. Must be one of
-	 *                     %PVR_FW_PROCESSOR_TYPE_*.
-	 */
-	u16 fw_processor_type;
-
-	/** @fw_funcs: Function table for the FW processor used by this device. */
-	const struct pvr_fw_funcs *fw_funcs;
-
-	/** @fw_data: Pointer to data specific to FW processor. */
-	union {
-		/** @mips_data: Pointer to MIPS-specific data. */
-		struct pvr_fw_mips_data *mips_data;
-	} fw_data;
-
-	/** @fw_heap: Firmware heap information. */
-	struct {
-		/** @gpu_addr: Base address of firmware heap in GPU address space. */
-		u64 gpu_addr;
-
-		/** @size: Size of main area of heap. */
-		u32 size;
-
-		/** @offset_mask: Mask for offsets within FW heap. */
-		u32 offset_mask;
-
-		/** @raw_size: Raw size of heap, including reserved areas. */
-		u32 raw_size;
-
-		/** @log2_size: Log2 of raw size of heap. */
-		u32 log2_size;
-
-		/** @config_offset: Offset of config area within heap. */
-		u32 config_offset;
-
-		/** @reserved_size: Size of reserved area in heap. */
-		u32 reserved_size;
-	} fw_heap_info;
 
 	/** @power_state: Current GPU power state. */
 	enum pvr_power_state power_state;
