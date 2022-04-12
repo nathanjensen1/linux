@@ -281,9 +281,9 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	u32 ctx_fw_addr;
 	int err;
 
-	WARN_ON(!pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr));
+	pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr);
 
-	WARN_ON(!pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr));
+	pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
 
 	err = pvr_fence_to_ufo(out_fence, &out_ufo);
 	if (err)
@@ -416,9 +416,9 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	u32 ctx_fw_addr;
 	int err;
 
-	WARN_ON(!pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr));
+	pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr);
 
-	WARN_ON(!pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr));
+	pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
 	ctx_fw_addr += offsetof(struct rogue_fwif_fwrendercontext, frag_context);
 
 	err = pvr_fence_to_ufo(out_fence, &out_ufo);
@@ -573,7 +573,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	u32 ctx_fw_addr;
 	int err;
 
-	WARN_ON(!pvr_gem_get_fw_addr(ctx_compute->fw_obj, &ctx_fw_addr));
+	pvr_gem_get_fw_addr(ctx_compute->fw_obj, &ctx_fw_addr);
 
 	err = pvr_fence_to_ufo(out_fence, &out_ufo);
 	if (err)

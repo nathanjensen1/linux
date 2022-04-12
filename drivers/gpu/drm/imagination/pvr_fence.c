@@ -247,8 +247,7 @@ pvr_fence_to_ufo(struct dma_fence *fence, struct rogue_fwif_ufo *ufo)
 	if (unlikely(!pvr_fence))
 		return -EINVAL;
 
-	if (!pvr_gem_get_fw_addr(pvr_fence->sync_checkpoint_fw_obj, &ufo->addr))
-		return -ENOMEM;
+	pvr_gem_get_fw_addr(pvr_fence->sync_checkpoint_fw_obj, &ufo->addr);
 
 	ufo->addr |= ROGUE_FWIF_UFO_ADDR_IS_SYNC_CHECKPOINT;
 	ufo->value = PVR_SYNC_CHECKPOINT_ACTIVE;
