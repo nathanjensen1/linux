@@ -128,30 +128,28 @@ static int pvr_device_clk_init(struct pvr_device *pvr_dev)
 	}
 
 	sys_clk = devm_clk_get(drm_dev->dev, "sys_clk");
-	if (IS_ERR(sys_clk)) {
-		err = PTR_ERR(sys_clk);
-		drm_err(drm_dev, "failed to get sys_clk (err=%d)\n", err);
-		goto err_out;
-	}
+	if (IS_ERR(sys_clk))
+		sys_clk = NULL;
 
 	mem_clk = devm_clk_get(drm_dev->dev, "mem_clk");
-	if (IS_ERR(mem_clk)) {
-		err = PTR_ERR(mem_clk);
-		drm_err(drm_dev, "failed to get mem_clk (err=%d)\n", err);
-		goto err_out;
-	}
+	if (IS_ERR(mem_clk))
+		mem_clk = NULL;
 
 	err = clk_prepare(core_clk);
 	if (err)
 		goto err_out;
 
-	err = clk_prepare(sys_clk);
-	if (err)
-		goto err_deinit_core_clk;
+	if (sys_clk) {
+		err = clk_prepare(sys_clk);
+		if (err)
+			goto err_deinit_core_clk;
+	}
 
-	err = clk_prepare(mem_clk);
-	if (err)
-		goto err_deinit_sys_clk;
+	if (mem_clk) {
+		err = clk_prepare(mem_clk);
+		if (err)
+			goto err_deinit_sys_clk;
+	}
 
 	pvr_dev->core_clk = core_clk;
 	pvr_dev->sys_clk = sys_clk;
@@ -160,7 +158,8 @@ static int pvr_device_clk_init(struct pvr_device *pvr_dev)
 	return 0;
 
 err_deinit_sys_clk:
-	clk_disable_unprepare(sys_clk);
+	if (sys_clk)
+		clk_disable_unprepare(sys_clk);
 err_deinit_core_clk:
 	clk_disable_unprepare(core_clk);
 err_out:
@@ -174,8 +173,10 @@ err_out:
 static void
 pvr_device_clk_fini(struct pvr_device *pvr_dev)
 {
-	clk_unprepare(pvr_dev->mem_clk);
-	clk_unprepare(pvr_dev->sys_clk);
+	if (pvr_dev->mem_clk)
+		clk_unprepare(pvr_dev->mem_clk);
+	if (pvr_dev->sys_clk)
+		clk_unprepare(pvr_dev->sys_clk);
 	clk_unprepare(pvr_dev->core_clk);
 
 	pvr_dev->core_clk = NULL;
