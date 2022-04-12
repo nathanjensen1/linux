@@ -58,8 +58,7 @@ int pvr_fw_trace_init(struct pvr_device *pvr_dev)
 		}
 		trace_buffer->tracebuf_space = tracebuf_space;
 
-		WARN_ON(!pvr_gem_get_fw_addr(trace_buffer->buf_obj,
-				      &tracebuf_space->trace_buffer_fw_addr));
+		pvr_gem_get_fw_addr(trace_buffer->buf_obj, &tracebuf_space->trace_buffer_fw_addr);
 
 		tracebuf_space->trace_buffer = trace_buffer->buf;
 		tracebuf_space->trace_pointer = 0;

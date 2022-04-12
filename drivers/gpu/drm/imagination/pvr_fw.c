@@ -347,13 +347,11 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 		goto err_release_hwrinfobuf;
 	}
 
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->power_sync_obj,
-				     &fw_dev->fwif_osdata->power_sync_fw_addr));
+	pvr_gem_get_fw_addr(fw_mem->power_sync_obj, &fw_dev->fwif_osdata->power_sync_fw_addr);
 
 	fwif_osinit->kernel_ccbctl_fw_addr = pvr_dev->kccb.ctrl_fw_addr;
 	fwif_osinit->kernel_ccb_fw_addr = pvr_dev->kccb.ccb_fw_addr;
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->kccb_rtn_obj,
-				     &fwif_osinit->kernel_ccb_rtn_slots_fw_addr));
+	pvr_gem_get_fw_addr(pvr_dev->kccb_rtn_obj, &fwif_osinit->kernel_ccb_rtn_slots_fw_addr);
 
 	fwif_osinit->firmware_ccbctl_fw_addr = pvr_dev->fwccb.ctrl_fw_addr;
 	fwif_osinit->firmware_ccb_fw_addr = pvr_dev->fwccb.ccb_fw_addr;
@@ -361,9 +359,9 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	fwif_osinit->work_est_firmware_ccbctl_fw_addr = 0;
 	fwif_osinit->work_est_firmware_ccb_fw_addr = 0;
 
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->hwrinfobuf_obj,
-				     &fwif_osinit->rogue_fwif_hwr_info_buf_ctl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->osdata_obj, &fwif_osinit->fw_os_data_fw_addr));
+	pvr_gem_get_fw_addr(fw_mem->hwrinfobuf_obj,
+			    &fwif_osinit->rogue_fwif_hwr_info_buf_ctl_fw_addr);
+	pvr_gem_get_fw_addr(fw_mem->osdata_obj, &fwif_osinit->fw_os_data_fw_addr);
 
 	fwif_osinit->hwr_debug_dump_limit = 0;
 
@@ -510,17 +508,14 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	fwif_sysinit->pds_exec_base = ROGUE_PDSCODEDATA_HEAP_BASE;
 	fwif_sysinit->usc_exec_base = ROGUE_USCCODE_HEAP_BASE;
 
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->runtime_cfg_obj,
-				     &fwif_sysinit->runtime_cfg_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(fw_dev->fw_trace.tracebuf_ctrl_obj,
-				     &fwif_sysinit->trace_buf_ctl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->sysdata_obj,
-				     &fwif_sysinit->fw_sys_data_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(fw_mem->gpu_util_fwcb_obj,
-				     &fwif_sysinit->gpu_util_fw_cb_ctl_fw_addr));
+	pvr_gem_get_fw_addr(fw_mem->runtime_cfg_obj, &fwif_sysinit->runtime_cfg_fw_addr);
+	pvr_gem_get_fw_addr(fw_dev->fw_trace.tracebuf_ctrl_obj,
+			    &fwif_sysinit->trace_buf_ctl_fw_addr);
+	pvr_gem_get_fw_addr(fw_mem->sysdata_obj, &fwif_sysinit->fw_sys_data_fw_addr);
+	pvr_gem_get_fw_addr(fw_mem->gpu_util_fwcb_obj, &fwif_sysinit->gpu_util_fw_cb_ctl_fw_addr);
 	if (fw_mem->core_data_obj) {
-		WARN_ON(!pvr_gem_get_fw_addr(fw_mem->core_data_obj,
-					     &fwif_sysinit->coremem_data_store.fw_addr));
+		pvr_gem_get_fw_addr(fw_mem->core_data_obj,
+				    &fwif_sysinit->coremem_data_store.fw_addr);
 	}
 
 	/* Currently unsupported. */

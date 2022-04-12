@@ -192,16 +192,16 @@ pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *f
 
 	switch (type) {
 	case ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT:
-		WARN_ON(!pvr_gem_get_fw_addr_offset(fw_obj, offset,
-						    &cleanup_req->cleanup_data.context_fw_addr));
+		pvr_gem_get_fw_addr_offset(fw_obj, offset,
+					   &cleanup_req->cleanup_data.context_fw_addr);
 		break;
 	case ROGUE_FWIF_CLEANUP_HWRTDATA:
-		WARN_ON(!pvr_gem_get_fw_addr_offset(fw_obj, offset,
-						    &cleanup_req->cleanup_data.hwrt_data_fw_addr));
+		pvr_gem_get_fw_addr_offset(fw_obj, offset,
+					   &cleanup_req->cleanup_data.hwrt_data_fw_addr);
 		break;
 	case ROGUE_FWIF_CLEANUP_FREELIST:
-		WARN_ON(!pvr_gem_get_fw_addr_offset(fw_obj, offset,
-						    &cleanup_req->cleanup_data.freelist_fw_addr));
+		pvr_gem_get_fw_addr_offset(fw_obj, offset,
+					   &cleanup_req->cleanup_data.freelist_fw_addr);
 		break;
 	default:
 		err = -EINVAL;

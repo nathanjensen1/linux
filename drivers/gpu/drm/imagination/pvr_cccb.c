@@ -62,10 +62,8 @@ pvr_cccb_init(struct pvr_device *pvr_dev, struct pvr_cccb *pvr_cccb,
 		goto err_free_ctrl;
 	}
 
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_cccb->ctrl_obj,
-				      &pvr_cccb->ctrl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_cccb->cccb_obj,
-				      &pvr_cccb->cccb_fw_addr));
+	pvr_gem_get_fw_addr(pvr_cccb->ctrl_obj, &pvr_cccb->ctrl_fw_addr);
+	pvr_gem_get_fw_addr(pvr_cccb->cccb_obj, &pvr_cccb->cccb_fw_addr);
 
 	WRITE_ONCE(pvr_cccb->ctrl->write_offset, 0);
 	WRITE_ONCE(pvr_cccb->ctrl->read_offset, 0);
@@ -307,9 +305,9 @@ pvr_cccb_unlock_send_kccb_kick(struct pvr_device *pvr_dev,
 	cmd_kick_data->num_cleanup_ctl = 0;
 	cleanup_ctl = cmd_kick_data->cleanup_ctl_fw_addr;
 	if (hwrt) {
-		WARN_ON(!pvr_gem_get_fw_addr_offset(hwrt->fw_obj,
-			offsetof(struct rogue_fwif_hwrtdata, cleanup_state),
-			cleanup_ctl));
+		pvr_gem_get_fw_addr_offset(hwrt->fw_obj,
+					   offsetof(struct rogue_fwif_hwrtdata, cleanup_state),
+					   cleanup_ctl);
 		cmd_kick_data->num_cleanup_ctl++;
 		cleanup_ctl++;
 	}

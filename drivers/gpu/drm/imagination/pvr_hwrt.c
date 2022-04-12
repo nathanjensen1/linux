@@ -153,20 +153,15 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 		goto err_out;
 	}
 
-	WARN_ON(!pvr_gem_get_fw_addr(
-		hwrt->common_fw_obj, &hwrt_data_fw->hwrt_data_common_fw_addr));
+	pvr_gem_get_fw_addr(hwrt->common_fw_obj, &hwrt_data_fw->hwrt_data_common_fw_addr);
 
 	/* MList Data Store */
 	hwrt_data_fw->pm_mlist_dev_addr = rt_data_args->pm_mlist_dev_addr;
 
 	for (free_list_i = 0; free_list_i < hwrt->num_free_lists;
 	     free_list_i++) {
-		if (!pvr_gem_get_fw_addr(
-			    hwrt->free_lists[free_list_i]->fw_obj,
-			    &hwrt_data_fw->freelists_fw_addr[free_list_i])) {
-			err = -EINVAL;
-			goto err_put_fw_obj;
-		}
+		pvr_gem_get_fw_addr(hwrt->free_lists[free_list_i]->fw_obj,
+				    &hwrt_data_fw->freelists_fw_addr[free_list_i]);
 	}
 
 	hwrt_data_fw->vheap_table_dev_addr = geom_data_args->vheap_table_dev_addr;
@@ -191,9 +186,7 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 					       &hwrt_data->srtc_obj);
 		if (err)
 			goto err_put_fw_obj;
-		WARN_ON(!pvr_gem_get_fw_addr(
-			hwrt_data->srtc_obj,
-			&rta_ctl->valid_render_targets_fw_addr));
+		pvr_gem_get_fw_addr(hwrt_data->srtc_obj, &rta_ctl->valid_render_targets_fw_addr);
 
 		err = pvr_gem_create_fw_object(pvr_dev, args->max_rts * RAA_ENTRY_SIZE,
 					       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
@@ -201,9 +194,7 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 					       &hwrt_data->raa_obj);
 		if (err)
 			goto err_put_shadow_rt_cache;
-		WARN_ON(!pvr_gem_get_fw_addr(
-			hwrt_data->raa_obj,
-			&rta_ctl->rta_num_partial_renders_fw_addr));
+		pvr_gem_get_fw_addr(hwrt_data->raa_obj, &rta_ctl->rta_num_partial_renders_fw_addr);
 	}
 
 	pvr_fw_object_vunmap(hwrt_data->fw_obj, hwrt_data_fw, false);

@@ -513,7 +513,7 @@ pvr_meta_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 	if (fw_dev->mem.core_code_obj) {
 		u32 core_code_fw_addr;
 
-		WARN_ON(!pvr_gem_get_fw_addr(fw_dev->mem.core_code_obj, &core_code_fw_addr));
+		pvr_gem_get_fw_addr(fw_dev->mem.core_code_obj, &core_code_fw_addr);
 		add_boot_arg(&boot_conf, core_code_fw_addr, core_code_alloc_size);
 	} else {
 		add_boot_arg(&boot_conf, 0, 0);
