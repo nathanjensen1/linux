@@ -640,7 +640,7 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 		goto err_out;
 	}
 
-	if (pvr_dev->fw_dev.funcs->has_fixed_data_addr) {
+	if (pvr_dev->fw_dev.funcs->has_fixed_data_addr()) {
 		fw_data_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
 			private_data->base_addr & pvr_dev->fw_dev.fw_heap_info.offset_mask,
 			data_alloc_size,
