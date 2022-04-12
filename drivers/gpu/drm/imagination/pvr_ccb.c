@@ -60,10 +60,8 @@ pvr_ccb_init(struct pvr_device *pvr_dev, struct pvr_ccb *pvr_ccb,
 		goto err_free_ctrl;
 	}
 
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_ccb->ctrl_obj,
-				      &pvr_ccb->ctrl_fw_addr));
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_ccb->ccb_obj,
-				      &pvr_ccb->ccb_fw_addr));
+	pvr_gem_get_fw_addr(pvr_ccb->ctrl_obj, &pvr_ccb->ctrl_fw_addr);
+	pvr_gem_get_fw_addr(pvr_ccb->ccb_obj, &pvr_ccb->ccb_fw_addr);
 
 	pvr_ccb->ctrl->write_offset = 0;
 	pvr_ccb->ctrl->read_offset = 0;
