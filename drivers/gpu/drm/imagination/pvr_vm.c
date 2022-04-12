@@ -66,8 +66,8 @@ pvr_vm_mmu_flush(struct pvr_device *pvr_dev)
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_PC |
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_TLB |
 					  ROGUE_FWIF_MMUCACHEDATA_FLAGS_INTERRUPT;
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_dev->fw_dev.mem.mmucache_sync_obj,
-		&cmd_mmu_cache_data->mmu_cache_sync_fw_addr));
+	pvr_gem_get_fw_addr(pvr_dev->fw_dev.mem.mmucache_sync_obj,
+			    &cmd_mmu_cache_data->mmu_cache_sync_fw_addr);
 	cmd_mmu_cache_data->mmu_cache_sync_update_value = 0;
 
 	err = pvr_kccb_send_cmd(pvr_dev, &cmd_mmu_cache, &slot);

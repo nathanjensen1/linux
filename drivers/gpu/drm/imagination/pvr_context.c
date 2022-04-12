@@ -239,20 +239,14 @@ remap_priority(struct pvr_file *pvr_file, s32 uapi_priority,
  * @cctx_id: Common context ID.
  * @ctx_state_obj: FW object representing context state.
  * @cccb: Client CCB for this context.
- *
- * Return:
- *  * 0 on success, or
- *  * Any error returned by pvr_gem_get_fw_addr().
  */
-static int
+static void
 pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
 			   struct rogue_fwif_fwcommoncontext *cctx_fw,
 			   u32 dm_type, u32 priority, u32 max_deadline_ms,
 			   u32 cctx_id, struct pvr_fw_object *ctx_state_obj,
 			   struct pvr_cccb *cccb)
 {
-	int err = 0;
-
 	cctx_fw->ccbctl_fw_addr = cccb->ctrl_fw_addr;
 	cctx_fw->ccb_fw_addr = cccb->cccb_fw_addr;
 
@@ -263,23 +257,12 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
 	cctx_fw->pid = task_tgid_nr(current);
 	cctx_fw->server_common_context_id = cctx_id;
 
-	if (ctx->reset_framework_obj) {
-		if (!pvr_gem_get_fw_addr(ctx->reset_framework_obj,
-					  &cctx_fw->rf_cmd_addr)) {
-			err = -EINVAL;
-			goto err_out;
-		}
-	}
+	if (ctx->reset_framework_obj)
+		pvr_gem_get_fw_addr(ctx->reset_framework_obj, &cctx_fw->rf_cmd_addr);
 
-	WARN_ON(!pvr_gem_get_fw_addr(pvr_file->fw_mem_ctx_obj, &cctx_fw->fw_mem_context_fw_addr));
+	pvr_gem_get_fw_addr(pvr_file->fw_mem_ctx_obj, &cctx_fw->fw_mem_context_fw_addr);
 
-	if (!pvr_gem_get_fw_addr(ctx_state_obj, &cctx_fw->context_state_addr)) {
-		err = -EINVAL;
-		goto err_out;
-	}
-
-err_out:
-	return err;
+	pvr_gem_get_fw_addr(ctx_state_obj, &cctx_fw->context_state_addr);
 }
 
 /**
@@ -337,25 +320,15 @@ pvr_init_fw_render_context(
 	BUILD_BUG_ON(sizeof(*ctxswitch_regs) != sizeof(srcs_args.data));
 	memcpy(ctxswitch_regs, &srcs_args.data, sizeof(srcs_args.data));
 
-	err = pvr_init_fw_common_context(pvr_file, &ctx_render->base,
-					 &fw_render_context->geom_context,
-					 PVR_FWIF_DM_GEOM, args->priority,
-					 MAX_DEADLINE_MS,
-					 ctx_render->ctx_geom.ctx_id,
-					 ctx_render->ctx_geom.ctx_state_obj,
-					 &ctx_render->ctx_geom.cccb);
-	if (err)
-		goto err_destroy_gem_object;
+	pvr_init_fw_common_context(pvr_file, &ctx_render->base, &fw_render_context->geom_context,
+				   PVR_FWIF_DM_GEOM, args->priority, MAX_DEADLINE_MS,
+				   ctx_render->ctx_geom.ctx_id, ctx_render->ctx_geom.ctx_state_obj,
+				   &ctx_render->ctx_geom.cccb);
 
-	err = pvr_init_fw_common_context(pvr_file, &ctx_render->base,
-					 &fw_render_context->frag_context,
-					 PVR_FWIF_DM_FRAG, args->priority,
-					 MAX_DEADLINE_MS,
-					 ctx_render->ctx_frag.ctx_id,
-					 ctx_render->ctx_frag.ctx_state_obj,
-					 &ctx_render->ctx_frag.cccb);
-	if (err)
-		goto err_destroy_gem_object;
+	pvr_init_fw_common_context(pvr_file, &ctx_render->base, &fw_render_context->frag_context,
+				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
+				   ctx_render->ctx_frag.ctx_id, ctx_render->ctx_frag.ctx_state_obj,
+				   &ctx_render->ctx_frag.cccb);
 
 	pvr_fw_object_vunmap(ctx_render->fw_obj, fw_render_context, true);
 	return 0;
@@ -445,14 +418,10 @@ pvr_init_compute_context(
 	BUILD_BUG_ON(sizeof(*ctxswitch_regs) != sizeof(sccs_args.data));
 	memcpy(ctxswitch_regs, &sccs_args.data, sizeof(sccs_args.data));
 
-	err = pvr_init_fw_common_context(pvr_file, &ctx_compute->base,
-					 &fw_compute_context->cdm_context, PVR_FWIF_DM_CDM,
-					 args->priority, MAX_DEADLINE_MS,
-					 ctx_compute->ctx_id,
-					 ctx_compute->ctx_state_obj,
-					 &ctx_compute->cccb);
-	if (err)
-		goto err_destroy_gem_object;
+	pvr_init_fw_common_context(pvr_file, &ctx_compute->base, &fw_compute_context->cdm_context,
+				   PVR_FWIF_DM_CDM, args->priority, MAX_DEADLINE_MS,
+				   ctx_compute->ctx_id, ctx_compute->ctx_state_obj,
+				   &ctx_compute->cccb);
 
 	pvr_fw_object_vunmap(ctx_compute->fw_obj, fw_compute_context, true);
 	return 0;

@@ -323,35 +323,25 @@ pvr_fw_get_dma_addr(struct pvr_fw_object *fw_obj, u32 offset, dma_addr_t *dma_ad
  * @fw_obj: Pointer to object.
  * @offset: Desired offset from start of object.
  * @fw_addr_out: Location to store address to.
- *
- * Returns :
- *  * %true on success, or
- *  * %false if object is not mapped to firmware address space, or if @offset is outside object.
  */
-static __always_inline bool
+static __always_inline void
 pvr_gem_get_fw_addr_offset(struct pvr_fw_object *fw_obj, u32 offset, u32 *fw_addr_out)
 {
 	struct pvr_gem_object *pvr_obj = from_pvr_fw_object(fw_obj);
 	struct pvr_device *pvr_dev = pvr_obj->pvr_dev;
 
 	*fw_addr_out = pvr_dev->fw_dev.funcs->get_fw_addr_with_offset(fw_obj, offset);
-
-	return true;
 }
 
 /**
  * pvr_gem_get_fw_addr() - Return address of object in firmware address space
  * @fw_obj: Pointer to object.
  * @fw_addr_out: Location to store address to.
- *
- * Returns :
- *  * %true on success, or
- *  * %false if object is not mapped to firmware address space.
  */
-static __always_inline bool
+static __always_inline void
 pvr_gem_get_fw_addr(struct pvr_fw_object *fw_obj, u32 *fw_addr_out)
 {
-	return pvr_gem_get_fw_addr_offset(fw_obj, 0, fw_addr_out);
+	pvr_gem_get_fw_addr_offset(fw_obj, 0, fw_addr_out);
 }
 
 /**
