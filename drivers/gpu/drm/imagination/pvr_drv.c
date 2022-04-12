@@ -829,7 +829,9 @@ pvr_remove(struct platform_device *plat_dev)
 
 static const struct of_device_id dt_match[] = {
 	{ .compatible = "mediatek,mt8173-gpu", .data = &pvr_mt8173_callbacks },
+	{ .compatible = "ti,am62-gpu", .data = NULL },
 	{ .compatible = "img,powervr-series6xt", .data = NULL },
+	{ .compatible = "img,powervr-seriesaxe", .data = NULL },
 	{}
 };
 MODULE_DEVICE_TABLE(of, dt_match);
