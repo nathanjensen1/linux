@@ -333,7 +333,6 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 		break;
 	}
 
-
 	default:
 		err = -EINVAL;
 		break;
@@ -440,7 +439,7 @@ pvr_ioctl_destroy_object(struct drm_device *drm_dev, void *raw_args,
  */
 int
 pvr_ioctl_get_heap_info(struct drm_device *drm_dev, void *raw_args,
-			 struct drm_file *file)
+			struct drm_file *file)
 {
 	struct drm_pvr_ioctl_get_heap_info_args *args = raw_args;
 

@@ -18,10 +18,9 @@
 	((ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE / FREE_LIST_ENTRY_SIZE) - 1)
 
 static int
-free_list_create_kernel_structure(
-	struct pvr_file *pvr_file,
-	struct drm_pvr_ioctl_create_free_list_args *args,
-	struct pvr_free_list *free_list)
+free_list_create_kernel_structure(struct pvr_file *pvr_file,
+				  struct drm_pvr_ioctl_create_free_list_args *args,
+				  struct pvr_free_list *free_list)
 {
 	struct pvr_gem_object *free_list_obj;
 	u64 free_list_size;
@@ -132,7 +131,9 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	 * is only for this function.
 	 */
 	free_list_fw = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*free_list_fw),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED, &free_list->fw_obj);
+							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							DRM_PVR_BO_CREATE_ZEROED,
+							&free_list->fw_obj);
 	if (IS_ERR(free_list_fw)) {
 		err = PTR_ERR(free_list_fw);
 		goto err_out;
@@ -243,8 +244,9 @@ pvr_free_list_grow(struct pvr_free_list *free_list, u32 num_pages)
 	free_list_node->free_list = free_list;
 
 	free_list_node->mem_obj = pvr_gem_object_create(pvr_dev,
-		num_pages << ROGUE_BIF_PM_PHYSICAL_PAGE_ALIGNSHIFT,
-		PVR_BO_FW_FLAGS_DEVICE_CACHED);
+							num_pages <<
+							ROGUE_BIF_PM_PHYSICAL_PAGE_ALIGNSHIFT,
+							PVR_BO_FW_FLAGS_DEVICE_CACHED);
 	if (IS_ERR(free_list_node->mem_obj)) {
 		err = PTR_ERR(free_list_node->mem_obj);
 		goto err_free;

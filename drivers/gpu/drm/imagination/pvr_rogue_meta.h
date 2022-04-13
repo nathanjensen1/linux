@@ -120,9 +120,9 @@
 #define META_CR_MMCU_LOCAL_EBCTRL (0x04830600)
 #define META_CR_MMCU_LOCAL_EBCTRL_ICWIN (0x3 << 14)
 #define META_CR_MMCU_LOCAL_EBCTRL_DCWIN (0x3 << 6)
-#define META_CR_SYSC_DCPART(n) (0x04830200 + (n)*0x8)
+#define META_CR_SYSC_DCPART(n) (0x04830200 + (n) * 0x8)
 #define META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE (0x1 << 31)
-#define META_CR_SYSC_ICPART(n) (0x04830220 + (n)*0x8)
+#define META_CR_SYSC_ICPART(n) (0x04830220 + (n) * 0x8)
 #define META_CR_SYSC_XCPARTX_LOCAL_ADDR_OFFSET_TOP_HALF (0x8 << 16)
 #define META_CR_SYSC_XCPARTX_LOCAL_ADDR_FULL_CACHE (0xF)
 #define META_CR_SYSC_XCPARTX_LOCAL_ADDR_HALF_CACHE (0x7)
@@ -167,8 +167,7 @@ struct rogue_meta_ldr_cfg_blk {
 
 /* Block type definitions */
 #define ROGUE_META_LDR_COMMENT_TYPE_MASK (0x0010U)
-#define ROGUE_META_LDR_BLK_IS_COMMENT(x) \
-	(((x)&ROGUE_META_LDR_COMMENT_TYPE_MASK) != 0U)
+#define ROGUE_META_LDR_BLK_IS_COMMENT(x) (((x) & ROGUE_META_LDR_COMMENT_TYPE_MASK) != 0U)
 
 /*
  * Command definitions
@@ -236,8 +235,8 @@ struct rogue_meta_ldr_cfg_blk {
  * The bifdm argument is ignored (no longer relevant) in S7 and volcanic.
  */
 #define ROGUE_FW_SEGMMU_OUTADDR_TOP_VIVT_SLC(pers, slc_policy, mmu_ctx)  \
-	((((u64)((pers)&0x3)) << 52) | (((u64)((mmu_ctx)&0xFF)) << 44) | \
-	 (((u64)((slc_policy)&0x1)) << 40))
+	((((u64)((pers) & 0x3)) << 52) | (((u64)((mmu_ctx) & 0xFF)) << 44) | \
+	 (((u64)((slc_policy) & 0x1)) << 40))
 #define ROGUE_FW_SEGMMU_OUTADDR_TOP_VIVT_SLC_CACHED(mmu_ctx) \
 	ROGUE_FW_SEGMMU_OUTADDR_TOP_VIVT_SLC(0x3, 0x0, mmu_ctx)
 #define ROGUE_FW_SEGMMU_OUTADDR_TOP_VIVT_SLC_UNCACHED(mmu_ctx) \
@@ -248,7 +247,7 @@ struct rogue_meta_ldr_cfg_blk {
  * accesses through this segment.
  */
 #define ROGUE_FW_SEGMMU_OUTADDR_TOP_SLC(pc, bifdm) \
-	(((u64)((u64)(pc)&0xFU) << 44U) | ((u64)((u64)(bifdm)&0xFU) << 40U))
+	(((u64)((u64)(pc) & 0xFU) << 44U) | ((u64)((u64)(bifdm) & 0xFU) << 40U))
 
 #define ROGUE_FW_SEGMMU_META_BIFDM_ID (0x7U)
 
@@ -256,10 +255,10 @@ struct rogue_meta_ldr_cfg_blk {
 #define ROGUE_FW_SEGMMU_ALIGN (0x1000U)
 
 /* Segmented MMU registers (n = segment id). */
-#define META_CR_MMCU_SEGMENTn_BASE(n) (0x04850000U + ((n)*0x10U))
-#define META_CR_MMCU_SEGMENTn_LIMIT(n) (0x04850004U + ((n)*0x10U))
-#define META_CR_MMCU_SEGMENTn_OUTA0(n) (0x04850008U + ((n)*0x10U))
-#define META_CR_MMCU_SEGMENTn_OUTA1(n) (0x0485000CU + ((n)*0x10U))
+#define META_CR_MMCU_SEGMENT_N_BASE(n) (0x04850000U + ((n) * 0x10U))
+#define META_CR_MMCU_SEGMENT_N_LIMIT(n) (0x04850004U + ((n) * 0x10U))
+#define META_CR_MMCU_SEGMENT_N_OUTA0(n) (0x04850008U + ((n) * 0x10U))
+#define META_CR_MMCU_SEGMENT_N_OUTA1(n) (0x0485000CU + ((n) * 0x10U))
 
 /*
  * The following defines must be recalculated if the Meta MMU segments used
