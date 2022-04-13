@@ -3392,16 +3392,15 @@ pvr_vm_mapping_map(struct pvr_vm_context *vm_ctx,
 	}
 
 	if (mapping->pvr_obj_offset == PVR_VM_MAPPING_COMPLETE) {
-		err = pvr_vm_context_map_sgt(
-			vm_ctx, mapping->pvr_obj->sgt,
-			pvr_vm_mapping_start(mapping),
-			pvr_vm_mapping_page_flags_raw(mapping));
+		err = pvr_vm_context_map_sgt(vm_ctx, mapping->pvr_obj->sgt,
+					     pvr_vm_mapping_start(mapping),
+					     pvr_vm_mapping_page_flags_raw(mapping));
 	} else {
-		err = pvr_vm_context_map_partial_sgt(
-			vm_ctx, mapping->pvr_obj->sgt, mapping->pvr_obj_offset,
-			pvr_vm_mapping_start(mapping),
-			pvr_vm_mapping_size(mapping),
-			pvr_vm_mapping_page_flags_raw(mapping));
+		err = pvr_vm_context_map_partial_sgt(vm_ctx, mapping->pvr_obj->sgt,
+						     mapping->pvr_obj_offset,
+						     pvr_vm_mapping_start(mapping),
+						     pvr_vm_mapping_size(mapping),
+						     pvr_vm_mapping_page_flags_raw(mapping));
 	}
 	WARN_ON(pvr_vm_mmu_flush(vm_ctx->pvr_dev));
 	if (err)

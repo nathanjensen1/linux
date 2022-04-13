@@ -53,8 +53,9 @@ process_elf_command_stream(struct pvr_device *pvr_dev, const u8 *fw,
 			continue;
 
 		err = pvr_fw_find_mmu_segment(program_header->p_vaddr, program_header->p_memsz,
-				       layout_entries, num_layout_entries, fw_code_ptr, fw_data_ptr,
-				       fw_core_code_ptr, fw_core_data_ptr, &write_addr);
+					      layout_entries, num_layout_entries, fw_code_ptr,
+					      fw_data_ptr, fw_core_code_ptr, fw_core_data_ptr,
+					      &write_addr);
 		if (err) {
 			drm_err(drm_dev,
 				"Addr 0x%x (size: %d) not found in any firmware segment",
@@ -120,7 +121,7 @@ pvr_mips_fw_process(struct pvr_device *pvr_dev, const u8 *fw,
 	boot_data_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries,
 						   MIPS_BOOT_DATA);
 	exception_code_entry = pvr_fw_find_layout_entry(layout_entries, num_layout_entries,
-						   MIPS_EXCEPTIONS_CODE);
+							MIPS_EXCEPTIONS_CODE);
 	if (!boot_code_entry || !boot_data_entry || !exception_code_entry) {
 		err = -EINVAL;
 		goto err_out;
@@ -218,8 +219,8 @@ pvr_mips_wrapper_init(struct pvr_device *pvr_dev)
 		       ROGUE_MIPSFW_CODE_REMAP_PHYS_ADDR_IN |
 		       ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG1_MODE_ENABLE_EN);
 	PVR_CR_WRITE64(pvr_dev, MIPS_ADDR_REMAP3_CONFIG2,
-		      (mips_data->exception_code_dma_addr &
-		       ~ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
+		       (mips_data->exception_code_dma_addr &
+			~ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
 
 	/* Garten IDLE bit controlled by MIPS. */
 	PVR_CR_WRITE64(pvr_dev, MTS_GARTEN_WRAPPER_CONFIG,
