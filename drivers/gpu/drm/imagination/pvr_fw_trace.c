@@ -29,9 +29,12 @@ int pvr_fw_trace_init(struct pvr_device *pvr_dev)
 	u32 thread_nr;
 	int err;
 
-	fw_trace->tracebuf_ctrl = pvr_gem_create_and_map_fw_object(pvr_dev,
-		sizeof(*fw_trace->tracebuf_ctrl), PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-		DRM_PVR_BO_CREATE_ZEROED, &fw_trace->tracebuf_ctrl_obj);
+	fw_trace->tracebuf_ctrl =
+		pvr_gem_create_and_map_fw_object(pvr_dev,
+						 sizeof(*fw_trace->tracebuf_ctrl),
+						 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						 DRM_PVR_BO_CREATE_ZEROED,
+						 &fw_trace->tracebuf_ctrl_obj);
 	if (IS_ERR(fw_trace->tracebuf_ctrl)) {
 		drm_err(drm_dev, "Unable to allocate trace buffer control structure\n");
 		err = PTR_ERR(fw_trace->tracebuf_ctrl);
@@ -39,17 +42,20 @@ int pvr_fw_trace_init(struct pvr_device *pvr_dev)
 	}
 
 	BUILD_BUG_ON(ARRAY_SIZE(fw_trace->tracebuf_ctrl->tracebuf) !=
-		      ARRAY_SIZE(fw_trace->buffers));
+		     ARRAY_SIZE(fw_trace->buffers));
 
 	for (thread_nr = 0; thread_nr < ARRAY_SIZE(fw_trace->buffers); thread_nr++) {
 		struct rogue_fwif_tracebuf_space *tracebuf_space =
 			&fw_trace->tracebuf_ctrl->tracebuf[thread_nr];
 		struct pvr_fw_trace_buffer *trace_buffer = &fw_trace->buffers[thread_nr];
 
-		trace_buffer->buf = pvr_gem_create_and_map_fw_object(pvr_dev,
-			ROGUE_FW_TRACE_BUF_DEFAULT_SIZE_IN_DWORDS * sizeof(*trace_buffer->buf),
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&trace_buffer->buf_obj);
+		trace_buffer->buf =
+			pvr_gem_create_and_map_fw_object(pvr_dev,
+							 ROGUE_FW_TRACE_BUF_DEFAULT_SIZE_IN_DWORDS *
+							 sizeof(*trace_buffer->buf),
+							 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							 DRM_PVR_BO_CREATE_ZEROED,
+							 &trace_buffer->buf_obj);
 		if (IS_ERR(trace_buffer->buf)) {
 			drm_err(drm_dev, "Unable to allocate trace buffer\n");
 			err = PTR_ERR(trace_buffer->buf);
@@ -172,7 +178,6 @@ static ssize_t fw_trace_group_mask_write(struct file *file, const char __user *u
 err_out:
 	return err ? err : len;
 }
-
 
 static const struct file_operations pvr_fw_trace_group_mask_fops = {
 	.owner = THIS_MODULE,
@@ -363,31 +368,31 @@ static int fw_trace_seq_show(struct seq_file *s, void *v)
 	seq_printf(s, "[%llu] : ", timestamp);
 	if (id == ROGUE_FW_SF_MAIN_ASSERT_FAILED) {
 		seq_printf(s, "ASSERTION %s failed at %s:%u",
-				trace_seq_data->assert_buf.info,
-				trace_seq_data->assert_buf.path,
-				trace_seq_data->assert_buf.line_num);
+			   trace_seq_data->assert_buf.info,
+			   trace_seq_data->assert_buf.path,
+			   trace_seq_data->assert_buf.line_num);
 	} else {
 		seq_printf(s, stid_fmts[sf_id].name,
-			read_fw_trace(trace_seq_data, 3),
-			read_fw_trace(trace_seq_data, 4),
-			read_fw_trace(trace_seq_data, 5),
-			read_fw_trace(trace_seq_data, 6),
-			read_fw_trace(trace_seq_data, 7),
-			read_fw_trace(trace_seq_data, 8),
-			read_fw_trace(trace_seq_data, 9),
-			read_fw_trace(trace_seq_data, 10),
-			read_fw_trace(trace_seq_data, 11),
-			read_fw_trace(trace_seq_data, 12),
-			read_fw_trace(trace_seq_data, 13),
-			read_fw_trace(trace_seq_data, 14),
-			read_fw_trace(trace_seq_data, 15),
-			read_fw_trace(trace_seq_data, 16),
-			read_fw_trace(trace_seq_data, 17),
-			read_fw_trace(trace_seq_data, 18),
-			read_fw_trace(trace_seq_data, 19),
-			read_fw_trace(trace_seq_data, 20),
-			read_fw_trace(trace_seq_data, 21),
-			read_fw_trace(trace_seq_data, 22));
+			   read_fw_trace(trace_seq_data, 3),
+			   read_fw_trace(trace_seq_data, 4),
+			   read_fw_trace(trace_seq_data, 5),
+			   read_fw_trace(trace_seq_data, 6),
+			   read_fw_trace(trace_seq_data, 7),
+			   read_fw_trace(trace_seq_data, 8),
+			   read_fw_trace(trace_seq_data, 9),
+			   read_fw_trace(trace_seq_data, 10),
+			   read_fw_trace(trace_seq_data, 11),
+			   read_fw_trace(trace_seq_data, 12),
+			   read_fw_trace(trace_seq_data, 13),
+			   read_fw_trace(trace_seq_data, 14),
+			   read_fw_trace(trace_seq_data, 15),
+			   read_fw_trace(trace_seq_data, 16),
+			   read_fw_trace(trace_seq_data, 17),
+			   read_fw_trace(trace_seq_data, 18),
+			   read_fw_trace(trace_seq_data, 19),
+			   read_fw_trace(trace_seq_data, 20),
+			   read_fw_trace(trace_seq_data, 21),
+			   read_fw_trace(trace_seq_data, 22));
 	}
 	seq_puts(s, "\n");
 	return 0;
@@ -483,5 +488,5 @@ void pvr_fw_trace_debugfs_init(struct drm_minor *minor)
 	}
 
 	debugfs_create_file("pvr_fw_trace_group_mask", 0644, minor->debugfs_root, pvr_dev,
-			&pvr_fw_trace_group_mask_fops);
+			    &pvr_fw_trace_group_mask_fops);
 }
