@@ -91,7 +91,7 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 	u32 entry;
 	int err;
 
-	if ((firmware->size < SZ_4K) || (firmware->size % FW_BLOCK_SIZE)) {
+	if (firmware->size < SZ_4K || (firmware->size % FW_BLOCK_SIZE)) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -256,11 +256,14 @@ pvr_fw_create_fwif_connection_ctl(struct pvr_device *pvr_dev)
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	int err;
 
-	fw_dev->fwif_connection_ctl = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_CONNECTION_CTL_OFFSET,
-		sizeof(*fw_dev->fwif_connection_ctl),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_dev->mem.fwif_connection_ctl_obj);
+	fw_dev->fwif_connection_ctl =
+		pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+							fw_dev->fw_heap_info.config_offset +
+							PVR_ROGUE_FWIF_CONNECTION_CTL_OFFSET,
+							sizeof(*fw_dev->fwif_connection_ctl),
+							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							DRM_PVR_BO_CREATE_ZEROED,
+							&fw_dev->mem.fwif_connection_ctl_obj);
 	if (IS_ERR(fw_dev->fwif_connection_ctl)) {
 		drm_err(drm_dev,
 			"Unable to allocate FWIF connection control memory\n");
@@ -294,11 +297,14 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	struct rogue_fwif_osinit *fwif_osinit;
 	int err;
 
-	fw_dev->fwif_osinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_OSINIT_OFFSET,
-		sizeof(*fw_dev->fwif_osinit),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->osinit_obj);
+	fw_dev->fwif_osinit =
+		pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+							fw_dev->fw_heap_info.config_offset +
+							PVR_ROGUE_FWIF_OSINIT_OFFSET,
+							sizeof(*fw_dev->fwif_osinit),
+							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							DRM_PVR_BO_CREATE_ZEROED,
+							&fw_mem->osinit_obj);
 	if (IS_ERR(fw_dev->fwif_osinit)) {
 		drm_err(drm_dev, "Unable to allocate FW OSINIT structure\n");
 		err = PTR_ERR(fw_dev->fwif_osinit);
@@ -306,30 +312,31 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	}
 	fwif_osinit = fw_dev->fwif_osinit;
 
-	fw_dev->fwif_osdata = pvr_gem_create_and_map_fw_object(
-		pvr_dev, sizeof(*fw_dev->fwif_osdata),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->osdata_obj);
+	fw_dev->fwif_osdata = pvr_gem_create_and_map_fw_object(pvr_dev,
+							       sizeof(*fw_dev->fwif_osdata),
+							       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							       DRM_PVR_BO_CREATE_ZEROED,
+							       &fw_mem->osdata_obj);
 	if (IS_ERR(fw_dev->fwif_osdata)) {
 		drm_err(drm_dev, "Unable to allocate FW OSDATA structure\n");
 		err = PTR_ERR(fw_dev->fwif_osdata);
 		goto err_release_osinit;
 	}
 
-	fw_dev->power_sync = pvr_gem_create_and_map_fw_object(
-		pvr_dev, sizeof(*fw_dev->power_sync),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->power_sync_obj);
+	fw_dev->power_sync = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*fw_dev->power_sync),
+							      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							      DRM_PVR_BO_CREATE_ZEROED,
+							      &fw_mem->power_sync_obj);
 	if (IS_ERR(fw_dev->power_sync)) {
 		drm_err(drm_dev, "Unable to allocate FW power_sync structure\n");
 		err = PTR_ERR(fw_dev->power_sync);
 		goto err_release_osdata;
 	}
 
-	hwrinfobuf = pvr_gem_create_and_map_fw_object(
-		pvr_dev, sizeof(*hwrinfobuf),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->hwrinfobuf_obj);
+	hwrinfobuf = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*hwrinfobuf),
+						      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						      DRM_PVR_BO_CREATE_ZEROED,
+						      &fw_mem->hwrinfobuf_obj);
 	if (IS_ERR(hwrinfobuf)) {
 		drm_err(drm_dev,
 			"Unable to allocate FW hwrinfobuf structure\n");
@@ -422,11 +429,14 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	int i;
 	int err;
 
-	fw_dev->fwif_sysinit = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-		fw_dev->fw_heap_info.config_offset + PVR_ROGUE_FWIF_SYSINIT_OFFSET,
-		sizeof(*fw_dev->fwif_sysinit),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->sysinit_obj);
+	fw_dev->fwif_sysinit =
+		pvr_gem_create_and_map_fw_object_offset(pvr_dev,
+							fw_dev->fw_heap_info.config_offset +
+							PVR_ROGUE_FWIF_SYSINIT_OFFSET,
+							sizeof(*fw_dev->fwif_sysinit),
+							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							DRM_PVR_BO_CREATE_ZEROED,
+							&fw_mem->sysinit_obj);
 	if (IS_ERR(fw_dev->fwif_sysinit)) {
 		drm_err(drm_dev, "Unable to allocate FW SYSINIT structure\n");
 		err = PTR_ERR(fw_dev->fwif_sysinit);
@@ -435,9 +445,10 @@ pvr_fw_create_dev_structures(struct pvr_device *pvr_dev)
 	fwif_sysinit = fw_dev->fwif_sysinit;
 
 	fw_dev->fwif_sysdata = pvr_gem_create_and_map_fw_object(pvr_dev,
-		sizeof(*fw_dev->fwif_sysdata),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->sysdata_obj);
+								sizeof(*fw_dev->fwif_sysdata),
+								PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+								DRM_PVR_BO_CREATE_ZEROED,
+								&fw_mem->sysdata_obj);
 	if (IS_ERR(fw_dev->fwif_sysdata)) {
 		drm_err(drm_dev, "Unable to allocate FW SYSDATA structure\n");
 		err = PTR_ERR(fw_dev->fwif_sysdata);
@@ -632,8 +643,9 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	 * driver, a firmware address of 0 is invalid.
 	 */
 	fw_code_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev, 0, code_alloc_size,
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&fw_mem->code_obj);
+							      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							      DRM_PVR_BO_CREATE_ZEROED,
+							      &fw_mem->code_obj);
 	if (IS_ERR(fw_code_ptr)) {
 		drm_err(drm_dev, "Unable to allocate FW code memory\n");
 		err = PTR_ERR(fw_code_ptr);
@@ -641,15 +653,19 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	}
 
 	if (pvr_dev->fw_dev.funcs->has_fixed_data_addr()) {
-		fw_data_ptr = pvr_gem_create_and_map_fw_object_offset(pvr_dev,
-			private_data->base_addr & pvr_dev->fw_dev.fw_heap_info.offset_mask,
-			data_alloc_size,
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&fw_mem->data_obj);
+		u32 base_addr = private_data->base_addr & pvr_dev->fw_dev.fw_heap_info.offset_mask;
+
+		fw_data_ptr =
+			pvr_gem_create_and_map_fw_object_offset(pvr_dev, base_addr,
+								data_alloc_size,
+								PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+								DRM_PVR_BO_CREATE_ZEROED,
+								&fw_mem->data_obj);
 	} else {
 		fw_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, data_alloc_size,
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&fw_mem->data_obj);
+							       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							       DRM_PVR_BO_CREATE_ZEROED,
+							       &fw_mem->data_obj);
 	}
 	if (IS_ERR(fw_data_ptr)) {
 		drm_err(drm_dev, "Unable to allocate FW data memory\n");
@@ -659,9 +675,11 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 
 	/* Core code and data sections are optional. */
 	if (core_code_alloc_size) {
-		fw_core_code_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, core_code_alloc_size,
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&fw_mem->core_code_obj);
+		fw_core_code_ptr =
+			pvr_gem_create_and_map_fw_object(pvr_dev, core_code_alloc_size,
+							 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							 DRM_PVR_BO_CREATE_ZEROED,
+							 &fw_mem->core_code_obj);
 		if (IS_ERR(fw_core_code_ptr)) {
 			drm_err(drm_dev,
 				"Unable to allocate FW core code memory\n");
@@ -673,9 +691,11 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	}
 
 	if (core_data_alloc_size) {
-		fw_core_data_ptr = pvr_gem_create_and_map_fw_object(pvr_dev, core_data_alloc_size,
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&fw_mem->core_data_obj);
+		fw_core_data_ptr =
+			pvr_gem_create_and_map_fw_object(pvr_dev, core_data_alloc_size,
+							 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							 DRM_PVR_BO_CREATE_ZEROED,
+							 &fw_mem->core_data_obj);
 		if (IS_ERR(fw_core_data_ptr)) {
 			drm_err(drm_dev,
 				"Unable to allocate FW core data memory\n");
@@ -687,9 +707,9 @@ pvr_fw_process(struct pvr_device *pvr_dev)
 	}
 
 	err = pvr_dev->fw_dev.funcs->fw_process(pvr_dev, fw, layout_entries,
-					       header->layout_entry_num,
-					       fw_code_ptr, fw_data_ptr, fw_core_code_ptr,
-					       fw_core_data_ptr, core_code_alloc_size);
+						header->layout_entry_num,
+						fw_code_ptr, fw_data_ptr, fw_core_code_ptr,
+						fw_core_data_ptr, core_code_alloc_size);
 
 	if (err)
 		goto err_free_fw_core_data_obj;
@@ -978,10 +998,10 @@ int pvr_fw_mem_context_create(struct pvr_file *pvr_file)
 	struct rogue_fwif_fwmemcontext *fw_mem_ctx;
 	int err;
 
-	fw_mem_ctx = pvr_gem_create_and_map_fw_object(
-		pvr_file->pvr_dev, sizeof(*fw_mem_ctx),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&pvr_file->fw_mem_ctx_obj);
+	fw_mem_ctx = pvr_gem_create_and_map_fw_object(pvr_file->pvr_dev, sizeof(*fw_mem_ctx),
+						      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						      DRM_PVR_BO_CREATE_ZEROED,
+						      &pvr_file->fw_mem_ctx_obj);
 	if (IS_ERR(fw_mem_ctx)) {
 		err = PTR_ERR(fw_mem_ctx);
 		goto err_out;

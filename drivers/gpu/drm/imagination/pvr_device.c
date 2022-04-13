@@ -414,8 +414,7 @@ pvr_load_hw_version(struct pvr_device *pvr_dev)
 	version->b = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__BRANCH_ID);
 	if (version->b != 0) {
 		version->v = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__VERSION_ID);
-		version->n = PVR_CR_FIELD_GET(
-			bvnc, CORE_ID__PBVNC__NUMBER_OF_SCALABLE_UNITS);
+		version->n = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__NUMBER_OF_SCALABLE_UNITS);
 		version->c = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__CONFIG_ID);
 	} else {
 		u32 core_rev = PVR_CR_READ32(pvr_dev, CORE_REVISION);

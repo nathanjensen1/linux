@@ -45,9 +45,7 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		struct rogue_fwif_rf_cmd *reset_framework;
 		struct drm_pvr_reset_framework rf_args;
 
-		if (copy_from_user(&rf_args,
-				   u64_to_user_ptr(
-					   args->reset_framework_registers),
+		if (copy_from_user(&rf_args, u64_to_user_ptr(args->reset_framework_registers),
 				   sizeof(rf_args))) {
 			err = -EFAULT;
 			goto err_out;
@@ -58,8 +56,7 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 			goto err_out;
 		}
 
-		if (!PVR_IOCTL_UNION_PADDING_CHECK(&rf_args, data,
-						  cdm_format_1) ||
+		if (!PVR_IOCTL_UNION_PADDING_CHECK(&rf_args, data, cdm_format_1) ||
 		    !rf_args.data.cdm_format_1.cdm_ctrl_stream_base) {
 			err = -EINVAL;
 			goto err_out;
@@ -102,9 +99,8 @@ pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
  *  * Any error returned by pvr_gem_create_and_map_fw_object().
  */
 static int
-pvr_init_geom_context(
-	struct pvr_context_render *ctx_render,
-	struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
+pvr_init_geom_context(struct pvr_context_render *ctx_render,
+		      struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
 {
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
@@ -118,8 +114,9 @@ pvr_init_geom_context(
 		goto err_out;
 
 	geom_ctx_state_fw = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*geom_ctx_state_fw),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-		&ctx_geom->ctx_state_obj);
+							     PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							     DRM_PVR_BO_CREATE_ZEROED,
+							     &ctx_geom->ctx_state_obj);
 	if (IS_ERR(geom_ctx_state_fw)) {
 		err = PTR_ERR(geom_ctx_state_fw);
 		goto err_cccb_fini;
@@ -276,11 +273,9 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
  *  * 0 on success.
  */
 static int
-pvr_init_fw_render_context(
-	struct pvr_file *pvr_file,
-	struct pvr_context_render *ctx_render,
-	struct drm_pvr_ioctl_create_context_args *args,
-	struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
+pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render *ctx_render,
+			   struct drm_pvr_ioctl_create_context_args *args,
+			   struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
 {
 	struct rogue_fwif_geom_registers_caswitch *ctxswitch_regs;
 	struct rogue_fwif_fwrendercontext *fw_render_context;
@@ -288,8 +283,10 @@ pvr_init_fw_render_context(
 	int err;
 
 	fw_render_context = pvr_gem_create_and_map_fw_object(ctx_render->base.pvr_dev,
-		sizeof(*fw_render_context), PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-		DRM_PVR_BO_CREATE_ZEROED, &ctx_render->fw_obj);
+							     sizeof(*fw_render_context),
+							     PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							     DRM_PVR_BO_CREATE_ZEROED,
+							     &ctx_render->fw_obj);
 	if (IS_ERR(fw_render_context)) {
 		err = PTR_ERR(fw_render_context);
 		goto err_out;
@@ -297,8 +294,7 @@ pvr_init_fw_render_context(
 
 	/* Copy static render context state from userspace. */
 	if (copy_from_user(&srcs_args,
-			   u64_to_user_ptr(
-				   render_ctx_args->static_render_context_state),
+			   u64_to_user_ptr(render_ctx_args->static_render_context_state),
 			   sizeof(srcs_args))) {
 		err = -EFAULT;
 		goto err_destroy_gem_object;
@@ -362,11 +358,9 @@ pvr_fini_fw_render_context(struct pvr_context_render *ctx_render)
  *  * 0 on success.
  */
 static int
-pvr_init_compute_context(
-	struct pvr_file *pvr_file,
-	struct pvr_context_compute *ctx_compute,
-	struct drm_pvr_ioctl_create_context_args *args,
-	struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args)
+pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *ctx_compute,
+			 struct drm_pvr_ioctl_create_context_args *args,
+			 struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_cdm_registers_cswitch *ctxswitch_regs;
@@ -387,8 +381,10 @@ pvr_init_compute_context(
 		goto err_cccb_fini;
 
 	fw_compute_context = pvr_gem_create_and_map_fw_object(ctx_compute->base.pvr_dev,
-		sizeof(*fw_compute_context), PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-		DRM_PVR_BO_CREATE_ZEROED, &ctx_compute->fw_obj);
+							      sizeof(*fw_compute_context),
+							      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							      DRM_PVR_BO_CREATE_ZEROED,
+							      &ctx_compute->fw_obj);
 	if (IS_ERR(fw_compute_context)) {
 		err = PTR_ERR(fw_compute_context);
 		goto err_destroy_ctx_state_obj;

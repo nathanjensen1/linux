@@ -324,8 +324,7 @@ pvr_gem_object_get_pages_locked(struct pvr_gem_object *pvr_obj)
 			goto err_dec_ref_count;
 		}
 
-		sgt = drm_prime_pages_to_sg(obj->dev, pages,
-					obj->size >> PAGE_SHIFT);
+		sgt = drm_prime_pages_to_sg(obj->dev, pages, obj->size >> PAGE_SHIFT);
 		if (IS_ERR(sgt)) {
 			err = PTR_ERR(sgt);
 			goto err_put_pages;

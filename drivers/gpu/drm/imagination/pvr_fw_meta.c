@@ -384,13 +384,10 @@ configure_seg_id(u64 seg_out_addr, u32 seg_base, u32 seg_limit, u32 seg_id,
 
 	seg_base |= ROGUE_FW_SEGMMU_ALLTHRS_WRITEABLE;
 
-	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENTn_BASE(seg_id), seg_base);
-	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENTn_LIMIT(seg_id),
-		     limit_off);
-	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENTn_OUTA0(seg_id),
-		     seg_out_addr0);
-	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENTn_OUTA1(seg_id),
-		     seg_out_addr1);
+	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENT_N_BASE(seg_id), seg_base);
+	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENT_N_LIMIT(seg_id), limit_off);
+	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENT_N_OUTA0(seg_id), seg_out_addr0);
+	add_boot_arg(&boot_conf, META_CR_MMCU_SEGMENT_N_OUTA1(seg_id), seg_out_addr1);
 
 	*boot_conf_ptr = boot_conf;
 }
@@ -443,9 +440,14 @@ configure_meta_caches(u32 **boot_conf_ptr)
 	u32 d_cache_t3, i_cache_t3;
 
 	/* Initialise I/Dcache settings */
-	d_cache_t0 = d_cache_t1 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
-	d_cache_t2 = d_cache_t3 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
-	i_cache_t0 = i_cache_t1 = i_cache_t2 = i_cache_t3 = 0;
+	d_cache_t0 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
+	d_cache_t1 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
+	d_cache_t2 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
+	d_cache_t3 = META_CR_SYSC_DCPARTX_CACHED_WRITE_ENABLE;
+	i_cache_t0 = 0;
+	i_cache_t1 = 0;
+	i_cache_t2 = 0;
+	i_cache_t3 = 0;
 
 	d_cache_t0 |= META_CR_SYSC_XCPARTX_LOCAL_ADDR_FULL_CACHE;
 	i_cache_t0 |= META_CR_SYSC_XCPARTX_LOCAL_ADDR_FULL_CACHE;

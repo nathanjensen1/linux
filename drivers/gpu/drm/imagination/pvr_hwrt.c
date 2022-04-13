@@ -70,10 +70,9 @@ hwrt_fini_kernel_structure(struct pvr_hwrt_dataset *hwrt)
 }
 
 static int
-hwrt_init_common_fw_structure(
-	struct pvr_file *pvr_file,
-	struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
-	struct pvr_hwrt_dataset *hwrt)
+hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
+			      struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
+			      struct pvr_hwrt_dataset *hwrt)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_hwrtdata_common *hwrt_data_common_fw;
@@ -84,9 +83,11 @@ hwrt_init_common_fw_structure(
 	 * accessed on the CPU side post-initialisation so the mapping lifetime
 	 * is only for this function.
 	 */
-	hwrt_data_common_fw = pvr_gem_create_and_map_fw_object(pvr_dev,
-		sizeof(*hwrt_data_common_fw), PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-		DRM_PVR_BO_CREATE_ZEROED, &hwrt->common_fw_obj);
+	hwrt_data_common_fw =
+		pvr_gem_create_and_map_fw_object(pvr_dev,
+						 sizeof(*hwrt_data_common_fw),
+						 PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						 DRM_PVR_BO_CREATE_ZEROED, &hwrt->common_fw_obj);
 	if (IS_ERR(hwrt_data_common_fw)) {
 		err = PTR_ERR(hwrt_data_common_fw);
 		goto err_out;
@@ -147,7 +148,9 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 	 * is only for this function.
 	 */
 	hwrt_data_fw = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*hwrt_data_fw),
-		PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED, &hwrt_data->fw_obj);
+							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							DRM_PVR_BO_CREATE_ZEROED,
+							&hwrt_data->fw_obj);
 	if (IS_ERR(hwrt_data_fw)) {
 		err = PTR_ERR(hwrt_data_fw);
 		goto err_out;

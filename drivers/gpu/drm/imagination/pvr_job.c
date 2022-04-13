@@ -291,7 +291,7 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	if (render_args->out_syncobj_geom) {
 		out_syncobj = drm_syncobj_find(from_pvr_file(pvr_file),
-					     render_args->out_syncobj_geom);
+					       render_args->out_syncobj_geom);
 		if (!out_syncobj) {
 			err = -ENOENT;
 			goto err_out;

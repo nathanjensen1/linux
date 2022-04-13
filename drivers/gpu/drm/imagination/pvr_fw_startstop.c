@@ -68,8 +68,7 @@ rogue_slc_init(struct pvr_device *pvr_dev)
 		      ROGUE_CR_SLC_CTRL_MISC_ENABLE_PSG_HAZARD_CHECK_EN) |
 		     ROGUE_CR_SLC_CTRL_MISC_ADDR_DECODE_MODE_PVR_HASH1;
 
-	err = PVR_FEATURE_VALUE(pvr_dev, slc_cache_line_size_in_bits,
-			  &slc_cache_line_size_in_bits);
+	err = PVR_FEATURE_VALUE(pvr_dev, slc_cache_line_size_in_bits, &slc_cache_line_size_in_bits);
 	if (err)
 		return err;
 

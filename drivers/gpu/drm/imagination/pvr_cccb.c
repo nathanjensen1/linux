@@ -18,7 +18,7 @@
 static __always_inline u32
 get_ccb_space(u32 w_off, u32 r_off, u32 ccb_size)
 {
-	return (((r_off) - (w_off)) + ((ccb_size)-1)) & ((ccb_size)-1);
+	return (((r_off) - (w_off)) + ((ccb_size) - 1)) & ((ccb_size) - 1);
 }
 
 /**
