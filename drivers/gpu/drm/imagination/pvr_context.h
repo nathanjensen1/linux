@@ -75,9 +75,6 @@ struct pvr_context {
 
 	/** @priority: Context priority*/
 	enum pvr_context_priority priority;
-
-	/** @reset_framework_obj: FW object representing reset framework. */
-	struct pvr_fw_object *reset_framework_obj;
 };
 
 /**
@@ -121,11 +118,9 @@ struct pvr_context_compute {
 
 int pvr_create_render_context(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_context_args *args,
-			      struct drm_pvr_ioctl_create_render_context_args *render_ctx_args,
 			      u32 *handle_out);
 int pvr_create_compute_context(struct pvr_file *pvr_file,
 			       struct drm_pvr_ioctl_create_context_args *args,
-			       struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args,
 			       u32 *handle_out);
 
 static __always_inline struct pvr_context *
