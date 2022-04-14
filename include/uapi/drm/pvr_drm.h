@@ -260,183 +260,6 @@ enum drm_pvr_ctx_priority {
 	DRM_PVR_CTX_PRIORITY_HIGH = 512,
 };
 
-/**
- * enum drm_pvr_static_render_context_state_format - Arguments for
- * &drm_pvr_static_render_context_state.format
- */
-enum drm_pvr_static_render_context_state_format {
-	/** @DRM_PVR_SRCS_FORMAT_1: Format 1, used by firmware version 1.17. */
-	DRM_PVR_SRCS_FORMAT_1 = 0,
-};
-
-/**
- * struct drm_pvr_static_render_context_state - Static render context state
- * arguments for %DRM_IOCTL_PVR_CREATE_CONTEXT
- */
-struct drm_pvr_static_render_context_state {
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_static_render_context_state_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_SRCS_FORMAT_1.
-	 */
-	__u32 format;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Static render context state data. */
-	union {
-		/**
-		 * @format_1: Static render context state data when @format ==
-		 *            %DRM_PVR_SRCS_FORMAT_1.
-		 */
-		struct {
-			__u64 geom_reg_vdm_context_state_base_addr;
-			__u64 geom_reg_vdm_context_state_resume_addr;
-			__u64 geom_reg_ta_context_state_base_addr;
-
-			struct {
-				__u64 geom_reg_vdm_context_store_task0;
-				__u64 geom_reg_vdm_context_store_task1;
-				__u64 geom_reg_vdm_context_store_task2;
-
-				__u64 geom_reg_vdm_context_resume_task0;
-				__u64 geom_reg_vdm_context_resume_task1;
-				__u64 geom_reg_vdm_context_resume_task2;
-
-				__u64 geom_reg_vdm_context_store_task3;
-				__u64 geom_reg_vdm_context_store_task4;
-
-				__u64 geom_reg_vdm_context_resume_task3;
-				__u64 geom_reg_vdm_context_resume_task4;
-			} geom_state[2];
-		} format_1;
-	} data;
-};
-
-/**
- * enum drm_pvr_static_compute_context_state_format - Arguments for
- * &drm_pvr_static_compute_context_state.format
- */
-enum drm_pvr_static_compute_context_state_format {
-	/** @DRM_PVR_SCCS_FORMAT_1: Format 1, used by firmware version 1.17. */
-	DRM_PVR_SCCS_FORMAT_1 = 0,
-};
-
-/**
- * struct drm_pvr_static_compute_context_state - Static compute context state
- * arguments for %DRM_IOCTL_PVR_CREATE_CONTEXT
- */
-struct drm_pvr_static_compute_context_state {
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_static_compute_context_state_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_SCCS_FORMAT_1.
-	 */
-	__u32 format;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Static compute context state data. */
-	union {
-		/**
-		 * @format_1: Static compute context state data when @format ==
-		 *            %DRM_PVR_SCCS_FORMAT_1.
-		 */
-		struct {
-			__u64 cdmreg_cdm_context_pds0;
-			__u64 cdmreg_cdm_context_pds1;
-			__u64 cdmreg_cdm_terminate_pds;
-			__u64 cdmreg_cdm_terminate_pds1;
-			__u64 cdmreg_cdm_resume_pds0;
-			__u64 cdmreg_cdm_context_pds0_b;
-			__u64 cdmreg_cdm_resume_pds0_b;
-		} format_1;
-	} data;
-};
-
-/**
- * struct drm_pvr_ioctl_create_render_context_args - Arguments for
- * drm_pvr_ioctl_create_context_args.args.render.
- */
-struct drm_pvr_ioctl_create_render_context_args {
-	/**
-	 * @vdm_callstack_addr: [IN] Address for initial TA call stack pointer.
-	 */
-	__u64 vdm_callstack_addr;
-
-	/**
-	 * @static_render_context_state: [IN] Pointer to static render context
-	 *                                    state to copy to new context.
-	 */
-	__u64 static_render_context_state;
-};
-
-/**
- * struct drm_pvr_ioctl_create_compute_context_args - Arguments for %DRM_PVR_CTX_COMPUTE.
- */
-struct drm_pvr_ioctl_create_compute_context_args {
-	/**
-	 * @static_compute_context_state: [IN] Pointer to static compute context state to copy to
-	 *                                     new context.
-	 */
-	__u64 static_compute_context_state;
-};
-
-/**
- * enum drm_pvr_reset_framework_format - Arguments for
- * &drm_pvr_reset_framework.format
- */
-enum drm_pvr_reset_framework_format {
-	/** @DRM_PVR_RF_FORMAT_CDM_1: Format 1, used by firmware 1.17. */
-	DRM_PVR_RF_FORMAT_CDM_1 = 0,
-};
-
-/**
- * struct drm_pvr_reset_framework - Reset framework arguments for
- * %DRM_IOCTL_PVR_CREATE_CONTEXT
- */
-struct drm_pvr_reset_framework {
-	/**
-	 * @flags: [IN] Flags for reset framework.
-	 *
-	 * This is currently unused and must be set to 0.
-	 */
-	__u32 flags;
-
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_reset_framework_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_RF_FORMAT_CDM_1.
-	 */
-	__u32 format;
-
-	/** @data: [IN] Reset framework data. */
-	union {
-		/**
-		 * @cdm_format_1: Reset framework data when @format ==
-		 *                %DRM_PVR_RF_FORMAT_CDM_1.
-		 */
-		struct {
-			/**
-			 * @cdm_ctrl_stream_base: Base address of CDM control
-			 *                        stream
-			 */
-			__u64 cdm_ctrl_stream_base;
-		} cdm_format_1;
-	} data;
-};
-
 /* clang-format off */
 
 /**
@@ -475,14 +298,6 @@ struct drm_pvr_ioctl_create_context_args {
 	__u32 flags;
 
 	/**
-	 * @reset_framework_registers: [IN] Pointer to reset framework
-	 *                             registers.
-	 *
-	 * May be 0 to indicate no reset framework.
-	 */
-	__u64 reset_framework_registers;
-
-	/**
 	 * @priority: [IN] Priority of new context.
 	 *
 	 * This must be one of the values defined by &enum drm_pvr_ctx_priority.
@@ -492,8 +307,32 @@ struct drm_pvr_ioctl_create_context_args {
 	/** @handle: [OUT] Handle for new context. */
 	__u32 handle;
 
-	/** @data: [IN] User pointer to context type specific arguments. */
-	__u64 data;
+	/**
+	 * @static_context_state: [IN] Pointer to static context state to copy to
+	 *                             new context.
+	 *
+	 * The state differs based on the value of @type:
+	 * * For %DRM_PVR_CTX_TYPE_RENDER, state should be of type
+	 *   &struct rogue_fwif_static_rendercontext_state.
+	 * * For %DRM_PVR_CTX_TYPE_COMPUTE, state should be of type
+	 *   &struct rogue_fwif_static_computecontext_state.
+	 */
+	__u64 static_context_state;
+
+	/**
+	 * @static_context_state_len: [IN] Length of static context state, in bytes.
+	 */
+	__u32 static_context_state_len;
+
+	/** @_padding_1c: Reserved. This field must be zeroed. */
+	__u32 _padding_1c;
+
+	/**
+	 * @callstack_addr: [IN] Address for initial call stack pointer. Only valid
+	 *                       if @type is %DRM_PVR_CTX_TYPE_RENDER, otherwise
+	 *                       must be 0.
+	 */
+	__u64 callstack_addr;
 };
 
 /**
