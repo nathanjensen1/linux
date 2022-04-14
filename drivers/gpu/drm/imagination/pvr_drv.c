@@ -300,7 +300,7 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 	u32 handle;
 	int err;
 
-	if (args->flags || !args->data) {
+	if (args->flags || args->_padding_1c || !args->static_context_state) {
 		/* Context creation flags are currently unused and must be zero. */
 		err = -EINVAL;
 		goto err_out;
@@ -308,28 +308,12 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 
 	switch (args->type) {
 	case DRM_PVR_CTX_TYPE_RENDER: {
-		struct drm_pvr_ioctl_create_render_context_args render_ctx_args;
-
-		if (copy_from_user(&render_ctx_args, u64_to_user_ptr(args->data),
-				   sizeof(render_ctx_args))) {
-			err = -EFAULT;
-			goto err_out;
-		}
-
-		err = pvr_create_render_context(pvr_file, args, &render_ctx_args, &handle);
+		err = pvr_create_render_context(pvr_file, args, &handle);
 		break;
 	}
 
 	case DRM_PVR_CTX_TYPE_COMPUTE: {
-		struct drm_pvr_ioctl_create_compute_context_args compute_ctx_args;
-
-		if (copy_from_user(&compute_ctx_args, u64_to_user_ptr(args->data),
-				   sizeof(compute_ctx_args))) {
-			err = -EFAULT;
-			goto err_out;
-		}
-
-		err = pvr_create_compute_context(pvr_file, args, &compute_ctx_args, &handle);
+		err = pvr_create_compute_context(pvr_file, args, &handle);
 		break;
 	}
 
