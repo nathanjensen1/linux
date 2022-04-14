@@ -30,8 +30,6 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 			enum pvr_context_priority priority,
 			struct drm_pvr_ioctl_create_context_args *args)
 {
-	int err;
-
 	ctx->type = type;
 	ctx->pvr_dev = pvr_dev;
 	ctx->pvr_file = pvr_file;
@@ -41,58 +39,18 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	kref_init(&ctx->ref_count);
 
-	if (args->reset_framework_registers) {
-		struct rogue_fwif_rf_cmd *reset_framework;
-		struct drm_pvr_reset_framework rf_args;
-
-		if (copy_from_user(&rf_args, u64_to_user_ptr(args->reset_framework_registers),
-				   sizeof(rf_args))) {
-			err = -EFAULT;
-			goto err_out;
-		}
-
-		if (rf_args.flags || rf_args.format != DRM_PVR_RF_FORMAT_CDM_1) {
-			err = -EINVAL;
-			goto err_out;
-		}
-
-		if (!PVR_IOCTL_UNION_PADDING_CHECK(&rf_args, data, cdm_format_1) ||
-		    !rf_args.data.cdm_format_1.cdm_ctrl_stream_base) {
-			err = -EINVAL;
-			goto err_out;
-		}
-
-		reset_framework = pvr_gem_create_and_map_fw_object(pvr_dev, ROGUE_FWIF_RF_CMD_SIZE,
-			PVR_BO_FW_FLAGS_DEVICE_UNCACHED | DRM_PVR_BO_CREATE_ZEROED,
-			&ctx->reset_framework_obj);
-		if (IS_ERR(reset_framework)) {
-			err = PTR_ERR(reset_framework);
-			goto err_out;
-		}
-
-		reset_framework->fw_registers.cdmreg_cdm_ctrl_stream_base =
-			rf_args.data.cdm_format_1.cdm_ctrl_stream_base;
-
-		pvr_fw_object_vunmap(ctx->reset_framework_obj, reset_framework, true);
-	}
-
 	return 0;
-
-err_out:
-	return err;
 }
 
 static void
 pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
 {
-	if (ctx->reset_framework_obj)
-		pvr_fw_object_release(ctx->reset_framework_obj);
 }
 
 /**
  * pvr_init_geom_context() - Initialise a geometry context
  * @ctx_render: Pointer to parent render context.
- * @render_ctx_args: Arguments from userspace.
+ * @args: Arguments from userspace.
  *
  * Return:
  *  * 0 on success, or
@@ -100,7 +58,7 @@ pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
  */
 static int
 pvr_init_geom_context(struct pvr_context_render *ctx_render,
-		      struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
+		      struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
@@ -122,8 +80,7 @@ pvr_init_geom_context(struct pvr_context_render *ctx_render,
 		goto err_cccb_fini;
 	}
 
-	geom_ctx_state_fw->geom_core[0].geom_reg_vdm_call_stack_pointer =
-		render_ctx_args->vdm_callstack_addr;
+	geom_ctx_state_fw->geom_core[0].geom_reg_vdm_call_stack_pointer = args->callstack_addr;
 
 	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, geom_ctx_state_fw, true);
 
@@ -153,14 +110,14 @@ pvr_fini_geom_context(struct pvr_context_render *ctx_render)
 /**
  * pvr_init_frag_context() - Initialise a fragment context
  * @ctx_render: Pointer to parent render context.
- * @render_ctx_args: Arguments from userspace.
+ * @args: Arguments from userspace.
  *
  * Return:
  *  * 0 on success.
  */
 static int
 pvr_init_frag_context(struct pvr_context_render *ctx_render,
-		      struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
+		      struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
 	struct pvr_file *pvr_file = ctx_render->base.pvr_file;
@@ -254,9 +211,6 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
 	cctx_fw->pid = task_tgid_nr(current);
 	cctx_fw->server_common_context_id = cctx_id;
 
-	if (ctx->reset_framework_obj)
-		pvr_gem_get_fw_addr(ctx->reset_framework_obj, &cctx_fw->rf_cmd_addr);
-
 	pvr_gem_get_fw_addr(pvr_file->fw_mem_ctx_obj, &cctx_fw->fw_mem_context_fw_addr);
 
 	pvr_gem_get_fw_addr(ctx_state_obj, &cctx_fw->context_state_addr);
@@ -267,20 +221,22 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
  * @pvr_file: Pointer to pvr_file structure.
  * @ctx_render: Pointer to parent render context.
  * @args: Context creation arguments from userspace.
- * @render_ctx_args: Render context specific arguments from userspace.
  *
  * Return:
  *  * 0 on success.
  */
 static int
 pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render *ctx_render,
-			   struct drm_pvr_ioctl_create_context_args *args,
-			   struct drm_pvr_ioctl_create_render_context_args *render_ctx_args)
+			   struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct rogue_fwif_geom_registers_caswitch *ctxswitch_regs;
 	struct rogue_fwif_fwrendercontext *fw_render_context;
-	struct drm_pvr_static_render_context_state srcs_args;
 	int err;
+
+	if (args->static_context_state_len != sizeof(*ctxswitch_regs)) {
+		err = -EINVAL;
+		goto err_out;
+	}
 
 	fw_render_context = pvr_gem_create_and_map_fw_object(ctx_render->base.pvr_dev,
 							     sizeof(*fw_render_context),
@@ -292,29 +248,15 @@ pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render 
 		goto err_out;
 	}
 
+	ctxswitch_regs =
+		&fw_render_context->static_render_context_state.ctxswitch_regs[0];
+
 	/* Copy static render context state from userspace. */
-	if (copy_from_user(&srcs_args,
-			   u64_to_user_ptr(render_ctx_args->static_render_context_state),
-			   sizeof(srcs_args))) {
+	if (copy_from_user(ctxswitch_regs, u64_to_user_ptr(args->static_context_state),
+			   sizeof(*ctxswitch_regs))) {
 		err = -EFAULT;
 		goto err_destroy_gem_object;
 	}
-
-	if (srcs_args.format != DRM_PVR_SRCS_FORMAT_1 ||
-	    srcs_args._padding_4) {
-		err = -EINVAL;
-		goto err_destroy_gem_object;
-	}
-
-	if (!PVR_IOCTL_UNION_PADDING_CHECK(&srcs_args, data, format_1)) {
-		err = -EINVAL;
-		goto err_destroy_gem_object;
-	}
-
-	ctxswitch_regs = &fw_render_context->static_render_context_state.ctxswitch_regs[0];
-
-	BUILD_BUG_ON(sizeof(*ctxswitch_regs) != sizeof(srcs_args.data));
-	memcpy(ctxswitch_regs, &srcs_args.data, sizeof(srcs_args.data));
 
 	pvr_init_fw_common_context(pvr_file, &ctx_render->base, &fw_render_context->geom_context,
 				   PVR_FWIF_DM_GEOM, args->priority, MAX_DEADLINE_MS,
@@ -352,21 +294,23 @@ pvr_fini_fw_render_context(struct pvr_context_render *ctx_render)
  * @pvr_file: Pointer to pvr_file structure.
  * @ctx_compute: Pointer to parent compute context.
  * @args: Context creation arguments from userspace.
- * @compute_ctx_args: Compute context specific arguments from userspace.
  *
  * Return:
  *  * 0 on success.
  */
 static int
 pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *ctx_compute,
-			 struct drm_pvr_ioctl_create_context_args *args,
-			 struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args)
+			 struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_cdm_registers_cswitch *ctxswitch_regs;
 	struct rogue_fwif_fwcomputecontext *fw_compute_context;
-	struct drm_pvr_static_compute_context_state sccs_args;
 	int err;
+
+	if (args->static_context_state_len != sizeof(*ctxswitch_regs)) {
+		err = -EINVAL;
+		goto err_out;
+	}
 
 	ctx_compute->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
 
@@ -390,29 +334,16 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 		goto err_destroy_ctx_state_obj;
 	}
 
-	/* Copy static render context state from userspace. */
-	if (copy_from_user(&sccs_args,
-			   u64_to_user_ptr(compute_ctx_args->static_compute_context_state),
-			   sizeof(sccs_args))) {
-		err = -EFAULT;
-		goto err_destroy_gem_object;
-	}
-
-	if (sccs_args.format != DRM_PVR_SCCS_FORMAT_1 || sccs_args._padding_4) {
-		err = -EINVAL;
-		goto err_destroy_gem_object;
-	}
-
-	if (!PVR_IOCTL_UNION_PADDING_CHECK(&sccs_args, data, format_1)) {
-		err = -EINVAL;
-		goto err_destroy_gem_object;
-	}
-
 	ctxswitch_regs =
 		&fw_compute_context->static_compute_context_state.ctxswitch_regs;
 
-	BUILD_BUG_ON(sizeof(*ctxswitch_regs) != sizeof(sccs_args.data));
-	memcpy(ctxswitch_regs, &sccs_args.data, sizeof(sccs_args.data));
+	/* Copy static compute context state from userspace. */
+	if (copy_from_user(ctxswitch_regs,
+			   u64_to_user_ptr(args->static_context_state),
+			   sizeof(*ctxswitch_regs))) {
+		err = -EFAULT;
+		goto err_destroy_gem_object;
+	}
 
 	pvr_init_fw_common_context(pvr_file, &ctx_compute->base, &fw_compute_context->cdm_context,
 				   PVR_FWIF_DM_CDM, args->priority, MAX_DEADLINE_MS,
@@ -453,7 +384,6 @@ pvr_fini_compute_context(struct pvr_context_compute *ctx_compute)
  *                               context and return a handle
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @render_ctx_args: Render context creation args from userspace.
  * @handle_out: Output handle pointer.
  *
  * The context is initialised with refcount of 1.
@@ -466,7 +396,6 @@ pvr_fini_compute_context(struct pvr_context_compute *ctx_compute)
 int
 pvr_create_render_context(struct pvr_file *pvr_file,
 			  struct drm_pvr_ioctl_create_context_args *args,
-			  struct drm_pvr_ioctl_create_render_context_args *render_ctx_args,
 			  u32 *handle_out)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
@@ -474,11 +403,6 @@ pvr_create_render_context(struct pvr_file *pvr_file,
 	enum pvr_context_priority priority;
 	u32 handle;
 	int err;
-
-	if (!render_ctx_args->static_render_context_state) {
-		err = -EINVAL;
-		goto err_out;
-	}
 
 	err = remap_priority(pvr_file, args->priority, &priority);
 	if (err)
@@ -496,15 +420,15 @@ pvr_create_render_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_free;
 
-	err = pvr_init_geom_context(ctx_render, render_ctx_args);
+	err = pvr_init_geom_context(ctx_render, args);
 	if (err < 0)
 		goto err_destroy_common_context;
 
-	err = pvr_init_frag_context(ctx_render, render_ctx_args);
+	err = pvr_init_frag_context(ctx_render, args);
 	if (err < 0)
 		goto err_destroy_geom_context;
 
-	err = pvr_init_fw_render_context(pvr_file, ctx_render, args, render_ctx_args);
+	err = pvr_init_fw_render_context(pvr_file, ctx_render, args);
 	if (err < 0)
 		goto err_destroy_frag_context;
 
@@ -542,7 +466,6 @@ err_out:
  * pvr_create_compute_context() - Create a compute context and return a handle
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @compute_ctx_args: Compute context creation args from userspace.
  * @handle_out: Output handle pointer.
  *
  * The context is initialised with refcount of 1.
@@ -555,7 +478,6 @@ err_out:
 int
 pvr_create_compute_context(struct pvr_file *pvr_file,
 			   struct drm_pvr_ioctl_create_context_args *args,
-			   struct drm_pvr_ioctl_create_compute_context_args *compute_ctx_args,
 			   u32 *handle_out)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
@@ -564,7 +486,7 @@ pvr_create_compute_context(struct pvr_file *pvr_file,
 	u32 handle;
 	int err;
 
-	if (!compute_ctx_args->static_compute_context_state) {
+	if (args->callstack_addr) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -585,7 +507,7 @@ pvr_create_compute_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_free;
 
-	err = pvr_init_compute_context(pvr_file, ctx_compute, args, compute_ctx_args);
+	err = pvr_init_compute_context(pvr_file, ctx_compute, args);
 	if (err < 0)
 		goto err_destroy_common_context;
 
