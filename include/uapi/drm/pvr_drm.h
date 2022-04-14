@@ -778,320 +778,6 @@ struct drm_pvr_ioctl_vm_unmap_args {
 };
 
 /**
- * enum drm_pvr_cmd_geom_format - Arguments for
- * &drm_pvr_cmd_geom.format
- */
-enum drm_pvr_cmd_geom_format {
-	DRM_PVR_CMD_GEOM_FORMAT_1 = 0,
-};
-
-/**
- * struct drm_pvr_geom_regs_format_1 - Configuration registers which need to be loaded by the
- *                                     firmware before the VDM can be started
- *
- * Valid for %DRM_PVR_CMD_GEOM_FORMAT_1.
- */
-struct drm_pvr_geom_regs_format_1 {
-	__u64 vdm_ctrl_stream_base;
-	__u64 tpu_border_colour_table;
-	__u32 ppp_ctrl;
-	__u32 te_psg;
-	__u32 tpu;
-	__u32 vdm_context_resume_task0_size;
-	__u32 pds_ctrl;
-	__u32 view_idx;
-};
-
-/**
- * DOC: Flags for SUBMIT_JOB ioctl geometry command.
- *
- * Operations
- * ~~~~~~~~~~
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST
- *
- *    Indicates if this the first command to be issued for a render.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST
- *
- *    Indicates if this the last command to be issued for a render.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE
- *
- *    Forces to use single core in a multi core device.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_FLAGS_MASK
- *
- *    Logical OR of all the geometry cmd flags.
- */
-#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST _BITULL(0)
-#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST _BITULL(1)
-#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE _BITULL(3)
-#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_FLAGS_MASK                                 \
-	(DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST |                                   \
-	 DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST |                                    \
-	 DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE)
-
-/**
- * struct drm_pvr_cmd_geom_format_1 - structure representing a geometry command, for format
- *                                    %DRM_PVR_CMD_GEOM_FORMAT_1
- */
-struct drm_pvr_cmd_geom_format_1 {
-	/** @frame_num: Associated frame number. */
-	__u32 frame_num;
-
-	/** @flags: command control flags. */
-	__u32 flags;
-
-	/**
-	 * @regs: Configuration registers which need to be loaded by the
-	 *        firmware before the VDM can be started.
-	 */
-	struct drm_pvr_geom_regs_format_1 geom_regs;
-};
-
-/**
- * struct drm_pvr_cmd_geom - structure representing a geometry command
- */
-struct drm_pvr_cmd_geom {
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_cmd_geom_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_CMD_GEOM_FORMAT_1.
-	 */
-	__u32 format;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Geometry job data. */
-	union {
-		/**
-		 * @cmd_geom_format_1: Command data when @format ==
-		 *                     %DRM_PVR_CMD_GEOM_FORMAT_1.
-		 */
-		struct drm_pvr_cmd_geom_format_1 cmd_geom_format_1;
-	} data;
-};
-
-/**
- * enum drm_pvr_cmd_frag_format - Arguments for
- * &drm_pvr_cmd_frag.format
- */
-enum drm_pvr_cmd_frag_format {
-	DRM_PVR_CMD_FRAG_FORMAT_1 = 0,
-};
-
-/**
- * struct drm_pvr_frag_regs_format_1 - Configuration registers which need to be loaded by the
- *                                     firmware before the ISP can be started
- *
- * Valid for format %DRM_PVR_CMD_FRAG_FORMAT_1.
- */
-struct drm_pvr_frag_regs_format_1 {
-#define PVR_MAXIMUM_OUTPUT_REGISTERS_PER_PIXEL 8U
-	__u32 usc_clear_register[PVR_MAXIMUM_OUTPUT_REGISTERS_PER_PIXEL];
-	__u32 usc_pixel_output_ctrl;
-	__u32 isp_bgobjdepth;
-	__u32 isp_bgobjvals;
-	__u32 isp_aa;
-	__u32 isp_ctl;
-	__u32 tpu;
-	__u32 event_pixel_pds_info;
-	__u32 pixel_phantom;
-	__u32 view_idx;
-	__u32 event_pixel_pds_data;
-	__u64 isp_scissor_base;
-	__u64 isp_dbias_base;
-	__u64 isp_oclqry_base;
-	__u64 isp_zlsctl;
-	__u64 isp_zload_store_base;
-	__u64 isp_stencil_load_store_base;
-	__u64 isp_zls_pixels;
-#define PVR_PBE_WORDS_REQUIRED_FOR_RENDERS 2U
-	__u64 pbe_word[8][PVR_PBE_WORDS_REQUIRED_FOR_RENDERS];
-	__u64 tpu_border_colour_table;
-	__u64 pds_bgnd[3];
-	__u64 pds_pr_bgnd[3];
-};
-
-/**
- * DOC: Flags for SUBMIT_JOB ioctl fragment command.
- *
- * Operations
- * ~~~~~~~~~~
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE
- *
- *    Use single core in a multi core setup.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER
- *
- *    Indicates whether a depth buffer is present.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER
- *
- *    Indicates whether a stencil buffer is present.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP
- *
- *    Disallow compute overlapped with this render.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_FLAGS_MASK
- *
- *    Logical OR of all the fragment cmd flags.
- */
-#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE _BITULL(3)
-#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER _BITULL(7)
-#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER _BITULL(8)
-#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP _BITULL(26)
-#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_FLAGS_MASK                                 \
-	(DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE |                             \
-	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER |                             \
-	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER |                           \
-	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP)
-
-/**
- * struct drm_pvr_cmd_frag_format_1 - structure representing a fragment command, for format
- *                                    %DRM_PVR_CMD_FRAG_FORMAT_1
- */
-struct drm_pvr_cmd_frag_format_1 {
-	/** @frame_num: Associated frame number. */
-	__u32 frame_num;
-
-	/** @flags: command control flags. */
-	__u32 flags;
-
-	/** @zls_stride: Stride IN BYTES for Z-Buffer in case of RTAs. */
-	__u32 zls_stride;
-
-	/** @sls_stride: Stride IN BYTES for S-Buffer in case of RTAs. */
-	__u32 sls_stride;
-
-	/**
-	 * @regs: Configuration registers which need to be loaded by the
-	 *        firmware before the ISP can be started.
-	 */
-	struct drm_pvr_frag_regs_format_1 regs;
-};
-
-/**
- * struct drm_pvr_cmd_frag - structure representing a fragment command
- */
-struct drm_pvr_cmd_frag {
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_cmd_frag_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_CMD_FRAG_FORMAT_1.
-	 */
-	__u32 format;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Fragment job data. */
-	union {
-		/**
-		 * @cmd_frag_format_1: Command data when @format ==
-		 *                     %DRM_PVR_CMD_FRAG_FORMAT_1.
-		 */
-		struct drm_pvr_cmd_frag_format_1 cmd_frag_format_1;
-	} data;
-};
-
-/**
- * enum drm_pvr_cmd_compute_format - Arguments for
- * &drm_pvr_cmd_compute.format
- */
-enum drm_pvr_cmd_compute_format {
-	DRM_PVR_CMD_COMPUTE_FORMAT_1 = 0,
-};
-
-/**
- * struct drm_pvr_compute_regs_format_1 - Configuration registers which need to be loaded by the
- *                                        firmware before the CDM can be started
- *
- * Valid for format %DRM_PVR_CMD_COMPUTE_FORMAT_1.
- */
-struct drm_pvr_compute_regs_format_1 {
-	__u64 tpu_border_colour_table;
-	__u64 cdm_item;
-	__u64 compute_cluster;
-	__u64 cdm_ctrl_stream_base;
-	__u64 cdm_context_state_base_addr;
-	__u32 tpu;
-	__u32 cdm_resume_pds1;
-};
-
-/**
- * DOC: Flags for SUBMIT_JOB ioctl compute command.
- *
- * Operations
- * ~~~~~~~~~~
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP
- *
- *    Disallow other jobs overlapped with this compute.
- *
- * .. c:macro:: DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE
- *
- *    Forces to use single core in a multi core device.
- */
-#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP _BITULL(1)
-#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE _BITULL(5)
-#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_FLAGS_MASK         \
-	(DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP | \
-	 DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE)
-
-/**
- * struct drm_pvr_cmd_compute_format_1 - structure representing a compute command, for format
- *                                       %DRM_PVR_CMD_COMPUTE_FORMAT_1
- */
-struct drm_pvr_cmd_compute_format_1 {
-	/** @frame_num: Associated frame number. */
-	__u32 frame_num;
-
-	/** @flags: command control flags. */
-	__u32 flags;
-
-	/**
-	 * @regs: Configuration registers which need to be loaded by the
-	 *        firmware before the CDM can be started.
-	 */
-	struct drm_pvr_compute_regs_format_1 regs;
-};
-
-/**
- * struct drm_pvr_cmd_compute - structure representing a compute command
- */
-struct drm_pvr_cmd_compute {
-	/**
-	 * @format: [IN] Format of @data.
-	 *
-	 * This must be one of the values defined by
-	 * &enum drm_pvr_cmd_compute_format.
-	 *
-	 * For firmware version 1.17, this is %DRM_PVR_CMD_COMPUTE_FORMAT_1.
-	 */
-	__u32 format;
-
-	/** @_padding_4: Reserved. This field must be zeroed. */
-	__u32 _padding_4;
-
-	/** @data: [IN] Compute job data. */
-	union {
-		/**
-		 * @cmd_compute_format_1: Command data when @format ==
-		 *                        %DRM_PVR_CMD_COMPUTE_FORMAT_1.
-		 */
-		struct drm_pvr_cmd_compute_format_1 cmd_compute_format_1;
-	} data;
-};
-
-/**
  * DOC: Flags for &struct drm_pvr_bo_ref.flags
  *
  * DRM_PVR_BO_REF_READ - This buffer object will be read by the device.
@@ -1117,22 +803,20 @@ struct drm_pvr_bo_ref {
  */
 struct drm_pvr_job_render_args {
 	/**
-	 * @cmd_geom: [IN] Pointer to &struct drm_pvr_cmd_geom, representing geometry command.
+	 * @cmd_geom: [IN] Pointer to data representing geometry command.
 	 *                 May be zero.
+	 *
+	 * If used, this must point to an instance of &struct rogue_fwif_cmd_geom.
 	 */
 	__u64 cmd_geom;
 
 	/**
-	 * @cmd_frag: [IN] Pointer to &struct drm_pvr_cmd_frag, representing fragment command.
+	 * @cmd_frag: [IN] Pointer to data representing fragment command.
 	 *                 May be zero.
+	 *
+	 * If used, this must point to an instance of &struct rogue_fwif_cmd_frag.
 	 */
 	__u64 cmd_frag;
-
-	/**
-	 * @cmd_frag_pr: [IN] Pointer to &struct drm_pvr_cmd_frag, representing fragment PR command.
-	 *                    May be zero.
-	 */
-	__u64 cmd_frag_pr;
 
 	/**
 	 * @in_syncobj_handles_geom: [IN] Pointer to array of drm_syncobj handles for
@@ -1151,19 +835,21 @@ struct drm_pvr_job_render_args {
 	__u64 in_syncobj_handles_frag;
 
 	/**
-	 * @in_syncobj_handles_frag_pr: [IN] Pointer to array of drm_syncobj handles for
-	 *                                   input fences for fragment PR job.
-	 *
-	 * This array must be &num_in_syncobj_handles_frag_pr entries large.
-	 */
-	__u64 in_syncobj_handles_frag_pr;
-
-	/**
 	 * @bo_handles: [IN] Pointer to array of struct drm_pvr_bo_ref.
 	 *
 	 * This array must be &num_bo_handles entries large.
 	 */
 	__u64 bo_handles;
+
+	/**
+	 * @cmd_len: [IN] Length of geometry command, in bytes.
+	 */
+	__u32 cmd_geom_len;
+
+	/**
+	 * @cmd_len: [IN] Length of fragment command, in bytes.
+	 */
+	__u32 cmd_frag_len;
 
 	/**
 	 * @num_in_syncobj_handles_geom: [IN] Number of input syncobj handles for geometry job.
@@ -1174,12 +860,6 @@ struct drm_pvr_job_render_args {
 	 * @num_in_syncobj_handles_frag: [IN] Number of input syncobj handles for fragment job.
 	 */
 	__u32 num_in_syncobj_handles_frag;
-
-	/**
-	 * @num_in_syncobj_handles_frag_pr: [IN] Number of input syncobj handles for fragment PR
-	 *                                       job.
-	 */
-	__u32 num_in_syncobj_handles_frag_pr;
 
 	/**
 	 * @num_bo_handles: [IN] Number of DRM Buffer Objects.
@@ -1210,15 +890,8 @@ struct drm_pvr_job_render_args {
 	 */
 	__u32 hwrt_data_index;
 
-	/**
-	 * @msaa_scratch_buffer_handle: [IN] Handle for MSAA scratch buffer.
-	 */
-	__u32 msaa_scratch_buffer_handle;
-
-	/**
-	 * @zs_buffer_handle: [IN] Handle for Z/stencil buffer.
-	 */
-	__u32 zs_buffer_handle;
+	/** @_padding_4c: Reserved. This field must be zeroed. */
+	__u32 _padding_4c;
 };
 
 /*
@@ -1226,7 +899,9 @@ struct drm_pvr_job_render_args {
  */
 struct drm_pvr_job_compute_args {
 	/**
-	 * @cmd: [IN] Pointer to &struct drm_pvr_cmd_compute, representing compute command.
+	 * @cmd: [IN] Pointer to data representing compute command.
+	 *
+	 * This must point to an instance of &struct rogue_fwif_cmd_compute.
 	 */
 	__u64 cmd;
 
@@ -1245,6 +920,11 @@ struct drm_pvr_job_compute_args {
 	__u64 bo_handles;
 
 	/**
+	 * @cmd_len: [IN] Length of compute command, in bytes.
+	 */
+	__u32 cmd_len;
+
+	/**
 	 * @num_in_syncobj_handles: [IN] Number of input syncobj handles.
 	 */
 	__u32 num_in_syncobj_handles;
@@ -1260,9 +940,6 @@ struct drm_pvr_job_compute_args {
 	 * @out_syncobj: [OUT] drm_syncobj handle for output fence
 	 */
 	__u32 out_syncobj;
-
-	/** @_padding_24: Reserved. This field must be zeroed. */
-	__u32 _padding_24;
 };
 
 /**
@@ -1277,7 +954,6 @@ enum drm_pvr_job_type {
  * struct drm_pvr_ioctl_submit_job_args - Arguments for %DRM_IOCTL_PVR_SUBMIT_JOB
  */
 struct drm_pvr_ioctl_submit_job_args {
-
 	/**
 	 * @job_type: [IN] Type of job being submitted
 	 *
@@ -1298,8 +974,10 @@ struct drm_pvr_ioctl_submit_job_args {
 	 */
 	__u32 ext_job_ref;
 
-	/** @_padding_c: Reserved. This field must be zeroed. */
-	__u32 _padding_c;
+	/**
+	 * @frame_num: [IN] Frame number associated with command.
+	 */
+	__u32 frame_num;
 
 	/** @data: [IN] User pointer to job type specific arguments. */
 	__u64 data;
