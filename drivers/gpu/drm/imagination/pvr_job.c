@@ -688,148 +688,25 @@ err_out:
 }
 
 static int
-convert_cmd_geom(struct rogue_fwif_cmd_geom *cmd_geom, struct drm_pvr_cmd_geom *cmd_geom_user)
-{
-	struct drm_pvr_cmd_geom_format_1 *cmd_geom_format_1 =
-		&cmd_geom_user->data.cmd_geom_format_1;
-
-	if (cmd_geom_user->format != DRM_PVR_CMD_GEOM_FORMAT_1 || cmd_geom_user->_padding_4)
-		return -EINVAL;
-
-	if (cmd_geom_format_1->flags & ~DRM_PVR_SUBMIT_JOB_GEOM_CMD_FLAGS_MASK)
-		return -EINVAL;
-
-	cmd_geom->cmd_shared.cmn.frame_num = cmd_geom_format_1->frame_num;
-	/* HWRT and PR buffers filled out later. */
-	cmd_geom->flags = cmd_geom_format_1->flags;
-	/* PR fence filled out later. */
-
-	cmd_geom->geom_regs.vdm_ctrl_stream_base =
-		cmd_geom_format_1->geom_regs.vdm_ctrl_stream_base;
-	cmd_geom->geom_regs.tpu_border_colour_table =
-		cmd_geom_format_1->geom_regs.tpu_border_colour_table;
-	cmd_geom->geom_regs.ppp_ctrl = cmd_geom_format_1->geom_regs.ppp_ctrl;
-	cmd_geom->geom_regs.te_psg = cmd_geom_format_1->geom_regs.te_psg;
-	cmd_geom->geom_regs.tpu = cmd_geom_format_1->geom_regs.tpu;
-	cmd_geom->geom_regs.vdm_context_resume_task0_size =
-		cmd_geom_format_1->geom_regs.vdm_context_resume_task0_size;
-	cmd_geom->geom_regs.pds_ctrl = cmd_geom_format_1->geom_regs.pds_ctrl;
-	cmd_geom->geom_regs.view_idx = cmd_geom_format_1->geom_regs.view_idx;
-
-	return 0;
-}
-
-static int
-convert_cmd_frag(struct rogue_fwif_cmd_frag *cmd_frag, struct drm_pvr_cmd_frag *cmd_frag_user)
-{
-	struct drm_pvr_cmd_frag_format_1 *cmd_frag_format_1 =
-		&cmd_frag_user->data.cmd_frag_format_1;
-
-	if (cmd_frag_user->format != DRM_PVR_CMD_FRAG_FORMAT_1 || cmd_frag_user->_padding_4)
-		return -EINVAL;
-
-	if (cmd_frag_format_1->flags & ~DRM_PVR_SUBMIT_JOB_FRAG_CMD_FLAGS_MASK)
-		return -EINVAL;
-
-	cmd_frag->cmd_shared.cmn.frame_num = cmd_frag_format_1->frame_num;
-	/* HWRT and PR buffers filled out later. */
-	cmd_frag->flags = cmd_frag_format_1->flags;
-	cmd_frag->zls_stride = cmd_frag_format_1->zls_stride;
-	cmd_frag->sls_stride = cmd_frag_format_1->sls_stride;
-
-	memcpy(cmd_frag->regs.usc_clear_register, cmd_frag_format_1->regs.usc_clear_register,
-	       sizeof(cmd_frag->regs.usc_clear_register));
-	cmd_frag->regs.usc_pixel_output_ctrl = cmd_frag_format_1->regs.usc_pixel_output_ctrl;
-	cmd_frag->regs.isp_bgobjdepth = cmd_frag_format_1->regs.isp_bgobjdepth;
-	cmd_frag->regs.isp_bgobjvals = cmd_frag_format_1->regs.isp_bgobjvals;
-	cmd_frag->regs.isp_aa = cmd_frag_format_1->regs.isp_aa;
-	cmd_frag->regs.isp_ctl = cmd_frag_format_1->regs.isp_ctl;
-	cmd_frag->regs.tpu = cmd_frag_format_1->regs.tpu;
-	cmd_frag->regs.event_pixel_pds_info = cmd_frag_format_1->regs.event_pixel_pds_info;
-	cmd_frag->regs.pixel_phantom = cmd_frag_format_1->regs.pixel_phantom;
-	cmd_frag->regs.view_idx = cmd_frag_format_1->regs.view_idx;
-	cmd_frag->regs.event_pixel_pds_data = cmd_frag_format_1->regs.event_pixel_pds_data;
-	cmd_frag->regs.isp_scissor_base = cmd_frag_format_1->regs.isp_scissor_base;
-	cmd_frag->regs.isp_dbias_base = cmd_frag_format_1->regs.isp_dbias_base;
-	cmd_frag->regs.isp_oclqry_base = cmd_frag_format_1->regs.isp_oclqry_base;
-	cmd_frag->regs.isp_zlsctl = cmd_frag_format_1->regs.isp_zlsctl;
-	cmd_frag->regs.isp_zload_store_base = cmd_frag_format_1->regs.isp_zload_store_base;
-	cmd_frag->regs.isp_stencil_load_store_base =
-		cmd_frag_format_1->regs.isp_stencil_load_store_base;
-	cmd_frag->regs.isp_zls_pixels = cmd_frag_format_1->regs.isp_zls_pixels;
-	memcpy(cmd_frag->regs.pbe_word, cmd_frag_format_1->regs.pbe_word,
-	       sizeof(cmd_frag->regs.pbe_word));
-	cmd_frag->regs.tpu_border_colour_table = cmd_frag_format_1->regs.tpu_border_colour_table;
-	memcpy(cmd_frag->regs.pds_bgnd, cmd_frag_format_1->regs.pds_bgnd,
-	       sizeof(cmd_frag->regs.pds_bgnd));
-	memcpy(cmd_frag->regs.pds_pr_bgnd, cmd_frag_format_1->regs.pds_pr_bgnd,
-	       sizeof(cmd_frag->regs.pds_pr_bgnd));
-
-	return 0;
-}
-
-static int
-convert_cmd_compute(struct rogue_fwif_cmd_compute *cmd_compute,
-		    struct drm_pvr_cmd_compute *cmd_compute_user)
-{
-	struct drm_pvr_cmd_compute_format_1 *cmd_compute_format_1 =
-		&cmd_compute_user->data.cmd_compute_format_1;
-
-	if (cmd_compute_user->format != DRM_PVR_CMD_COMPUTE_FORMAT_1 ||
-	    cmd_compute_user->_padding_4)
-		return -EINVAL;
-
-	if (cmd_compute_format_1->flags & ~DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_FLAGS_MASK)
-		return -EINVAL;
-
-	cmd_compute->common.frame_num = cmd_compute_format_1->frame_num;
-	cmd_compute->flags = cmd_compute_format_1->flags;
-
-	cmd_compute->cmd_regs.tpu_border_colour_table =
-		cmd_compute_format_1->regs.tpu_border_colour_table;
-	cmd_compute->cmd_regs.cdm_item = cmd_compute_format_1->regs.cdm_item;
-	cmd_compute->cmd_regs.compute_cluster = cmd_compute_format_1->regs.compute_cluster;
-	cmd_compute->cmd_regs.cdm_ctrl_stream_base =
-		cmd_compute_format_1->regs.cdm_ctrl_stream_base;
-	cmd_compute->cmd_regs.cdm_context_state_base_addr =
-		cmd_compute_format_1->regs.cdm_context_state_base_addr;
-	cmd_compute->cmd_regs.tpu = cmd_compute_format_1->regs.tpu;
-	cmd_compute->cmd_regs.cdm_resume_pds1 = cmd_compute_format_1->regs.cdm_resume_pds1;
-
-	return 0;
-}
-
-static int
-pvr_fw_cmd_geom_init(struct drm_pvr_job_render_args *render_args,
+pvr_fw_cmd_geom_init(struct drm_pvr_job_render_args *render_args, u32 frame_num,
 		     struct rogue_fwif_cmd_geom **cmd_geom_out)
 {
-	struct drm_pvr_cmd_geom *cmd_geom_user;
 	struct rogue_fwif_cmd_geom *cmd_geom;
 	int err;
-
-	cmd_geom_user = kzalloc(sizeof(*cmd_geom_user), GFP_KERNEL);
-	if (!cmd_geom_user) {
-		err = -ENOMEM;
-		goto err_out;
-	}
 
 	cmd_geom = kzalloc(sizeof(*cmd_geom), GFP_KERNEL);
 	if (!cmd_geom) {
 		err = -ENOMEM;
-		goto err_free_cmd_geom_user;
+		goto err_out;
 	}
 
-	if (copy_from_user(cmd_geom_user, u64_to_user_ptr(render_args->cmd_geom),
-			   sizeof(*cmd_geom_user))) {
+	if (copy_from_user(cmd_geom, u64_to_user_ptr(render_args->cmd_geom),
+			   render_args->cmd_geom_len)) {
 		err = -EFAULT;
 		goto err_free_cmd_geom;
 	}
 
-	err = convert_cmd_geom(cmd_geom, cmd_geom_user);
-	if (err)
-		goto err_free_cmd_geom;
-
-	kfree(cmd_geom_user);
+	cmd_geom->cmd_shared.cmn.frame_num = frame_num;
 
 	*cmd_geom_out = cmd_geom;
 
@@ -838,44 +715,30 @@ pvr_fw_cmd_geom_init(struct drm_pvr_job_render_args *render_args,
 err_free_cmd_geom:
 	kfree(cmd_geom);
 
-err_free_cmd_geom_user:
-	kfree(cmd_geom_user);
-
 err_out:
 	return err;
 }
 
 static int
-pvr_fw_cmd_frag_init(struct drm_pvr_job_render_args *render_args,
+pvr_fw_cmd_frag_init(struct drm_pvr_job_render_args *render_args, u32 frame_num,
 		     struct rogue_fwif_cmd_frag **cmd_frag_out)
 {
-	struct drm_pvr_cmd_frag *cmd_frag_user;
 	struct rogue_fwif_cmd_frag *cmd_frag;
 	int err;
-
-	cmd_frag_user = kzalloc(sizeof(*cmd_frag_user), GFP_KERNEL);
-	if (!cmd_frag_user) {
-		err = -ENOMEM;
-		goto err_out;
-	}
 
 	cmd_frag = kzalloc(sizeof(*cmd_frag), GFP_KERNEL);
 	if (!cmd_frag) {
 		err = -ENOMEM;
-		goto err_free_cmd_frag_user;
+		goto err_out;
 	}
 
-	if (copy_from_user(cmd_frag_user, u64_to_user_ptr(render_args->cmd_frag),
-			   sizeof(*cmd_frag_user))) {
+	if (copy_from_user(cmd_frag, u64_to_user_ptr(render_args->cmd_frag),
+			   render_args->cmd_frag_len)) {
 		err = -EFAULT;
 		goto err_free_cmd_frag;
 	}
 
-	err = convert_cmd_frag(cmd_frag, cmd_frag_user);
-	if (err)
-		goto err_free_cmd_frag;
-
-	kfree(cmd_frag_user);
+	cmd_frag->cmd_shared.cmn.frame_num = frame_num;
 
 	*cmd_frag_out = cmd_frag;
 
@@ -884,44 +747,30 @@ pvr_fw_cmd_frag_init(struct drm_pvr_job_render_args *render_args,
 err_free_cmd_frag:
 	kfree(cmd_frag);
 
-err_free_cmd_frag_user:
-	kfree(cmd_frag_user);
-
 err_out:
 	return err;
 }
 
 static int
-pvr_fw_cmd_compute_init(struct drm_pvr_job_compute_args *compute_args,
+pvr_fw_cmd_compute_init(struct drm_pvr_job_compute_args *compute_args, u32 frame_num,
 			struct rogue_fwif_cmd_compute **cmd_compute_out)
 {
-	struct drm_pvr_cmd_compute *cmd_compute_user;
 	struct rogue_fwif_cmd_compute *cmd_compute;
 	int err;
-
-	cmd_compute_user = kzalloc(sizeof(*cmd_compute_user), GFP_KERNEL);
-	if (!cmd_compute_user) {
-		err = -ENOMEM;
-		goto err_out;
-	}
 
 	cmd_compute = kzalloc(sizeof(*cmd_compute), GFP_KERNEL);
 	if (!cmd_compute) {
 		err = -ENOMEM;
-		goto err_free_cmd_compute_user;
+		goto err_out;
 	}
 
-	if (copy_from_user(cmd_compute_user, u64_to_user_ptr(compute_args->cmd),
-			   sizeof(*cmd_compute_user))) {
+	if (copy_from_user(cmd_compute, u64_to_user_ptr(compute_args->cmd),
+			   compute_args->cmd_len)) {
 		err = -EFAULT;
 		goto err_free_cmd_compute;
 	}
 
-	err = convert_cmd_compute(cmd_compute, cmd_compute_user);
-	if (err)
-		goto err_free_cmd_compute;
-
-	kfree(cmd_compute_user);
+	cmd_compute->common.frame_num = frame_num;
 
 	*cmd_compute_out = cmd_compute;
 
@@ -929,9 +778,6 @@ pvr_fw_cmd_compute_init(struct drm_pvr_job_compute_args *compute_args,
 
 err_free_cmd_compute:
 	kfree(cmd_compute);
-
-err_free_cmd_compute_user:
-	kfree(cmd_compute_user);
 
 err_out:
 	return err;
@@ -956,9 +802,25 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 	u32 num_implicit_fences;
 	int err;
 
+	if (render_args->_padding_4c) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	/*
+	 * Verify that at least one command is provided, and that the lengths of provided commands
+	 * are correct.
+	 */
+	if ((render_args->cmd_geom && render_args->cmd_geom_len != sizeof(*cmd_geom)) ||
+	    (render_args->cmd_frag && render_args->cmd_frag_len != sizeof(*cmd_frag)) ||
+	    (!render_args->cmd_geom && !render_args->cmd_frag)) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
 	/* Copy commands from userspace. */
 	if (render_args->cmd_geom) {
-		err = pvr_fw_cmd_geom_init(render_args, &cmd_geom);
+		err = pvr_fw_cmd_geom_init(render_args, args->frame_num, &cmd_geom);
 		if (err)
 			goto err_out;
 
@@ -974,7 +836,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		}
 	}
 	if (render_args->cmd_frag) {
-		err = pvr_fw_cmd_frag_init(render_args, &cmd_frag);
+		err = pvr_fw_cmd_frag_init(render_args, args->frame_num, &cmd_frag);
 		if (err)
 			goto err_free_syncobj_geom;
 
@@ -1124,12 +986,12 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 	int err;
 
 	/* Copy commands from userspace. */
-	if (!compute_args->cmd || compute_args->_padding_24) {
+	if (!compute_args->cmd || compute_args->cmd_len != sizeof(*cmd_compute)) {
 		err = -EINVAL;
 		goto err_out;
 	}
 
-	err = pvr_fw_cmd_compute_init(compute_args, &cmd_compute);
+	err = pvr_fw_cmd_compute_init(compute_args, args->frame_num, &cmd_compute);
 	if (err)
 		goto err_out;
 
@@ -1228,11 +1090,6 @@ pvr_submit_job(struct pvr_device *pvr_dev,
 {
 	struct pvr_job *job;
 	int err;
-
-	if (args->_padding_c) {
-		err = -EINVAL;
-		goto err_out;
-	}
 
 	job = kzalloc(sizeof(*job), GFP_KERNEL);
 	if (!job) {
