@@ -56,7 +56,7 @@ struct rogue_fwif_cmd_geom {
 	 */
 	struct rogue_fwif_cmd_geom_frag_shared cmd_shared;
 
-	struct rogue_fwif_geom_regs geom_regs __aligned(8);
+	struct rogue_fwif_geom_regs regs __aligned(8);
 	u32 flags __aligned(8);
 
 	/*
@@ -150,7 +150,7 @@ struct rogue_fwif_cmd_compute {
 	struct rogue_fwif_cmd_common common __aligned(8);
 
 	/* CDM registers */
-	struct rogue_fwif_compute_regs cmd_regs;
+	struct rogue_fwif_compute_regs regs;
 
 	/* Control flags */
 	u32 flags __aligned(8);
