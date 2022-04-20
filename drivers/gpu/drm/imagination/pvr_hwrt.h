@@ -67,12 +67,6 @@ struct pvr_hwrt_dataset {
 
 	/** @max_rts: Maximum render targets for this HWRT data set. */
 	u16 max_rts;
-
-	/** @num_rt_datas: Number of rt data arguments. */
-	u32 num_rt_datas;
-
-	/** @num_free_lists: Number of free list arguments. */
-	u32 num_free_lists;
 };
 
 struct pvr_hwrt_dataset *
@@ -149,7 +143,7 @@ pvr_hwrt_data_get(struct pvr_file *pvr_file, u32 handle, u32 index)
 	struct pvr_hwrt_dataset *hwrt_dataset = pvr_hwrt_dataset_get(pvr_file, handle);
 
 	if (hwrt_dataset) {
-		if (index < hwrt_dataset->num_rt_datas)
+		if (index < ARRAY_SIZE(hwrt_dataset->data))
 			return &hwrt_dataset->data[index];
 
 		pvr_hwrt_dataset_put(hwrt_dataset);

@@ -12,24 +12,32 @@ struct pvr_device;
  * struct pvr_device_features - Hardware feature information
  */
 struct pvr_device_features {
+	bool has_isp_samples_per_pixel : 1;
 	bool has_meta : 1;
 	bool has_meta_coremem_size : 1;
 	bool has_mips : 1;
 	bool has_num_clusters : 1;
 	bool has_phys_bus_width : 1;
 	bool has_riscv_fw_processor : 1;
+	bool has_simple_internal_parameter_format : 1;
 	bool has_slc_cache_line_size_in_bits : 1;
 	bool has_sys_bus_secure_reset : 1;
+	bool has_tile_size_x : 1;
+	bool has_tile_size_y : 1;
 	bool has_virtual_address_space_bits : 1;
 	bool has_xt_top_infrastructure : 1;
 
+	bool isp_samples_per_pixel;
 	bool meta;
 	u32 meta_coremem_size;
 	bool mips;
 	u16 num_clusters;
 	u16 phys_bus_width;
 	bool riscv_fw_processor;
+	u32 simple_internal_parameter_format;
 	u16 slc_cache_line_size_in_bits;
+	u16 tile_size_x;
+	u16 tile_size_y;
 	u16 virtual_address_space_bits;
 };
 

@@ -9,19 +9,25 @@
 #include <linux/types.h>
 
 const struct pvr_device_features pvr_device_4_V_2_51 = {
+	.has_isp_samples_per_pixel = true,
 	.has_meta = true,
 	.has_meta_coremem_size = true,
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
 	.has_slc_cache_line_size_in_bits = true,
+	.has_tile_size_x = true,
+	.has_tile_size_y = true,
 	.has_virtual_address_space_bits = true,
 	.has_xt_top_infrastructure = true,
 
+	.isp_samples_per_pixel = 2,
 	.meta = true,
 	.meta_coremem_size = 32,
 	.num_clusters = 2,
 	.phys_bus_width = 40,
 	.slc_cache_line_size_in_bits = 512,
+	.tile_size_x = 32,
+	.tile_size_y = 32,
 	.virtual_address_space_bits = 40,
 };
 
@@ -30,17 +36,25 @@ const struct pvr_device_quirks pvr_device_quirks_4_40_2_51 = {
 };
 
 const struct pvr_device_features pvr_device_33_V_11_3 = {
+	.has_isp_samples_per_pixel = true,
 	.has_mips = true,
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
+	.has_simple_internal_parameter_format = true,
 	.has_slc_cache_line_size_in_bits = true,
 	.has_sys_bus_secure_reset = true,
+	.has_tile_size_x = true,
+	.has_tile_size_y = true,
 	.has_virtual_address_space_bits = true,
 
+	.isp_samples_per_pixel = 1,
 	.mips = true,
 	.num_clusters = 1,
 	.phys_bus_width = 36,
+	.simple_internal_parameter_format = 2,
 	.slc_cache_line_size_in_bits = 512,
+	.tile_size_x = 16,
+	.tile_size_y = 16,
 	.virtual_address_space_bits = 40,
 };
 
@@ -49,17 +63,25 @@ const struct pvr_device_quirks pvr_device_quirks_33_15_11_3 = {
 };
 
 const struct pvr_device_features pvr_device_36_V_104_796 = {
+	.has_isp_samples_per_pixel = true,
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
 	.has_riscv_fw_processor = true,
+	.has_simple_internal_parameter_format = true,
 	.has_slc_cache_line_size_in_bits = true,
 	.has_sys_bus_secure_reset = true,
+	.has_tile_size_x = true,
+	.has_tile_size_y = true,
 	.has_virtual_address_space_bits = true,
 
+	.isp_samples_per_pixel = 4,
 	.num_clusters = 1,
 	.phys_bus_width = 36,
 	.riscv_fw_processor = true,
+	.simple_internal_parameter_format = 2,
 	.slc_cache_line_size_in_bits = 512,
+	.tile_size_x = 16,
+	.tile_size_y = 16,
 	.virtual_address_space_bits = 40,
 };
 
