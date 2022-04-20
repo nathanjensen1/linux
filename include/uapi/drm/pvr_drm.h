@@ -428,8 +428,14 @@ struct drm_pvr_ioctl_create_free_list_args {
 };
 
 struct create_hwrt_geom_data_args {
-	/** @tail_ptrs_dev_addr: [IN] Tail pointers GPU virtual address. */
-	__u64 tail_ptrs_dev_addr;
+	/** @tpc_dev_addr: [IN] Tail pointer cache GPU virtual address. */
+	__u64 tpc_dev_addr;
+
+	/** @tpc_size: [IN] Size of TPC, in bytes. */
+	__u32 tpc_size;
+
+	/** @tpc_stride: [IN] Stride between layers in TPC, in pages */
+	__u32 tpc_stride;
 
 	/** @vheap_table_dev_addr: [IN] VHEAP table GPU virtual address. */
 	__u64 vheap_table_dev_addr;
@@ -445,96 +451,31 @@ struct create_hwrt_rt_data_args {
 	/** @macrotile_array_dev_addr: [IN] Macrotile array GPU virtual address. */
 	__u64 macrotile_array_dev_addr;
 
-	/** @region_header_dev_addr: [IN] Region header GPU virtual address. */
+	/** @region_header_dev_addr: [IN] Region header array GPU virtual address. */
 	__u64 region_header_dev_addr;
 };
 
-struct create_hwrt_free_list_args {
-	/** @free_list_handle: [IN] Free list object handle. */
-	__u32 free_list_handle;
-};
-
 struct drm_pvr_ioctl_create_hwrt_dataset_args {
-	/**
-	 * @geom_data_args: [IN] User pointer to one or more &struct
-	 *                       create_hwrt_geom_data_args.
-	 *
-	 * Number of &struct create_hwrt_geom_data_args must be equal to
-	 * &num_geom_datas.
-	 */
-	__u64 geom_data_args;
+	/** @geom_data_args: [IN] Geometry data arguments. */
+	struct create_hwrt_geom_data_args geom_data_args;
 
-	/**
-	 * @rt_data_args: [IN] User pointer to one or more &struct
-	 *                     create_hwrt_rt_data_args.
-	 *
-	 * Number of &struct create_hwrt_rt_data_args must be equal to
-	 * &num_rt_datas.
-	 */
-	__u64 rt_data_args;
+	/** @rt_data_args: [IN] Array of render target arguments. */
+	struct create_hwrt_rt_data_args rt_data_args[2];
 
-	/**
-	 * @free_list_args: [IN] User pointer to one or more &struct
-	 *                       create_hwrt_free_list_args.
-	 *
-	 * Number of &struct create_hwrt_free_list_args must be equal to
-	 * &num_free_lists.
-	 */
-	__u64 free_list_args;
+	/** @free_list_args: [IN] Array of free list handles. */
+	__u32 free_list_handles[2];
 
-	/**
-	 * @num_geom_datas: [IN] Number of geom data arguments.
-	 *
-	 * This should be equal to the value returned for
-	 * %DRM_PVR_PARAM_HWRT_NUM_GEOMDATAS by %DRM_IOCTL_PVR_GET_PARAM.
-	 */
-	__u32 num_geom_datas;
+	/** @width: [IN] Width in pixels. */
+	__u32 width;
 
-	/**
-	 * @num_rt_datas: [IN] Number of rt data arguments.
-	 *
-	 * This should be equal to the value returned for
-	 * %DRM_PVR_PARAM_HWRT_NUM_RTDATAS by %DRM_IOCTL_PVR_GET_PARAM.
-	 */
-	__u32 num_rt_datas;
+	/** @height: [IN] Height in pixels. */
+	__u32 height;
 
-	/**
-	 * @num_free_lists: [IN] Number of free list arguments.
-	 *
-	 * This should be equal to the value returned for
-	 * %DRM_PVR_PARAM_HWRT_NUM_FREELISTS by %DRM_IOCTL_PVR_GET_PARAM.
-	 */
-	__u32 num_free_lists;
+	/** @samples: [IN] Number of samples. */
+	__u32 samples;
 
-	/** @mtile_stride: [IN] Macrotile stride. */
-	__u32 mtile_stride;
-
-	/** @region_header_size: [IN] Region header size. */
-	__u64 region_header_size;
-
-	/** @flipped_multi_sample_control: [IN] Flipped multi sample control. */
-	__u64 flipped_multi_sample_control;
-
-	/** @multi_sample_control: [IN] Multi sample control. */
-	__u64 multi_sample_control;
-
-	/** @screen_pixel_max: [IN] Maximum screen size. */
-	__u32 screen_pixel_max;
-
-	/** @te_aa: [IN] TE anti-aliasing. */
-	__u32 te_aa;
-
-	/** @te_mtile: [IN] TE macrotile boundaries. */
-	__u32 te_mtile[2];
-
-	/** @te_screen_size: [IN] TE screen size. */
-	__u32 te_screen_size;
-
-	/** @tpc_size: [IN] Tail Pointer Cache size */
-	__u32 tpc_size;
-
-	/** @tpc_stride: [IN] Tail Pointer Cache stride */
-	__u32 tpc_stride;
+	/** @layers: [IN] Number of layers. */
+	__u32 layers;
 
 	/** @isp_merge_lower_x: [IN] Lower X coefficient for triangle merging. */
 	__u32 isp_merge_lower_x;
@@ -554,17 +495,18 @@ struct drm_pvr_ioctl_create_hwrt_dataset_args {
 	/** @isp_merge_upper_y: [IN] Upper Y coefficient for triangle merging. */
 	__u32 isp_merge_upper_y;
 
-	/** @isp_mtile_size: [IN] Macrotile size. */
-	__u32 isp_mtile_size;
+	/**
+	 * @region_header_size: [IN] Size of region header array. This common field is used by
+	 *                           both render targets in this data set.
+	 *
+	 * The units for this field differ depending on what version of the simple internal
+	 * parameter format the device uses. If format 2 is in use then this is interpreted as the
+	 * number of region headers. For other formats it is interpreted as the size in dwords.
+	 */
+	__u32 region_header_size;
 
-	/** @max_rts: [IN] Maximum Render Targets. */
-	__u16 max_rts;
-
-	/** @_padding_7a: Reserved. This field must be zeroed. */
-	__u16 _padding_7a;
-
-	/** @_padding_7c: Reserved. This field must be zeroed. */
-	__u32 _padding_7c;
+	/** @_padding_d4: Reserved. This field must be zeroed. */
+	__u32 _padding_d4;
 };
 
 /**
