@@ -171,11 +171,8 @@ static int
 pvr_mips_wrapper_init(struct pvr_device *pvr_dev)
 {
 	struct pvr_fw_mips_data *mips_data = pvr_dev->fw_dev.processor_data.mips_data;
-	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	u64 remap_settings = ROGUE_MIPSFW_BOOT_REMAP_LOG2_SEGMENT_SIZE;
 	u32 phys_bus_width;
-
-	drm_info(drm_dev, "Configure MIPS wrapper");
 
 	WARN_ON(PVR_FEATURE_VALUE(pvr_dev, phys_bus_width, &phys_bus_width));
 	/* Currently MIPS FW only supported with physical bus width > 32 bits. */
@@ -225,7 +222,6 @@ pvr_mips_wrapper_init(struct pvr_device *pvr_dev)
 		       ~ROGUE_CR_MIPS_ADDR_REMAP3_CONFIG2_ADDR_OUT_CLRMSK) | remap_settings);
 
 	/* Garten IDLE bit controlled by MIPS. */
-	drm_info(drm_dev, "RGXStart: Set GARTEN_IDLE type to MIPS");
 	PVR_CR_WRITE64(pvr_dev, MTS_GARTEN_WRAPPER_CONFIG,
 		       ROGUE_CR_MTS_GARTEN_WRAPPER_CONFIG_IDLE_CTRL_META);
 
