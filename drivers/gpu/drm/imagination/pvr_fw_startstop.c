@@ -18,8 +18,6 @@
 static void
 rogue_axi_ace_list_init(struct pvr_device *pvr_dev)
 {
-	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-
 	/* Setup AXI-ACE config. Set everything to outer cache. */
 	u64 reg_val =
 		(3U << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_AWDOMAIN_NON_SNOOPING_SHIFT) |
@@ -31,14 +29,12 @@ rogue_axi_ace_list_init(struct pvr_device *pvr_dev)
 		(2U << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARCACHE_COHERENT_SHIFT) |
 		(2U << ROGUE_CR_AXI_ACE_LITE_CONFIGURATION_ARCACHE_CACHE_MAINTENANCE_SHIFT);
 
-	drm_info(drm_dev, "Init AXI-ACE interface");
 	PVR_CR_WRITE64(pvr_dev, AXI_ACE_LITE_CONFIGURATION, reg_val);
 }
 
 static void
 rogue_bif_init(struct pvr_device *pvr_dev)
 {
-	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	dma_addr_t pc_dma_addr;
 	u64 pc_addr;
 
@@ -46,8 +42,6 @@ rogue_bif_init(struct pvr_device *pvr_dev)
 	pc_dma_addr = pvr_vm_get_page_table_root_addr(pvr_dev->kernel_vm_ctx);
 
 	/* Write the kernel catalogue base. */
-	drm_info(drm_dev, "Rogue firmware MMU Page Catalogue");
-
 	pc_addr = ((((u64)pc_dma_addr >> ROGUE_CR_BIF_CAT_BASE0_ADDR_ALIGNSHIFT)
 		    << ROGUE_CR_BIF_CAT_BASE0_ADDR_SHIFT) &
 		   ~ROGUE_CR_BIF_CAT_BASE0_ADDR_CLRMSK);
@@ -99,7 +93,6 @@ rogue_slc_init(struct pvr_device *pvr_dev)
 int
 pvr_fw_start(struct pvr_device *pvr_dev)
 {
-	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	int err;
 
 	if (PVR_HAS_FEATURE(pvr_dev, sys_bus_secure_reset)) {
@@ -112,14 +105,12 @@ pvr_fw_start(struct pvr_device *pvr_dev)
 	}
 
 	/* Set Rogue in soft-reset. */
-	drm_info(drm_dev, "%s: soft reset everything", __func__);
 	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, ROGUE_CR_SOFT_RESET_MASKFULL);
 
 	/* Read soft-reset to fence previous write in order to clear the SOCIF pipeline. */
 	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
 
 	/* Take Rascal and Dust out of reset. */
-	drm_info(drm_dev, "%s: Rascal and Dust out of reset", __func__);
 	PVR_CR_WRITE64(pvr_dev, SOFT_RESET,
 		       ROGUE_CR_SOFT_RESET_MASKFULL ^
 			       ROGUE_CR_SOFT_RESET_RASCALDUSTS_EN);
@@ -127,7 +118,6 @@ pvr_fw_start(struct pvr_device *pvr_dev)
 	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
 
 	/* Take everything out of reset but the FW processor. */
-	drm_info(drm_dev, "%s: Take everything out of reset but FW processor", __func__);
 	PVR_CR_WRITE64(pvr_dev, SOFT_RESET, ROGUE_CR_SOFT_RESET_GARTEN_EN);
 
 	(void)PVR_CR_READ64(pvr_dev, SOFT_RESET);
@@ -144,8 +134,6 @@ pvr_fw_start(struct pvr_device *pvr_dev)
 
 	/* Initialise BIF. */
 	rogue_bif_init(pvr_dev);
-
-	drm_info(drm_dev, "%s: Take FW processor out of reset", __func__);
 
 	/* Need to wait for at least 16 cycles before taking the FW processor out of reset ... */
 	udelay(3);
