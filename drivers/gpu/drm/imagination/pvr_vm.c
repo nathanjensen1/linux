@@ -257,15 +257,15 @@ pvr_vm_backing_page_sync(struct pvr_vm_backing_page *page)
 #define PVR_PAGE_TABLE_TYPEOF_ENTRY(level_) \
 	typeof_member(struct pvr_page_table_l##level_##_entry_raw, val)
 
-#define PVR_PAGE_TABLE_FIELD_GET(level_, field_, entry_)           \
+#define PVR_PAGE_TABLE_FIELD_GET(level_, name_, field_, entry_)           \
 	(((entry_).val &                                           \
-	  ~ROGUE_MMUCTRL_PT_L##level_##_DATA_##field_##_CLRMSK) >> \
-	 ROGUE_MMUCTRL_PT_L##level_##_DATA_##field_##_SHIFT)
+	  ~ROGUE_MMUCTRL_##name_##_DATA_##field_##_CLRMSK) >> \
+	 ROGUE_MMUCTRL_##name_##_DATA_##field_##_SHIFT)
 
-#define PVR_PAGE_TABLE_FIELD_PREP(level_, field_, val_)            \
+#define PVR_PAGE_TABLE_FIELD_PREP(level_, name_, field_, val_)            \
 	((((PVR_PAGE_TABLE_TYPEOF_ENTRY(level_))(val_))            \
-	  << ROGUE_MMUCTRL_PT_L##level_##_DATA_##field_##_SHIFT) & \
-	 ~ROGUE_MMUCTRL_PT_L##level_##_DATA_##field_##_CLRMSK)
+	  << ROGUE_MMUCTRL_##name_##_DATA_##field_##_SHIFT) & \
+	 ~ROGUE_MMUCTRL_##name_##_DATA_##field_##_CLRMSK)
 
 /**
  * struct pvr_page_table_l2_entry_raw - A single entry in a level 2 page table.
@@ -302,12 +302,12 @@ struct pvr_page_table_l2_entry_raw {
 	u32 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l2_entry_raw) * 8 ==
-	      ROGUE_MMUCTRL_ENTRY_SIZE_PT_L2_VALUE);
+	      ROGUE_MMUCTRL_ENTRY_SIZE_PC_VALUE);
 
 static __always_inline bool
 pvr_page_table_l2_entry_raw_is_valid(struct pvr_page_table_l2_entry_raw entry)
 {
-	return PVR_PAGE_TABLE_FIELD_GET(2, VALID, entry);
+	return PVR_PAGE_TABLE_FIELD_GET(2, PC, VALID, entry);
 }
 
 /**
@@ -318,18 +318,18 @@ pvr_page_table_l2_entry_raw_is_valid(struct pvr_page_table_l2_entry_raw entry)
  *                        associated with @entry.
  *
  * When calling this function, @child_table_dma_addr must be a valid DMA
- * address and a multiple of %ROGUE_MMUCTRL_PT_L2_DATA_PT_L1_BASE_ALIGNSIZE.
+ * address and a multiple of %ROGUE_MMUCTRL_PC_DATA_PD_BASE_ALIGNSIZE.
  */
 static __always_inline void
 pvr_page_table_l2_entry_raw_set(struct pvr_page_table_l2_entry_raw *entry,
 				dma_addr_t child_table_dma_addr)
 {
-	child_table_dma_addr >>= ROGUE_MMUCTRL_PT_L2_DATA_PT_L1_BASE_ALIGNSHIFT;
+	child_table_dma_addr >>= ROGUE_MMUCTRL_PC_DATA_PD_BASE_ALIGNSHIFT;
 
 	entry->val =
-		PVR_PAGE_TABLE_FIELD_PREP(2, VALID, true) |
-		PVR_PAGE_TABLE_FIELD_PREP(2, ENTRY_PENDING, false) |
-		PVR_PAGE_TABLE_FIELD_PREP(2, PT_L1_BASE, child_table_dma_addr);
+		PVR_PAGE_TABLE_FIELD_PREP(2, PC, VALID, true) |
+		PVR_PAGE_TABLE_FIELD_PREP(2, PC, ENTRY_PENDING, false) |
+		PVR_PAGE_TABLE_FIELD_PREP(2, PC, PD_BASE, child_table_dma_addr);
 }
 
 static __always_inline void
@@ -425,12 +425,12 @@ struct pvr_page_table_l1_entry_raw {
 	u64 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l1_entry_raw) * 8 ==
-	      ROGUE_MMUCTRL_ENTRY_SIZE_PT_L1_VALUE);
+	      ROGUE_MMUCTRL_ENTRY_SIZE_PD_VALUE);
 
 static __always_inline bool
 pvr_page_table_l1_entry_raw_is_valid(struct pvr_page_table_l1_entry_raw entry)
 {
-	return PVR_PAGE_TABLE_FIELD_GET(1, VALID, entry);
+	return PVR_PAGE_TABLE_FIELD_GET(1, PD, VALID, entry);
 }
 
 /**
@@ -447,12 +447,12 @@ static void
 pvr_page_table_l1_entry_raw_set(struct pvr_page_table_l1_entry_raw *entry,
 				dma_addr_t child_table_dma_addr)
 {
-	entry->val = PVR_PAGE_TABLE_FIELD_PREP(1, VALID, true) |
-		     PVR_PAGE_TABLE_FIELD_PREP(1, ENTRY_PENDING, false) |
-		     PVR_PAGE_TABLE_FIELD_PREP(1, PAGE_SIZE,
+	entry->val = PVR_PAGE_TABLE_FIELD_PREP(1, PD, VALID, true) |
+		     PVR_PAGE_TABLE_FIELD_PREP(1, PD, ENTRY_PENDING, false) |
+		     PVR_PAGE_TABLE_FIELD_PREP(1, PD, PAGE_SIZE,
 					       ROGUE_MMUCTRL_PAGE_SIZE_4KB) |
 		     (child_table_dma_addr &
-		      ~ROGUE_MMUCTRL_PT_L0_BASE_4KB_RANGE_CLRMSK);
+		      ~ROGUE_MMUCTRL_PT_BASE_4KB_RANGE_CLRMSK);
 }
 
 static __always_inline void
@@ -561,7 +561,7 @@ struct pvr_page_table_l0_entry_raw {
 	u64 val;
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l0_entry_raw) * 8 ==
-	      ROGUE_MMUCTRL_ENTRY_SIZE_PT_L0_VALUE);
+	      ROGUE_MMUCTRL_ENTRY_SIZE_PT_VALUE);
 
 /**
  * struct pvr_page_flags_raw - The configurable flags from a single entry in a
@@ -584,7 +584,7 @@ static_assert(sizeof(struct pvr_page_flags_raw) ==
 static __always_inline bool
 pvr_page_table_l0_entry_raw_is_valid(struct pvr_page_table_l0_entry_raw entry)
 {
-	return PVR_PAGE_TABLE_FIELD_GET(0, VALID, entry);
+	return PVR_PAGE_TABLE_FIELD_GET(0, PT, VALID, entry);
 }
 
 /**
@@ -606,8 +606,8 @@ pvr_page_table_l0_entry_raw_set(struct pvr_page_table_l0_entry_raw *entry,
 				dma_addr_t dma_addr,
 				struct pvr_page_flags_raw flags)
 {
-	entry->val = PVR_PAGE_TABLE_FIELD_PREP(0, VALID, true) |
-		     PVR_PAGE_TABLE_FIELD_PREP(0, ENTRY_PENDING, false) |
+	entry->val = PVR_PAGE_TABLE_FIELD_PREP(0, PT, VALID, true) |
+		     PVR_PAGE_TABLE_FIELD_PREP(0, PT, ENTRY_PENDING, false) |
 		     (dma_addr & ~ROGUE_MMUCTRL_PAGE_4KB_RANGE_CLRMSK) |
 		     flags.val.val;
 }
@@ -642,10 +642,10 @@ pvr_page_flags_raw_create(bool read_only, bool cache_coherent, bool slc_bypass,
 	struct pvr_page_flags_raw flags;
 
 	flags.val.val =
-		PVR_PAGE_TABLE_FIELD_PREP(0, READ_ONLY, read_only) |
-		PVR_PAGE_TABLE_FIELD_PREP(0, CC, cache_coherent) |
-		PVR_PAGE_TABLE_FIELD_PREP(0, SLC_BYPASS_CTRL, slc_bypass) |
-		PVR_PAGE_TABLE_FIELD_PREP(0, PM_META_PROTECT, pm_fw_protect);
+		PVR_PAGE_TABLE_FIELD_PREP(0, PT, READ_ONLY, read_only) |
+		PVR_PAGE_TABLE_FIELD_PREP(0, PT, CC, cache_coherent) |
+		PVR_PAGE_TABLE_FIELD_PREP(0, PT, SLC_BYPASS_CTRL, slc_bypass) |
+		PVR_PAGE_TABLE_FIELD_PREP(0, PT, PM_META_PROTECT, pm_fw_protect);
 
 	return flags;
 }
@@ -659,7 +659,7 @@ pvr_page_flags_raw_create(bool read_only, bool cache_coherent, bool slc_bypass,
 struct pvr_page_table_l2_raw {
 	/** @entries: The raw values of this table. */
 	struct pvr_page_table_l2_entry_raw
-		entries[ROGUE_MMUCTRL_ENTRIES_PT_L2_VALUE];
+		entries[ROGUE_MMUCTRL_ENTRIES_PC_VALUE];
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l2_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
@@ -672,7 +672,7 @@ static_assert(sizeof(struct pvr_page_table_l2_raw) == PVR_VM_BACKING_PAGE_SIZE);
 struct pvr_page_table_l1_raw {
 	/** @entries: The raw values of this table. */
 	struct pvr_page_table_l1_entry_raw
-		entries[ROGUE_MMUCTRL_ENTRIES_PT_L1_VALUE];
+		entries[ROGUE_MMUCTRL_ENTRIES_PD_VALUE];
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l1_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
@@ -692,7 +692,7 @@ static_assert(sizeof(struct pvr_page_table_l1_raw) == PVR_VM_BACKING_PAGE_SIZE);
 struct pvr_page_table_l0_raw {
 	/** @entries: The raw values of this table. */
 	struct pvr_page_table_l0_entry_raw
-		entries[ROGUE_MMUCTRL_ENTRIES_PT_L0_VALUE];
+		entries[ROGUE_MMUCTRL_ENTRIES_PT_VALUE];
 } __packed;
 static_assert(sizeof(struct pvr_page_table_l0_raw) == PVR_VM_BACKING_PAGE_SIZE);
 
@@ -725,7 +725,7 @@ struct pvr_page_table_l2 {
 	 * is identical to that of the raw equivalent
 	 * (&pvr_page_table_l1_raw.entries).
 	 */
-	struct pvr_page_table_l1 *entries[ROGUE_MMUCTRL_ENTRIES_PT_L2_VALUE];
+	struct pvr_page_table_l1 *entries[ROGUE_MMUCTRL_ENTRIES_PC_VALUE];
 
 	/**
 	 * @backing_page: A handle to the memory which holds the raw
@@ -869,7 +869,7 @@ struct pvr_page_table_l1 {
 	 * is identical to that of the raw equivalent
 	 * (&pvr_page_table_l0_raw.entries).
 	 */
-	struct pvr_page_table_l0 *entries[ROGUE_MMUCTRL_ENTRIES_PT_L1_VALUE];
+	struct pvr_page_table_l0 *entries[ROGUE_MMUCTRL_ENTRIES_PD_VALUE];
 
 	/**
 	 * @backing_page: A handle to the memory which holds the raw
@@ -1435,8 +1435,8 @@ pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
 static __always_inline u16
 pvr_page_table_l2_idx(u64 device_addr)
 {
-	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PT_L2_INDEX_CLRMSK) >>
-	       ROGUE_MMUCTRL_VADDR_PT_L2_INDEX_SHIFT;
+	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PC_INDEX_CLRMSK) >>
+	       ROGUE_MMUCTRL_VADDR_PC_INDEX_SHIFT;
 }
 
 /**
@@ -1454,8 +1454,8 @@ pvr_page_table_l2_idx(u64 device_addr)
 static __always_inline u16
 pvr_page_table_l1_idx(u64 device_addr)
 {
-	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PT_L1_INDEX_CLRMSK) >>
-	       ROGUE_MMUCTRL_VADDR_PT_L1_INDEX_SHIFT;
+	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PD_INDEX_CLRMSK) >>
+	       ROGUE_MMUCTRL_VADDR_PD_INDEX_SHIFT;
 }
 
 /**
@@ -1473,8 +1473,8 @@ pvr_page_table_l1_idx(u64 device_addr)
 static __always_inline u16
 pvr_page_table_l0_idx(u64 device_addr)
 {
-	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PT_L0_INDEX_CLRMSK) >>
-	       ROGUE_MMUCTRL_VADDR_PT_L0_INDEX_SHIFT;
+	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PT_INDEX_CLRMSK) >>
+	       ROGUE_MMUCTRL_VADDR_PT_INDEX_SHIFT;
 }
 
 /**
@@ -2067,19 +2067,19 @@ pvr_page_table_ptr_next_page(struct pvr_page_table_ptr *ptr, bool should_create)
 {
 	s8 load_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 
-	if (++ptr->l0_idx != ROGUE_MMUCTRL_ENTRIES_PT_L0_VALUE)
+	if (++ptr->l0_idx != ROGUE_MMUCTRL_ENTRIES_PT_VALUE)
 		goto load_tables;
 
 	ptr->l0_idx = 0;
 	load_level_required = 0;
 
-	if (++ptr->l1_idx != ROGUE_MMUCTRL_ENTRIES_PT_L1_VALUE)
+	if (++ptr->l1_idx != ROGUE_MMUCTRL_ENTRIES_PD_VALUE)
 		goto load_tables;
 
 	ptr->l1_idx = 0;
 	load_level_required = 1;
 
-	if (++ptr->l2_idx != ROGUE_MMUCTRL_ENTRIES_PT_L2_VALUE)
+	if (++ptr->l2_idx != ROGUE_MMUCTRL_ENTRIES_PC_VALUE)
 		goto load_tables;
 
 	/*
