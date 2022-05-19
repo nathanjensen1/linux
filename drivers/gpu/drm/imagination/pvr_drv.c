@@ -219,6 +219,90 @@ pvr_fw_version_packed(u32 major, u32 minor)
 }
 
 /**
+ * pvr_get_quirks0() - Get first word of quirks mask for the current GPU & FW
+ * @pvr_dev: Device pointer
+ *
+ * Returns:
+ *  * Mask of quirks (combination of %DRM_PVR_QUIRKS0_HAS_BRN_*).
+ */
+static __always_inline u64
+pvr_get_quirks0(struct pvr_device *pvr_dev)
+{
+	u64 value = 0;
+
+#define PVR_SET_QUIRKS0_FLAG(pvr_dev, quirk)                       \
+	do {                                                       \
+		if (PVR_HAS_QUIRK(pvr_dev, quirk))                 \
+			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
+	} while (0)
+
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 44079);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48492);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48545);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 49927);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 51764);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 62269);
+	PVR_SET_QUIRKS0_FLAG(pvr_dev, 66011);
+
+#undef PVR_SET_QUIRKS0_FLAG
+
+	return value;
+}
+
+/**
+ * pvr_get_enhancements0() - Get first word of enhancements mask for the current
+ *                           GPU & FW
+ * @pvr_dev: Device pointer
+ *
+ * Returns:
+ *  * Mask of enhancements (combination of %DRM_PVR_ENHANCEMENTS0_HAS_ERN_*).
+ */
+static __always_inline u64
+pvr_get_enhancements0(struct pvr_device *pvr_dev)
+{
+	u64 value = 0;
+
+#define PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, enhancement)                       \
+	do {                                                                   \
+		if (PVR_HAS_ENHANCEMENT(pvr_dev, enhancement))                 \
+			value |= DRM_PVR_ENHANCEMENTS0_HAS_ERN ## enhancement; \
+	} while (0)
+
+	PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, 35421);
+	PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, 42064);
+
+#undef PVR_SET_ENHANCEMENTS0_FLAG
+
+	return value;
+}
+
+/**
+ * pvr_get_quirks_musthave0() - Get first word of must have quirks mask for the current GPU & FW
+ * @pvr_dev: Device pointer
+ *
+ * Returns:
+ *  * Mask of must have quirks (combination of %DRM_PVR_QUIRKS0_HAS_BRN_*).
+ */
+static __always_inline u64
+pvr_get_quirks_musthave0(struct pvr_device *pvr_dev)
+{
+	u64 value = 0;
+
+#define PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, quirk)              \
+	do {                                                       \
+		if (PVR_HAS_QUIRK(pvr_dev, quirk))                 \
+			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
+	} while (0)
+
+	PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, 49927);
+	PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, 62269);
+
+#undef PVR_SET_QUIRKS_MUSTHAVE0_FLAG
+
+	return value;
+}
+
+/**
  * pvr_ioctl_get_param() - IOCTL to get information about a device
  * @drm_dev: [IN] DRM device.
  * @raw_args: [IN/OUT] Arguments passed to this IOCTL. This must be of type
@@ -261,6 +345,15 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		break;
 	case DRM_PVR_PARAM_FW_VERSION:
 		value = pvr_fw_version_packed(pvr_dev->fw_version.major, pvr_dev->fw_version.minor);
+		break;
+	case DRM_PVR_PARAM_QUIRKS0:
+		value = pvr_get_quirks0(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_QUIRKS_MUSTHAVE0:
+		value = pvr_get_quirks_musthave0(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_ENHANCEMENTS0:
+		value = pvr_get_enhancements0(pvr_dev);
 		break;
 	case DRM_PVR_PARAM_INVALID:
 	default:
