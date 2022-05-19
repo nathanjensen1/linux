@@ -177,6 +177,24 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
  */
 
 /**
+ * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
+ *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
+ */
+#define DRM_PVR_QUIRKS0_HAS_BRN44079 _BITULL(0)
+#define DRM_PVR_QUIRKS0_HAS_BRN48492 _BITULL(1)
+#define DRM_PVR_QUIRKS0_HAS_BRN48545 _BITULL(2)
+#define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
+#define DRM_PVR_QUIRKS0_HAS_BRN51764 _BITULL(4)
+#define DRM_PVR_QUIRKS0_HAS_BRN62269 _BITULL(5)
+#define DRM_PVR_QUIRKS0_HAS_BRN66011 _BITULL(6)
+
+/**
+ * DOC: Enhancements returned by %DRM_PVR_PARAM_ENHANCEMENTS0
+ */
+#define DRM_PVR_ENHANCEMENTS0_HAS_ERN35421 _BITULL(0)
+#define DRM_PVR_ENHANCEMENTS0_HAS_ERN42064 _BITULL(1)
+
+/**
  * enum drm_pvr_param - Arguments for &drm_pvr_ioctl_get_param_args.param
  */
 enum drm_pvr_param {
@@ -222,6 +240,40 @@ enum drm_pvr_param {
 	 * the output value, and the minor version number in the lower 32 bits.
 	 */
 	DRM_PVR_PARAM_FW_VERSION,
+
+	/**
+	 * @DRM_PVR_PARAM_QUIRKS0: Hardware quirks 0.
+	 *
+	 * These quirks affect userspace and the kernel or firmware. They are
+	 * disabled by default and require userspace to opt-in. The opt-in
+	 * mechanism depends on the quirk.
+	 *
+	 * This is a bitmask of %DRM_PVR_QUIRKS0_HAS_*.
+	 */
+	DRM_PVR_PARAM_QUIRKS0,
+
+	/**
+	 * @DRM_PVR_PARAM_QUIRKS_MUSTHAVE0: "Must have" hardware quirks 0.
+	 *
+	 * This describes a fixed list of quirks that the client must support
+	 * for this device. If userspace does not support all the quirks in this
+	 * parameter then functionality is not guaranteed and client
+	 * initialisation must fail.
+	 *
+	 * This is a bitmask of %DRM_PVR_QUIRKS0_HAS_*.
+	 */
+	DRM_PVR_PARAM_QUIRKS_MUSTHAVE0,
+
+	/**
+	 * @DRM_PVR_PARAM_ENHANCEMENTS0: Hardware enhancements 0.
+	 *
+	 * These enhancements affect userspace and the kernel or firmware. They
+	 * are disabled by default and require userspace to opt-in. The opt-in
+	 * mechanism depends on the quirk.
+	 *
+	 * This is a bitmask of %DRM_PVR_ENHANCEMENTS0_HAS_*.
+	 */
+	DRM_PVR_PARAM_ENHANCEMENTS0,
 };
 
 /**

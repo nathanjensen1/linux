@@ -110,6 +110,14 @@ struct pvr_device {
 	 */
 	struct pvr_device_quirks quirks;
 
+	/**
+	 * @enhancements: Hardware enhancement information.
+	 *
+	 * Do not access this member directly, instead use
+	 * PVR_HAS_ENHANCEMENT().
+	 */
+	struct pvr_device_enhancements enhancements;
+
 	/** @fw_version: Firmware version detected at runtime. */
 	struct pvr_fw_version fw_version;
 
@@ -302,6 +310,21 @@ struct pvr_file {
  *  * false if the quirk is not present in the hardware.
  */
 #define PVR_HAS_QUIRK(pvr_dev, quirk) ((pvr_dev)->quirks.has_brn##quirk)
+
+/**
+ * PVR_HAS_ENHANCEMENT() - Tests whether a physical device has a given
+ *                         enhancement
+ * @pvr_dev: [IN] Target PowerVR device.
+ * @enhancement: [IN] Hardware enhancement name.
+ *
+ * Enhancement numbers are derived from those found in #pvr_device_enhancements
+ * by dropping the 'has_ern' prefix, which is applied by this macro.
+ *
+ * Returns
+ *  * true if the enhancement is present in the hardware, or
+ *  * false if the enhancement is not present in the hardware.
+ */
+#define PVR_HAS_ENHANCEMENT(pvr_dev, enhancement) ((pvr_dev)->enhancements.has_ern##enhancement)
 
 static __always_inline struct drm_device *
 from_pvr_device(struct pvr_device *pvr_dev)
