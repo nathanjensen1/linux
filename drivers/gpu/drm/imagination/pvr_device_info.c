@@ -32,7 +32,21 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 };
 
 const struct pvr_device_quirks pvr_device_quirks_4_40_2_51 = {
+	.has_brn44079 = true,
+	.has_brn48492 = true,
+	.has_brn48545 = true,
+	.has_brn49927 = true,
+	.has_brn51764 = true,
+	.has_brn52354 = true,
+	.has_brn56279 = true,
+	.has_brn62269 = true,
 	.has_brn63142 = true,
+	.has_brn66011 = true,
+};
+
+struct pvr_device_enhancements pvr_device_enhancements_4_40_2_51 = {
+	.has_ern35421 = true,
+	.has_ern42064 = true,
 };
 
 const struct pvr_device_features pvr_device_33_V_11_3 = {
@@ -62,6 +76,10 @@ const struct pvr_device_quirks pvr_device_quirks_33_15_11_3 = {
 	.has_brn63553 = true,
 };
 
+struct pvr_device_enhancements pvr_device_enhancements_33_15_11_3 = {
+	.has_ern35421 = true,
+};
+
 const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_isp_samples_per_pixel = true,
 	.has_num_clusters = true,
@@ -86,6 +104,11 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 };
 
 const struct pvr_device_quirks pvr_device_quirks_36_53_104_796 = {
+	.has_brn44079 = true,
+};
+
+struct pvr_device_enhancements pvr_device_enhancements_36_53_104_796 = {
+	.has_ern35421 = true,
 };
 
 /**
@@ -117,6 +140,7 @@ pvr_device_info_init(struct pvr_device *pvr_dev)
 	case PVR_PACKED_BVNC(b, v, n, c):                         \
 		pvr_dev->features = pvr_device_##b##_V_##n##_##c; \
 		pvr_dev->quirks = pvr_device_quirks_##b##_##v##_##n##_##c; \
+		pvr_dev->enhancements = pvr_device_enhancements_##b##_##v##_##n##_##c; \
 		return 0
 
 	switch (bvnc) {

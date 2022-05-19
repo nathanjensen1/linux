@@ -45,8 +45,25 @@ struct pvr_device_features {
  * struct pvr_device_quirks - Hardware quirk information
  */
 struct pvr_device_quirks {
+	bool has_brn44079 : 1;
+	bool has_brn48492 : 1;
+	bool has_brn48545 : 1;
+	bool has_brn49927 : 1;
+	bool has_brn51764 : 1;
+	bool has_brn52354 : 1;
+	bool has_brn56279 : 1;
+	bool has_brn62269 : 1;
 	bool has_brn63142 : 1;
 	bool has_brn63553 : 1;
+	bool has_brn66011 : 1;
+};
+
+/**
+ * struct pvr_device_enhancements - Hardware enhancement information
+ */
+struct pvr_device_enhancements {
+	bool has_ern35421 : 1;
+	bool has_ern42064 : 1;
 };
 
 int pvr_device_info_init(struct pvr_device *pvr_dev);
