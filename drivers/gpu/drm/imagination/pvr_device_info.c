@@ -9,9 +9,13 @@
 #include <linux/types.h>
 
 const struct pvr_device_features pvr_device_4_V_2_51 = {
+	.has_cdm_control_stream_format = true,
+	.has_cluster_grouping = true,
 	.has_common_store_size_in_dwords = true,
 	.has_compute = true,
+	.has_compute_morton_capable = true,
 	.has_compute_overlap = true,
+	.has_fbcdc_algorithm = true,
 	.has_isp_max_tiles_in_flight = true,
 	.has_isp_samples_per_pixel = true,
 	.has_max_partitions = true,
@@ -25,8 +29,11 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 	.has_xt_top_infrastructure = true,
+	.has_zls_subtile = true,
 
+	.cdm_control_stream_format = 1,
 	.common_store_size_in_dwords = 1280U * 4U * 4U,
+	.fbcdc_algorithm = 2,
 	.isp_max_tiles_in_flight = 4,
 	.isp_samples_per_pixel = 2,
 	.max_partitions = 8,
@@ -48,7 +55,6 @@ const struct pvr_device_quirks pvr_device_quirks_4_40_2_51 = {
 	.has_brn49927 = true,
 	.has_brn51764 = true,
 	.has_brn52354 = true,
-	.has_brn56279 = true,
 	.has_brn62269 = true,
 	.has_brn63142 = true,
 	.has_brn66011 = true,
@@ -62,6 +68,7 @@ struct pvr_device_enhancements pvr_device_enhancements_4_40_2_51 = {
 };
 
 const struct pvr_device_features pvr_device_33_V_11_3 = {
+	.has_cdm_control_stream_format = true,
 	.has_common_store_size_in_dwords = true,
 	.has_compute = true,
 	.has_isp_max_tiles_in_flight = true,
@@ -79,6 +86,7 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 
+	.cdm_control_stream_format = 1,
 	.common_store_size_in_dwords = 512U * 4U * 4U,
 	.isp_max_tiles_in_flight = 1,
 	.isp_samples_per_pixel = 1,
@@ -104,9 +112,12 @@ struct pvr_device_enhancements pvr_device_enhancements_33_15_11_3 = {
 };
 
 const struct pvr_device_features pvr_device_36_V_104_796 = {
+	.has_cdm_control_stream_format = true,
 	.has_common_store_size_in_dwords = true,
 	.has_compute = true,
 	.has_compute_overlap = true,
+	.has_fbcdc_algorithm = true,
+	.has_gpu_multicore_support = true,
 	.has_isp_max_tiles_in_flight = true,
 	.has_isp_samples_per_pixel = true,
 	.has_max_partitions = true,
@@ -119,10 +130,13 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_sys_bus_secure_reset = true,
 	.has_tile_size_x = true,
 	.has_tile_size_y = true,
+	.has_tpu_dm_global_registers = true,
 	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 
+	.cdm_control_stream_format = 1,
 	.common_store_size_in_dwords = 1344U * 4U * 4U,
+	.fbcdc_algorithm = 50,
 	.isp_max_tiles_in_flight = 6,
 	.isp_samples_per_pixel = 4,
 	.max_partitions = 16,

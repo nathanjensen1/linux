@@ -23,6 +23,8 @@ powervr-y := \
 	pvr_object.o \
 	pvr_params.o \
 	pvr_power.o \
+	pvr_stream.o \
+	pvr_stream_defs.o \
 	pvr_vm.o \
 	pvr_vm_mips.o
 
