@@ -2,6 +2,7 @@
 /* Copyright (c) 2022 Imagination Technologies Ltd. */
 
 #include "pvr_device.h"
+#include "pvr_device_info.h"
 
 #include "pvr_fw.h"
 #include "pvr_params.h"
@@ -658,4 +659,98 @@ pvr_device_fini(struct pvr_device *pvr_dev)
 	pvr_device_clk_fini(pvr_dev);
 
 	/* TODO: Remaining deinitialization steps */
+}
+
+bool
+pvr_device_has_uapi_quirk(struct pvr_device *pvr_dev, u32 quirk)
+{
+	switch (quirk) {
+	case DRM_PVR_QUIRK_BRN47217:
+		return PVR_HAS_QUIRK(pvr_dev, 47217);
+	case DRM_PVR_QUIRK_BRN48545:
+		return PVR_HAS_QUIRK(pvr_dev, 48545);
+	case DRM_PVR_QUIRK_BRN49927:
+		return PVR_HAS_QUIRK(pvr_dev, 49927);
+	case DRM_PVR_QUIRK_BRN51764:
+		return PVR_HAS_QUIRK(pvr_dev, 51764);
+	case DRM_PVR_QUIRK_BRN62269:
+		return PVR_HAS_QUIRK(pvr_dev, 62269);
+
+	default:
+		return false;
+	};
+}
+
+bool
+pvr_device_has_uapi_enhancement(struct pvr_device *pvr_dev, u32 enhancement)
+{
+	switch (enhancement) {
+	case DRM_PVR_ENHANCEMENT_ERN35421:
+		return PVR_HAS_ENHANCEMENT(pvr_dev, 35421);
+	case DRM_PVR_ENHANCEMENT_ERN42064:
+		return PVR_HAS_ENHANCEMENT(pvr_dev, 42064);
+
+	default:
+		return false;
+	};
+}
+
+/**
+ * pvr_device_has_feature() - Look up device feature based on feature definition
+ * @pvr_dev: Device pointer.
+ * @feature: Feature to look up. Should be one of %PVR_FEATURE_*.
+ *
+ * Returns:
+ *  * %true if feature is present on device, or
+ *  * %false if feature is not present on device.
+ */
+bool
+pvr_device_has_feature(struct pvr_device *pvr_dev, u32 feature)
+{
+	switch (feature) {
+	case PVR_FEATURE_CLUSTER_GROUPING:
+		return PVR_HAS_FEATURE(pvr_dev, cluster_grouping);
+
+	case PVR_FEATURE_COMPUTE_MORTON_CAPABLE:
+		return PVR_HAS_FEATURE(pvr_dev, compute_morton_capable);
+
+	case PVR_FEATURE_FB_CDC_V4:
+		return PVR_HAS_FEATURE(pvr_dev, fb_cdc_v4);
+
+	case PVR_FEATURE_GPU_MULTICORE_SUPPORT:
+		return PVR_HAS_FEATURE(pvr_dev, gpu_multicore_support);
+
+	case PVR_FEATURE_ISP_ZLS_D24_S8_PACKING_OGL_MODE:
+		return PVR_HAS_FEATURE(pvr_dev, isp_zls_d24_s8_packing_ogl_mode);
+
+	case PVR_FEATURE_S7_TOP_INFRASTRUCTURE:
+		return PVR_HAS_FEATURE(pvr_dev, s7_top_infrastructure);
+
+	case PVR_FEATURE_TESSELLATION:
+		return PVR_HAS_FEATURE(pvr_dev, tessellation);
+
+	case PVR_FEATURE_TPU_DM_GLOBAL_REGISTERS:
+		return PVR_HAS_FEATURE(pvr_dev, tpu_dm_global_registers);
+
+	case PVR_FEATURE_VDM_DRAWINDIRECT:
+		return PVR_HAS_FEATURE(pvr_dev, vdm_drawindirect);
+
+	case PVR_FEATURE_VDM_OBJECT_LEVEL_LLS:
+		return PVR_HAS_FEATURE(pvr_dev, vdm_object_level_lls);
+
+	case PVR_FEATURE_ZLS_SUBTILE:
+		return PVR_HAS_FEATURE(pvr_dev, zls_subtile);
+
+	/* Derived features. */
+	case PVR_FEATURE_CDM_USER_MODE_QUEUE: {
+		u8 cdm_control_stream_format = 0;
+
+		PVR_FEATURE_VALUE(pvr_dev, cdm_control_stream_format, &cdm_control_stream_format);
+		return (cdm_control_stream_format >= 2 && cdm_control_stream_format <= 4);
+	}
+
+	default:
+		WARN(true, "Looking up undefined feature %u\n", feature);
+		return false;
+	}
 }
