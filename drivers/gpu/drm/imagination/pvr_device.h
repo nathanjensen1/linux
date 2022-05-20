@@ -417,6 +417,13 @@ void pvr_device_fini(struct pvr_device *pvr_dev);
 int
 pvr_device_clk_core_get_freq(struct pvr_device *pvr_dev, u32 *freq_out);
 
+bool
+pvr_device_has_uapi_quirk(struct pvr_device *pvr_dev, u32 quirk);
+bool
+pvr_device_has_uapi_enhancement(struct pvr_device *pvr_dev, u32 enhancement);
+bool
+pvr_device_has_feature(struct pvr_device *pvr_dev, u32 feature);
+
 /**
  * PVR_CR_READ32() - Read a 32-bit register from a PowerVR device
  * @pvr_dev: Target PowerVR device.

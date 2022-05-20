@@ -180,17 +180,21 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
  * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
  *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
  */
-#define DRM_PVR_QUIRKS0_HAS_BRN47217 _BITULL(0)
-#define DRM_PVR_QUIRKS0_HAS_BRN48545 _BITULL(2)
-#define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
-#define DRM_PVR_QUIRKS0_HAS_BRN51764 _BITULL(4)
-#define DRM_PVR_QUIRKS0_HAS_BRN62269 _BITULL(5)
+#define DRM_PVR_QUIRK_BRN47217 0
+#define DRM_PVR_QUIRK_BRN48545 1
+#define DRM_PVR_QUIRK_BRN49927 2
+#define DRM_PVR_QUIRK_BRN51764 3
+#define DRM_PVR_QUIRK_BRN62269 4
+
+#define DRM_PVR_QUIRK_MASK(quirk) _BITULL((quirk) & 63)
 
 /**
  * DOC: Enhancements returned by %DRM_PVR_PARAM_ENHANCEMENTS0
  */
-#define DRM_PVR_ENHANCEMENTS0_HAS_ERN35421 _BITULL(0)
-#define DRM_PVR_ENHANCEMENTS0_HAS_ERN42064 _BITULL(1)
+#define DRM_PVR_ENHANCEMENT_ERN35421 0
+#define DRM_PVR_ENHANCEMENT_ERN42064 1
+
+#define DRM_PVR_ENHANCEMENT_MASK(enhancement) _BITULL((enhancement) & 63)
 
 /**
  * enum drm_pvr_param - Arguments for &drm_pvr_ioctl_get_param_args.param
@@ -831,25 +835,131 @@ struct drm_pvr_bo_ref {
 	__u32 flags;
 };
 
+/**
+ * DOC: Flags for SUBMIT_JOB ioctl geometry command.
+ *
+ * Operations
+ * ~~~~~~~~~~
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST
+ *
+ *    Indicates if this the first command to be issued for a render.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST
+ *
+ *    Indicates if this the last command to be issued for a render.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE
+ *
+ *    Forces to use single core in a multi core device.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_GEOM_CMD_FLAGS_MASK
+ *
+ *    Logical OR of all the geometry cmd flags.
+ */
+#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST _BITULL(0)
+#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST _BITULL(1)
+#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE _BITULL(3)
+#define DRM_PVR_SUBMIT_JOB_GEOM_CMD_FLAGS_MASK                                 \
+	(DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST |                                   \
+	 DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST |                                    \
+	 DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE)
+
+/**
+ * DOC: Flags for SUBMIT_JOB ioctl fragment command.
+ *
+ * Operations
+ * ~~~~~~~~~~
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE
+ *
+ *    Use single core in a multi core setup.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER
+ *
+ *    Indicates whether a depth buffer is present.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER
+ *
+ *    Indicates whether a stencil buffer is present.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP
+ *
+ *    Disallow compute overlapped with this render.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_FRAG_CMD_FLAGS_MASK
+ *
+ *    Logical OR of all the fragment cmd flags.
+ */
+#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE _BITULL(3)
+#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER _BITULL(7)
+#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER _BITULL(8)
+#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP _BITULL(26)
+#define DRM_PVR_SUBMIT_JOB_FRAG_CMD_FLAGS_MASK                                 \
+	(DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE |                             \
+	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER |                             \
+	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER |                           \
+	 DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP)
+
 /*
  * struct drm_pvr_job_render_args - Arguments for %DRM_PVR_JOB_TYPE_RENDER
  */
 struct drm_pvr_job_render_args {
 	/**
-	 * @cmd_geom: [IN] Pointer to data representing geometry command.
-	 *                 May be zero.
+	 * @geom_stream: [IN] Pointer to main stream for geometry command.
 	 *
-	 * If used, this must point to an instance of &struct rogue_fwif_cmd_geom.
+	 * The main stream must be u64-aligned.
 	 */
-	__u64 cmd_geom;
+	__u64 geom_stream;
 
 	/**
-	 * @cmd_frag: [IN] Pointer to data representing fragment command.
-	 *                 May be zero.
+	 * @geom_ext_stream: [IN] Pointer to extension stream for geometry command.
 	 *
-	 * If used, this must point to an instance of &struct rogue_fwif_cmd_frag.
+	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
+	 * affect fragment commands; if not provided, this must be set to %NULL.
+	 *
+	 * The extension stream must be u64-aligned.
 	 */
-	__u64 cmd_frag;
+	__u64 geom_ext_stream;
+
+	/**
+	 * @geom_stream_len: [IN] Length of geometry command stream, in bytes.
+	 */
+	__u32 geom_stream_len;
+
+	/**
+	 * @geom_ext_stream_len: [IN] Length of geometry command extension stream, in bytes.
+	 *
+	 * This must be zero if @geom_ext_stream is %NULL.
+	 */
+	__u32 geom_ext_stream_len;
+
+	/**
+	 * @frag_stream: [IN] Pointer to main stream for fragment command.
+	 *
+	 * The main stream must be u64-aligned.
+	 */
+	__u64 frag_stream;
+
+	/**
+	 * @frag_ext_stream: [IN] Pointer to extension stream for fragment command.
+	 *
+	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
+	 * affect geometry commands; if not provided, this must be set to %NULL.
+	 *
+	 * The extension stream must be u64-aligned.
+	 */
+	__u64 frag_ext_stream;
+
+	/**
+	 * @frag_stream_len: [IN] Length of fragment command stream, in bytes.
+	 */
+	__u32 frag_stream_len;
+
+	/**
+	 * @frag_ext_stream_len: [IN] Length of fragment command extension stream, in bytes.
+	 *
+	 * This must be zero if @frag_ext_stream is %NULL.
+	 */
+	__u32 frag_ext_stream_len;
 
 	/**
 	 * @in_syncobj_handles_geom: [IN] Pointer to array of drm_syncobj handles for
@@ -873,16 +983,6 @@ struct drm_pvr_job_render_args {
 	 * This array must be &num_bo_handles entries large.
 	 */
 	__u64 bo_handles;
-
-	/**
-	 * @cmd_len: [IN] Length of geometry command, in bytes.
-	 */
-	__u32 cmd_geom_len;
-
-	/**
-	 * @cmd_len: [IN] Length of fragment command, in bytes.
-	 */
-	__u32 cmd_frag_len;
 
 	/**
 	 * @num_in_syncobj_handles_geom: [IN] Number of input syncobj handles for geometry job.
@@ -923,20 +1023,69 @@ struct drm_pvr_job_render_args {
 	 */
 	__u32 hwrt_data_index;
 
-	/** @_padding_4c: Reserved. This field must be zeroed. */
-	__u32 _padding_4c;
+	/**
+	 * @flags: [IN] Flags for geometry command.
+	 */
+	__u32 geom_flags;
+
+	/**
+	 * @flags: [IN] Flags for fragment command.
+	 */
+	__u32 frag_flags;
+
+	/** @_padding_54: Reserved. This field must be zeroed. */
+	__u32 _padding_54;
 };
+
+/**
+ * DOC: Flags for SUBMIT_JOB ioctl compute command.
+ *
+ * Operations
+ * ~~~~~~~~~~
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP
+ *
+ *    Disallow other jobs overlapped with this compute.
+ *
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE
+ *
+ *    Forces to use single core in a multi core device.
+ */
+#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP _BITULL(1)
+#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE _BITULL(5)
+#define DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_FLAGS_MASK         \
+	(DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP | \
+	 DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE)
 
 /*
  * struct drm_pvr_job_compute_args - Arguments for %DRM_PVR_JOB_TYPE_COMPUTE
  */
 struct drm_pvr_job_compute_args {
 	/**
-	 * @cmd: [IN] Pointer to data representing compute command.
+	 * @stream: [IN] Pointer to main stream for compute command.
 	 *
-	 * This must point to an instance of &struct rogue_fwif_cmd_compute.
+	 * The main stream must be u64-aligned.
 	 */
-	__u64 cmd;
+	__u64 stream;
+
+	/**
+	 * @ext_stream: [IN] Pointer to extension stream for compute command.
+	 *
+	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
+	 * affect compute commands; if not provided, this must be set to %NULL.
+	 *
+	 * The extension stream must be u64-aligned.
+	 */
+	__u64 ext_stream;
+
+	/**
+	 * @stream_len: [IN] Length of compute command stream, in bytes.
+	 */
+	__u32 stream_len;
+
+	/**
+	 * @ext_stream_len: [IN] Length of compute command extension stream, in bytes.
+	 */
+	__u32 ext_stream_len;
 
 	/**
 	 * @in_syncobj_handles: [IN] Pointer to array of drm_syncobj handles for input fences.
@@ -953,11 +1102,6 @@ struct drm_pvr_job_compute_args {
 	__u64 bo_handles;
 
 	/**
-	 * @cmd_len: [IN] Length of compute command, in bytes.
-	 */
-	__u32 cmd_len;
-
-	/**
 	 * @num_in_syncobj_handles: [IN] Number of input syncobj handles.
 	 */
 	__u32 num_in_syncobj_handles;
@@ -968,6 +1112,11 @@ struct drm_pvr_job_compute_args {
 	 * This detemines the size of the array &bo_handles points to.
 	 */
 	__u32 num_bo_handles;
+
+	/**
+	 * @flags: [IN] Flags for command.
+	 */
+	__u32 flags;
 
 	/**
 	 * @out_syncobj: [OUT] drm_syncobj handle for output fence

@@ -341,10 +341,10 @@ pvr_get_quirks0(struct pvr_device *pvr_dev)
 {
 	u64 value = 0;
 
-#define PVR_SET_QUIRKS0_FLAG(pvr_dev, quirk)                       \
-	do {                                                       \
-		if (PVR_HAS_QUIRK(pvr_dev, quirk))                 \
-			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
+#define PVR_SET_QUIRKS0_FLAG(pvr_dev, quirk)                                        \
+	do {                                                                        \
+		if (pvr_device_has_uapi_quirk(pvr_dev, DRM_PVR_QUIRK_BRN ## quirk)) \
+			value |= DRM_PVR_QUIRK_MASK(DRM_PVR_QUIRK_BRN ## quirk);    \
 	} while (0)
 
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 47217);
@@ -371,10 +371,10 @@ pvr_get_enhancements0(struct pvr_device *pvr_dev)
 {
 	u64 value = 0;
 
-#define PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, enhancement)                       \
-	do {                                                                   \
-		if (PVR_HAS_ENHANCEMENT(pvr_dev, enhancement))                 \
-			value |= DRM_PVR_ENHANCEMENTS0_HAS_ERN ## enhancement; \
+#define PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, enhancement)                                              \
+	do {                                                                                          \
+		if (pvr_device_has_uapi_enhancement(pvr_dev, DRM_PVR_ENHANCEMENT_ERN ## enhancement)) \
+			value |= DRM_PVR_ENHANCEMENT_MASK(DRM_PVR_ENHANCEMENT_ERN ## enhancement);    \
 	} while (0)
 
 	PVR_SET_ENHANCEMENTS0_FLAG(pvr_dev, 35421);
@@ -397,10 +397,10 @@ pvr_get_quirks_musthave0(struct pvr_device *pvr_dev)
 {
 	u64 value = 0;
 
-#define PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, quirk)              \
-	do {                                                       \
-		if (PVR_HAS_QUIRK(pvr_dev, quirk))                 \
-			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
+#define PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, quirk)                               \
+	do {                                                                        \
+		if (pvr_device_has_uapi_quirk(pvr_dev, DRM_PVR_QUIRK_BRN ## quirk)) \
+			value |= DRM_PVR_QUIRK_MASK(DRM_PVR_QUIRK_BRN ## quirk);    \
 	} while (0)
 
 	PVR_SET_QUIRKS_MUSTHAVE0_FLAG(pvr_dev, 47217);

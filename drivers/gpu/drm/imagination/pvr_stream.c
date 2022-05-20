@@ -1,0 +1,249 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/* Copyright (c) 2022 Imagination Technologies Ltd. */
+
+#include "pvr_device.h"
+#include "pvr_rogue_fwif_stream.h"
+#include "pvr_stream.h"
+
+#include <linux/align.h>
+#include <linux/slab.h>
+#include <linux/types.h>
+#include <uapi/drm/pvr_drm.h>
+
+static __always_inline bool
+stream_def_is_supported(struct pvr_device *pvr_dev, const struct pvr_stream_def *stream_def)
+{
+	if (stream_def->feature == PVR_FEATURE_NONE)
+		return true;
+
+	if (!(stream_def->feature & PVR_FEATURE_NOT) &&
+	    pvr_device_has_feature(pvr_dev, stream_def->feature)) {
+		return true;
+	}
+
+	if ((stream_def->feature & PVR_FEATURE_NOT) &&
+	    !pvr_device_has_feature(pvr_dev, stream_def->feature & ~PVR_FEATURE_NOT)) {
+		return true;
+	}
+
+	return false;
+}
+
+static int
+pvr_stream_get_data(u8 *stream, u32 *stream_offset, u32 stream_size, int data_size, int align_size,
+		    void *dest)
+{
+	int err = 0;
+
+	*stream_offset = ALIGN(*stream_offset, align_size);
+
+	if ((*stream_offset + data_size) > stream_size) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	memcpy(dest, stream + *stream_offset, data_size);
+
+	(*stream_offset) += data_size;
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_stream_process_1() - Process a single stream and fill destination structure
+ * @pvr_dev: Device pointer.
+ * @stream_def: Stream definition.
+ * @nr_entries: Number of entries in &stream_def.
+ * @stream: Pointer to stream.
+ * @stream_offset: Starting offset within stream.
+ * @stream_size: Size of input stream, in bytes.
+ * @dest: Pointer to destination structure.
+ * @dest_size: Size of destination structure.
+ * @stream_offset_out: Pointer to variable to write updated stream offset to. May be NULL.
+ *
+ * Returns:
+ *  * 0 on success, or
+ *  * -%EINVAL on malformed stream.
+ */
+static int
+pvr_stream_process_1(struct pvr_device *pvr_dev, const struct pvr_stream_def *stream_def,
+		     u32 nr_entries, u8 *stream, u32 stream_offset, u32 stream_size,
+		     u8 *dest, u32 dest_size, u32 *stream_offset_out)
+{
+	int err = 0;
+	u32 i;
+
+	for (i = 0; i < nr_entries; i++) {
+		if (stream_def[i].offset >= dest_size) {
+			err = -EINVAL;
+			break;
+		}
+
+		if (!stream_def_is_supported(pvr_dev, &stream_def[i]))
+			continue;
+
+		switch (stream_def[i].size) {
+		case PVR_STREAM_SIZE_8:
+			err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u8),
+						  sizeof(u8), dest + stream_def[i].offset);
+			if (err)
+				goto err_out;
+			break;
+
+		case PVR_STREAM_SIZE_16:
+			err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u16),
+						  sizeof(u16), dest + stream_def[i].offset);
+			if (err)
+				goto err_out;
+			break;
+
+		case PVR_STREAM_SIZE_32:
+			err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u32),
+						  sizeof(u32), dest + stream_def[i].offset);
+			if (err)
+				goto err_out;
+			break;
+
+		case PVR_STREAM_SIZE_64:
+			err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u64),
+						  sizeof(u64), dest + stream_def[i].offset);
+			if (err)
+				goto err_out;
+			break;
+
+		case PVR_STREAM_SIZE_ARRAY:
+			err = pvr_stream_get_data(stream, &stream_offset, stream_size,
+						  stream_def[i].array_size, sizeof(u64),
+						  dest + stream_def[i].offset);
+			if (err)
+				goto err_out;
+			break;
+		}
+	}
+
+	if (stream_offset_out && !err)
+		*stream_offset_out = stream_offset;
+
+err_out:
+	return err;
+}
+
+static int
+pvr_stream_process_ext_stream(struct pvr_device *pvr_dev,
+			      const struct pvr_stream_cmd_defs *cmd_defs, void *ext_stream,
+			      u32 ext_stream_size, void *dest)
+{
+	u32 stream_offset = 0;
+	u32 ext_header;
+	int err = 0;
+
+	do {
+		const struct pvr_stream_ext_header *header;
+		u32 type;
+		u32 data;
+		u32 i;
+
+		err = pvr_stream_get_data(ext_stream, &stream_offset, ext_stream_size, sizeof(u32),
+					  sizeof(ext_header), &ext_header);
+		if (err)
+			goto err_out;
+
+		type = (ext_header & PVR_STREAM_EXTHDR_TYPE_MASK) >> PVR_STREAM_EXTHDR_TYPE_SHIFT;
+		data = ext_header & PVR_STREAM_EXTHDR_DATA_MASK;
+
+		if (type >= cmd_defs->ext_nr_headers) {
+			err = -EINVAL;
+			goto err_out;
+		}
+
+		header = &cmd_defs->ext_headers[type];
+		if (data & ~header->valid_mask) {
+			err = -EINVAL;
+			goto err_out;
+		}
+
+		for (i = 0; i < header->ext_streams_num; i++) {
+			const struct pvr_stream_ext_def *ext_def = &header->ext_streams[i];
+
+			if (!(ext_header & ext_def->header_mask))
+				continue;
+
+			if (!pvr_device_has_uapi_quirk(pvr_dev, ext_def->quirk)) {
+				err = -EINVAL;
+				goto err_out;
+			}
+
+			err = pvr_stream_process_1(pvr_dev, ext_def->stream, ext_def->stream_len,
+						   ext_stream, stream_offset,
+						   ext_stream_size, dest,
+						   cmd_defs->dest_size, &stream_offset);
+			if (err)
+				goto err_out;
+		}
+	} while (ext_header & PVR_STREAM_EXTHDR_CONTINUATION);
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_stream_process() - Build FW structure from stream
+ * @pvr_dev: Device pointer.
+ * @cmd_defs: Stream definition.
+ * @stream: Pointer to main stream.
+ * @stream_size: Size of main stream, in bytes.
+ * @ext_stream: Pointer to extension stream. May be %NULL.
+ * @ext_stream_size: Size of extension stream, in bytes. Must be zero if @ext_stream is %NULL.
+ * @dest_out: Pointer to location to store address of FW structure.
+ *
+ * Caller is responsible for freeing the output structure.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%ENOMEM on out of memory, or
+ *  * -%EINVAL on malformed stream.
+ */
+int
+pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
+		   void *stream, u32 stream_size, void *ext_stream, u32 ext_stream_size,
+		   void **dest_out)
+{
+	void *dest;
+	int err;
+
+	if (!stream || !stream_size || (!ext_stream && ext_stream_size) ||
+	    (ext_stream && !ext_stream_size)) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	dest = kzalloc(cmd_defs->dest_size, GFP_KERNEL);
+	if (!dest) {
+		err = -ENOMEM;
+		goto err_out;
+	}
+
+	err = pvr_stream_process_1(pvr_dev, cmd_defs->main_stream, cmd_defs->main_stream_len,
+				   stream, 0, stream_size, dest, cmd_defs->dest_size, NULL);
+	if (err)
+		goto err_free_dest;
+
+	if (ext_stream) {
+		err = pvr_stream_process_ext_stream(pvr_dev, cmd_defs, ext_stream, ext_stream_size,
+						    dest);
+		if (err)
+			goto err_free_dest;
+	}
+
+	*dest_out = dest;
+
+	return 0;
+
+err_free_dest:
+	kfree(dest);
+
+err_out:
+	return err;
+}
+
