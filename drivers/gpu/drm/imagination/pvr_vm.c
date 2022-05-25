@@ -3802,9 +3802,10 @@ err_out:
 }
 
 /*
- * Static data areas are determined by firmware. Each array must be kept
- * in order of increasing offset, as this is used to determine the size of the
- * reserved area for each heap.
+ * Static data areas are determined by firmware.
+ *
+ * When adding a new static data area you will also need to update the reserved_size field for the
+ * heap in pvr_heaps[].
  */
 static const struct drm_pvr_static_data_area general_static_data_areas[] = {
 	{
@@ -3840,11 +3841,12 @@ static const struct drm_pvr_static_data_area usc_static_data_areas[] = {
 	},
 };
 
-#define LAST_AREA(areas) (areas[ARRAY_SIZE(areas) - 1])
+#define GET_RESERVED_SIZE(last_offset, last_size) round_up(last_offset + last_size, PAGE_SIZE)
 
-#define GET_RESERVED_SIZE(areas) round_up((LAST_AREA(areas).offset + LAST_AREA(areas).size), \
-					      PAGE_SIZE)
-
+/*
+ * The values given to GET_RESERVED_SIZE() are taken from the last entry in the corresponding
+ * static data area for each heap.
+ */
 static const struct pvr_heap pvr_heaps[] = {
 	{
 		.id = DRM_PVR_HEAP_GENERAL,
@@ -3852,7 +3854,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.base = ROGUE_GENERAL_HEAP_BASE,
 		.size = ROGUE_GENERAL_HEAP_SIZE,
 		.reserved_base = ROGUE_GENERAL_HEAP_BASE,
-		.reserved_size = GET_RESERVED_SIZE(general_static_data_areas),
+		.reserved_size = GET_RESERVED_SIZE(128, 1024),
 		.page_size_log2 = 12,
 		.static_data_areas = general_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(general_static_data_areas),
@@ -3863,7 +3865,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.base = ROGUE_PDSCODEDATA_HEAP_BASE,
 		.size = ROGUE_PDSCODEDATA_HEAP_SIZE,
 		.reserved_base = ROGUE_PDSCODEDATA_HEAP_BASE,
-		.reserved_size = GET_RESERVED_SIZE(pds_static_data_areas),
+		.reserved_size = GET_RESERVED_SIZE(128, 128),
 		.page_size_log2 = 12,
 		.static_data_areas = pds_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(pds_static_data_areas),
@@ -3874,7 +3876,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.base = ROGUE_USCCODE_HEAP_BASE,
 		.size = ROGUE_USCCODE_HEAP_SIZE,
 		.reserved_base = ROGUE_USCCODE_HEAP_BASE,
-		.reserved_size = GET_RESERVED_SIZE(usc_static_data_areas),
+		.reserved_size = GET_RESERVED_SIZE(0, 128),
 		.page_size_log2 = 12,
 		.static_data_areas = usc_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(usc_static_data_areas),
