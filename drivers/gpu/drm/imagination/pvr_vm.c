@@ -33,6 +33,44 @@
 #include <linux/string.h>
 #include <linux/types.h>
 
+/*
+ * The value of the device page size (%PVR_DEVICE_PAGE_SIZE) is currently
+ * pegged to the host page size (%PAGE_SIZE). This chunk of macro goodness both
+ * ensures that the selected host page size corresponds to a valid device page
+ * size and sets up values needed by the MMU code below.
+ */
+#if (PVR_DEVICE_PAGE_SIZE == SZ_4K)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_4KB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_4KB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_4KB_RANGE_CLRMSK
+#elif (PVR_DEVICE_PAGE_SIZE == SZ_16K)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_16KB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_16KB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_16KB_RANGE_CLRMSK
+#elif (PVR_DEVICE_PAGE_SIZE == SZ_64K)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_64KB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_64KB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_64KB_RANGE_CLRMSK
+#elif (PVR_DEVICE_PAGE_SIZE == SZ_256K)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_256KB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_256KB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_256KB_RANGE_CLRMSK
+#elif (PVR_DEVICE_PAGE_SIZE == SZ_1M)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_1MB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_1MB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_1MB_RANGE_CLRMSK
+#elif (PVR_DEVICE_PAGE_SIZE == SZ_2M)
+# define ROGUE_MMUCTRL_PAGE_SIZE_X ROGUE_MMUCTRL_PAGE_SIZE_2MB
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT ROGUE_MMUCTRL_PAGE_2MB_RANGE_SHIFT
+# define ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK ROGUE_MMUCTRL_PAGE_2MB_RANGE_CLRMSK
+#else
+# error Unsupported device page size PVR_DEVICE_PAGE_SIZE
+#endif
+
+#define ROGUE_MMUCTRL_ENTRIES_PT_VALUE_X   \
+	(ROGUE_MMUCTRL_ENTRIES_PT_VALUE >> \
+	 (PVR_DEVICE_PAGE_SHIFT - PVR_SHIFT_FROM_SIZE(SZ_4K)))
+
 /**
  * pvr_vm_mmu_flush() - Request flush of all MMU caches.
  * @pvr_dev: Target PowerVR device.
@@ -450,7 +488,14 @@ pvr_page_table_l1_entry_raw_set(struct pvr_page_table_l1_entry_raw *entry,
 	entry->val = PVR_PAGE_TABLE_FIELD_PREP(1, PD, VALID, true) |
 		     PVR_PAGE_TABLE_FIELD_PREP(1, PD, ENTRY_PENDING, false) |
 		     PVR_PAGE_TABLE_FIELD_PREP(1, PD, PAGE_SIZE,
-					       ROGUE_MMUCTRL_PAGE_SIZE_4KB) |
+					       ROGUE_MMUCTRL_PAGE_SIZE_X) |
+		     /*
+		      * The use of a 4K-specific macro here is correct. It is
+		      * a future optimization to allocate sub-host-page-sized
+		      * blocks for individual tables, so the condition that any
+		      * page table address is aligned to the size of the
+		      * largest (a 4KB) table currently holds.
+		      */
 		     (child_table_dma_addr &
 		      ~ROGUE_MMUCTRL_PT_BASE_4KB_RANGE_CLRMSK);
 }
@@ -595,7 +640,7 @@ pvr_page_table_l0_entry_raw_is_valid(struct pvr_page_table_l0_entry_raw entry)
  * @flags: Options to be set on @entry.
  *
  * When calling this function, @child_table_dma_addr must be a valid DMA
- * address and a multiple of 4 KiB.
+ * address and a multiple of %PVR_DEVICE_PAGE_SIZE.
  *
  * The @flags parameter is directly assigned into @entry. It is the callers
  * responsibility to ensure that only bits specified in
@@ -608,7 +653,7 @@ pvr_page_table_l0_entry_raw_set(struct pvr_page_table_l0_entry_raw *entry,
 {
 	entry->val = PVR_PAGE_TABLE_FIELD_PREP(0, PT, VALID, true) |
 		     PVR_PAGE_TABLE_FIELD_PREP(0, PT, ENTRY_PENDING, false) |
-		     (dma_addr & ~ROGUE_MMUCTRL_PAGE_4KB_RANGE_CLRMSK) |
+		     (dma_addr & ~ROGUE_MMUCTRL_PAGE_X_RANGE_CLRMSK) |
 		     flags.val.val;
 }
 
@@ -685,16 +730,18 @@ static_assert(sizeof(struct pvr_page_table_l1_raw) == PVR_VM_BACKING_PAGE_SIZE);
  * .. caution::
  *
  *    The size of level 0 page tables is variable depending on the page size
- *    specified in the associated level 1 page table entry. For simplicity,
- *    this type is fixed to contain the maximum possible number of entries.
- *    **You should never read or write beyond the last supported entry.**
+ *    specified in the associated level 1 page table entry. Since the device
+ *    page size in use is pegged to the host page size, it cannot vary at
+ *    runtime. This structure is therefore only defined to contain the required
+ *    number of entries for the current device page size. **You should never
+ *    read or write beyond the last supported entry.**
  */
 struct pvr_page_table_l0_raw {
 	/** @entries: The raw values of this table. */
 	struct pvr_page_table_l0_entry_raw
-		entries[ROGUE_MMUCTRL_ENTRIES_PT_VALUE];
+		entries[ROGUE_MMUCTRL_ENTRIES_PT_VALUE_X];
 } __packed;
-static_assert(sizeof(struct pvr_page_table_l0_raw) == PVR_VM_BACKING_PAGE_SIZE);
+static_assert(sizeof(struct pvr_page_table_l0_raw) <= PVR_VM_BACKING_PAGE_SIZE);
 
 /**
  * DOC: Mirror page tables
@@ -1474,7 +1521,7 @@ static __always_inline u16
 pvr_page_table_l0_idx(u64 device_addr)
 {
 	return (device_addr & ~ROGUE_MMUCTRL_VADDR_PT_INDEX_CLRMSK) >>
-	       ROGUE_MMUCTRL_VADDR_PT_INDEX_SHIFT;
+	       ROGUE_MMUCTRL_PAGE_X_RANGE_SHIFT;
 }
 
 /**
@@ -2067,7 +2114,7 @@ pvr_page_table_ptr_next_page(struct pvr_page_table_ptr *ptr, bool should_create)
 {
 	s8 load_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
 
-	if (++ptr->l0_idx != ROGUE_MMUCTRL_ENTRIES_PT_VALUE)
+	if (++ptr->l0_idx != ROGUE_MMUCTRL_ENTRIES_PT_VALUE_X)
 		goto load_tables;
 
 	ptr->l0_idx = 0;
@@ -2616,7 +2663,7 @@ err_out:
  * @nr_pages: Number of pages to unmap.
  *
  * The total amount of device-virtual memory unmapped by pvr_vm_context_unmap()
- * is @nr_pages * 4KiB.
+ * is @nr_pages * %PVR_DEVICE_PAGE_SIZE.
  */
 static int
 pvr_vm_context_unmap(struct pvr_vm_context *vm_ctx, u64 device_addr,
@@ -3855,7 +3902,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.size = ROGUE_GENERAL_HEAP_SIZE,
 		.reserved_base = ROGUE_GENERAL_HEAP_BASE,
 		.reserved_size = GET_RESERVED_SIZE(128, 1024),
-		.page_size_log2 = 12,
+		.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 		.static_data_areas = general_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(general_static_data_areas),
 	},
@@ -3866,7 +3913,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.size = ROGUE_PDSCODEDATA_HEAP_SIZE,
 		.reserved_base = ROGUE_PDSCODEDATA_HEAP_BASE,
 		.reserved_size = GET_RESERVED_SIZE(128, 128),
-		.page_size_log2 = 12,
+		.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 		.static_data_areas = pds_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(pds_static_data_areas),
 	},
@@ -3877,7 +3924,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.size = ROGUE_USCCODE_HEAP_SIZE,
 		.reserved_base = ROGUE_USCCODE_HEAP_BASE,
 		.reserved_size = GET_RESERVED_SIZE(0, 128),
-		.page_size_log2 = 12,
+		.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 		.static_data_areas = usc_static_data_areas,
 		.nr_static_data_areas = ARRAY_SIZE(usc_static_data_areas),
 	},
@@ -3888,7 +3935,7 @@ static const struct pvr_heap pvr_heaps[] = {
 		.size = ROGUE_VISTEST_HEAP_SIZE,
 		.reserved_base = 0,
 		.reserved_size = 0,
-		.page_size_log2 = 12,
+		.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 		.static_data_areas = NULL,
 		.nr_static_data_areas = 0,
 	},
@@ -3901,7 +3948,7 @@ static const struct pvr_heap rgnhdr_heap = {
 	.size = ROGUE_RGNHDR_HEAP_SIZE,
 	.reserved_base = 0,
 	.reserved_size = 0,
-	.page_size_log2 = 12,
+	.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 };
 
 static __always_inline u32
