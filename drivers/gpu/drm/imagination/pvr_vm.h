@@ -30,15 +30,10 @@ struct drm_pvr_ioctl_get_heap_info_args;
  * .. c:macro:: PVR_DEVICE_PAGE_SIZE
  *
  *    Fixed page size referenced by leaf nodes in the page table tree
- *    structure.
- *
- *    .. admonition:: Future work
- *
- *       The PowerVR device MMU supports multiple page sizes (6 of them!).
- *       While we currently only support 4KiB pages (the smallest), this
- *       constant (as well as the two derived values %PVR_DEVICE_PAGE_SHIFT and
- *       %PVR_DEVICE_PAGE_MASK) may have to become a lookup table at some point
- *       to support some or all of the additional page sizes.
+ *    structure. In the current implementation, this value is pegged to the
+ *    CPU page size (%PAGE_SIZE). It is therefore an error to specify a CPU
+ *    page size which is not also a supported device page size. The supported
+ *    device page sizes are: 4KiB, 16KiB, 64KiB, 256KiB, 1MiB and 2MiB.
  *
  * .. c:macro:: PVR_DEVICE_PAGE_SHIFT
  *
@@ -56,10 +51,13 @@ struct drm_pvr_ioctl_get_heap_info_args;
  *    This value is derived from %PVR_DEVICE_PAGE_SIZE.
  */
 
+#define PVR_SHIFT_FROM_SIZE(size_) (__builtin_ctzll(size_))
+#define PVR_MASK_FROM_SIZE(size_) (~((size_) - U64_C(1)))
+
 /* PVR_DEVICE_PAGE_SIZE determines the page size */
-#define PVR_DEVICE_PAGE_SIZE (SZ_4K)
-#define PVR_DEVICE_PAGE_SHIFT (__ffs(PVR_DEVICE_PAGE_SIZE))
-#define PVR_DEVICE_PAGE_MASK (~(PVR_DEVICE_PAGE_SIZE - 1))
+#define PVR_DEVICE_PAGE_SIZE (PAGE_SIZE)
+#define PVR_DEVICE_PAGE_SHIFT (PAGE_SHIFT)
+#define PVR_DEVICE_PAGE_MASK (PAGE_MASK)
 
 struct pvr_heap {
 	/** @id: Heap ID. */
