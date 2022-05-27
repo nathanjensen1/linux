@@ -23,20 +23,34 @@ struct rogue_fwif_geom_regs {
 	u64 vdm_ctrl_stream_base;
 	u64 tpu_border_colour_table;
 
+	/* Only used when feature VDM_DRAWINDIRECT present. */
+	u64 vdm_draw_indirect0;
+	/* Only used when feature VDM_DRAWINDIRECT present. */
+	u32 vdm_draw_indirect1;
+
 	u32 ppp_ctrl;
 	u32 te_psg;
+	/* Only used when BRN 49927 present. */
 	u32 tpu;
 
 	u32 vdm_context_resume_task0_size;
+	/* Only used when feature VDM_OBJECT_LEVEL_LLS present. */
+	u32 vdm_context_resume_task3_size;
 
-	/* FIXME: HIGH: FIX_HW_BRN_56279 changes the structure's layout, given we
-	 * are supporting Features/ERNs/BRNs at runtime, we need to look into this
-	 * and find a solution to keep layout intact.
-	 */
-	/* Available if FIX_HW_BRN_56279 is present. */
+	/* Only used when BRN 56279 or BRN 67381 present. */
 	u32 pds_ctrl;
 
 	u32 view_idx;
+
+	/* Only used when feature TESSELLATION present */
+	u32 pds_coeff_free_prog;
+
+	u32 padding;
+};
+
+/* Only used when BRN 44455 or BRN 63027 present. */
+struct rogue_fwif_dummy_rgnhdr_init_geom_regs {
+	u64 te_psgregion_addr;
 };
 
 /*
@@ -64,6 +78,14 @@ struct rogue_fwif_cmd_geom {
 	 * to go through.
 	 */
 	struct rogue_fwif_ufo partial_render_geom_frag_fence;
+
+	/* Only used when BRN 44455 or BRN 63027 present. */
+	struct rogue_fwif_dummy_rgnhdr_init_geom_regs dummy_rgnhdr_init_geom_regs __aligned(8);
+
+	/* Only used when BRN 61484 or BRN 66333 present. */
+	u32 brn61484_66333_live_rt;
+
+	u32 padding;
 };
 
 /*
@@ -73,30 +95,34 @@ struct rogue_fwif_cmd_geom {
 struct rogue_fwif_frag_regs {
 	u32 usc_pixel_output_ctrl;
 
-	/* FIXME: HIGH: ROGUE_MAXIMUM_OUTPUT_REGISTERS_PER_PIXEL changes the structure's layout. */
 #define ROGUE_MAXIMUM_OUTPUT_REGISTERS_PER_PIXEL 8U
 	u32 usc_clear_register[ROGUE_MAXIMUM_OUTPUT_REGISTERS_PER_PIXEL];
 
 	u32 isp_bgobjdepth;
 	u32 isp_bgobjvals;
 	u32 isp_aa;
+	/* Only used when feature S7_TOP_INFRASTRUCTURE present. */
+	u32 isp_xtp_pipe_enable;
+
 	u32 isp_ctl;
 
+	/* Only used when BRN 49927 present. */
 	u32 tpu;
 
 	u32 event_pixel_pds_info;
 
-	/* FIXME: HIGH: RGX_FEATURE_CLUSTER_GROUPING changes the structure's layout. */
+	/* Only used when feature CLUSTER_GROUPING present. */
 	u32 pixel_phantom;
 
 	u32 view_idx;
 
 	u32 event_pixel_pds_data;
-	/*
-	 * FIXME: HIGH: MULTIBUFFER_OCLQRY changes the structure's layout.
-	 * Commenting out for now as it's not supported by 4.V.2.51.
-	 */
-	/* uint32_t isp_oclqry_stride; */
+
+	/* Only used when BRN 65101 present. */
+	u32 brn65101_event_pixel_pds_data;
+
+	/* Only used when feature GPU_MULTICORE_SUPPORT or BRN 47217 present. */
+	u32 isp_oclqry_stride;
 
 	/* All values below the ALIGN(8) must be 64 bit. */
 	aligned_u64 isp_scissor_base;
@@ -105,18 +131,40 @@ struct rogue_fwif_frag_regs {
 	u64 isp_zlsctl;
 	u64 isp_zload_store_base;
 	u64 isp_stencil_load_store_base;
-	/* FIXME: HIGH: RGX_FEATURE_ZLS_SUBTILE changes the structure's layout. */
+
+	/* Only used when feature ZLS_SUBTILE present. */
 	u64 isp_zls_pixels;
 
-	/* FIXME: HIGH: RGX_HW_REQUIRES_FB_CDC_ZLS_SETUP changes the structure's layout. */
-	u64 deprecated;
+	/*
+	 * Only used when feature FBCDC_ALGORITHM present and value < 3 or feature
+	 * FB_CDC_V4 present. Additionally, BRNs 48754, 60227, 72310 and 72311 must
+	 * not be present.
+	 */
+	u64 fb_cdc_zls;
 
-	/* FIXME: HIGH: RGX_PBE_WORDS_REQUIRED_FOR_RENDERS changes the structure's layout. */
-#define ROGUE_PBE_WORDS_REQUIRED_FOR_RENDERS 2U
+#define ROGUE_PBE_WORDS_REQUIRED_FOR_RENDERS 3U
 	u64 pbe_word[8U][ROGUE_PBE_WORDS_REQUIRED_FOR_RENDERS];
 	u64 tpu_border_colour_table;
 	u64 pds_bgnd[3U];
+
+	/* Only used when BRN 65101 present. */
+	u64 pds_bgnd_brn65101[3U];
+
 	u64 pds_pr_bgnd[3U];
+
+	/* Only used when feature ISP_ZLS_D24_S8_PACKING_OGL_MODE present. */
+	u64 rgx_cr_blackpearl_fix;
+
+	/* Only used when BRN 62850 or 62865 present. */
+	u64 isp_dummy_stencil_store_base;
+
+	/* Only used when BRN 66193 present. */
+	u64 isp_dummy_depth_store_base;
+
+	/* Only used when BRN 67182 present. */
+	u32 rgnhdr_single_rt_size;
+	/* Only used when BRN 67182 present. */
+	u32 rgnhdr_scratch_offset;
 };
 
 struct rogue_fwif_cmd_frag {
@@ -129,6 +177,15 @@ struct rogue_fwif_cmd_frag {
 	u32 zls_stride;
 	/* Stride IN BYTES for S-Buffer in case of RTAs. */
 	u32 sls_stride;
+
+	u8 deprecated1;
+	u8 deprecated2;
+	u8 deprecated3;
+
+	/* Only used if feature GPU_MULTICORE_SUPPORT present. */
+	u32 execute_count;
+
+	u32 padding;
 };
 
 /*
@@ -137,10 +194,37 @@ struct rogue_fwif_cmd_frag {
  */
 struct rogue_fwif_compute_regs {
 	u64 tpu_border_colour_table;
+
+	/* Only used when feature COMPUTE_MORTON_CAPABLE present. */
 	u64 cdm_item;
+
+	/* Only used when feature CLUSTER_GROUPING present. */
 	u64 compute_cluster;
+
+	/* Only used when feature TPU_DM_GLOBAL_REGISTERS present. */
+	u64 tpu_tag_cdm_ctrl;
+
+	/* Only used when feature CDM_USER_MODE_QUEUE present. */
+	u64 cdm_cb_queue;
+
+	/*
+	 * Only used when feature CDM_USER_MODE_QUEUE is present and
+	 * SUPPORT_TRUSTED_DEVICE is present and SUPPORT_SECURE_ALLOC_KM is not
+	 * present.
+	 */
+	u64 cdm_cb_secure_queue;
+
+	/* Only used when feature CDM_USER_MODE_QUEUE present. */
+	u64 cdm_cb_base;
+	/* Only used when feature CDM_USER_MODE_QUEUE present. */
+	u64 cdm_cb;
+
+	/* Only used when feature CDM_USER_MODE_QUEUE is not present. */
 	u64 cdm_ctrl_stream_base;
+
 	u64 cdm_context_state_base_addr;
+
+	/* Only used when BRN 49927 is present. */
 	u32 tpu;
 	u32 cdm_resume_pds1;
 };
@@ -154,6 +238,17 @@ struct rogue_fwif_cmd_compute {
 
 	/* Control flags */
 	u32 flags __aligned(8);
+
+	/* Only used when feature UNIFIED_STORE_VIRTUAL_PARTITIONING present. */
+	u32 num_temp_regions;
+
+	/* Only used when feature CDM_USER_MODE_QUEUE present. */
+	u32 stream_start_offset;
+
+	/* Only used when feature GPU_MULTICORE_SUPPORT present. */
+	u32 execute_count;
 };
+
+#include "pvr_rogue_fwif_client_check.h"
 
 #endif /* __PVR_ROGUE_FWIF_CLIENT_H__ */

@@ -7,6 +7,8 @@
 #include <drm/drm_file.h>
 #include <linux/types.h>
 
+#include "pvr_rogue_fwif.h"
+
 /* Forward declaration from pvr_device.h. */
 struct pvr_device;
 
@@ -54,7 +56,7 @@ struct pvr_fw_trace {
 	 * @buffers: Array representing the actual trace buffers owned by this
 	 *           device.
 	 */
-	struct pvr_fw_trace_buffer buffers[ROGUE_FW_THREAD_NUM];
+	struct pvr_fw_trace_buffer buffers[ROGUE_FW_THREAD_MAX];
 
 	/** @group_mask: Mask of enabled trace groups. */
 	u32 group_mask;

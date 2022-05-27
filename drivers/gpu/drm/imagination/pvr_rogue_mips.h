@@ -330,4 +330,6 @@ struct rogue_mips_state {
 	struct rogue_mips_remap_entry remap[ROGUE_MIPSFW_NUMBER_OF_REMAP_ENTRIES];
 };
 
+#include "pvr_rogue_mips_check.h"
+
 #endif /* __PVR_ROGUE_MIPS_H__ */

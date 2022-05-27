@@ -118,6 +118,7 @@ struct rogue_fwif_log_group_map_entry {
 #define ROGUE_FW_TRACE_BUF_DEFAULT_SIZE_IN_DWORDS 12000U
 #define ROGUE_FW_TRACE_BUFFER_ASSERT_SIZE 200U
 #define ROGUE_FW_THREAD_NUM 1U
+#define ROGUE_FW_THREAD_MAX 2U
 
 #define ROGUE_FW_POLL_TYPE_SET 0x80000000U
 
@@ -125,6 +126,7 @@ struct rogue_fwif_file_info_buf {
 	char path[ROGUE_FW_TRACE_BUFFER_ASSERT_SIZE];
 	char info[ROGUE_FW_TRACE_BUFFER_ASSERT_SIZE];
 	u32 line_num;
+	u32 padding;
 } __aligned(8);
 
 struct rogue_fwif_tracebuf_space {
@@ -256,12 +258,15 @@ struct rogue_fwif_slr_entry {
 	u32 fw_ctx_addr;
 	u32 num_ufos;
 	char ccb_name[PVR_SLR_LOG_STRLEN];
+	char padding[2];
 } __aligned(8);
+
+#define MAX_THREAD_NUM 2
 
 /* firmware trace control data */
 struct rogue_fwif_tracebuf {
 	u32 log_type;
-	struct rogue_fwif_tracebuf_space tracebuf[ROGUE_FW_THREAD_NUM];
+	struct rogue_fwif_tracebuf_space tracebuf[MAX_THREAD_NUM];
 	/*
 	 * Member initialised only when sTraceBuf is actually allocated (in
 	 * ROGUETraceBufferInitOnDemandResources)
@@ -292,7 +297,7 @@ struct rogue_fwif_sysdata {
 	 * ROGUE_HWPERF_DROP_TRACKING defined in rogue_fw_hwperf.c
 	 */
 	/* Buffer utilisation, high watermark of bytes in use */
-	u32 hw_pert_ut;
+	u32 hw_perf_ut;
 	/* The ordinal of the first packet the FW dropped */
 	u32 first_drop_ordinal;
 	/* The ordinal of the last packet the FW dropped */
@@ -303,9 +308,9 @@ struct rogue_fwif_sysdata {
 
 	struct rogue_fw_fault_info fault_info[ROGUE_FWIF_FWFAULTINFO_MAX];
 	u32 fw_faults;
-	u32 cr_poll_addr[ROGUE_FW_THREAD_NUM];
-	u32 cr_poll_mask[ROGUE_FW_THREAD_NUM];
-	u32 cr_poll_count[ROGUE_FW_THREAD_NUM];
+	u32 cr_poll_addr[MAX_THREAD_NUM];
+	u32 cr_poll_mask[MAX_THREAD_NUM];
+	u32 cr_poll_count[MAX_THREAD_NUM];
 	aligned_u64 start_idle_time;
 
 #if defined(SUPPORT_ROGUE_FW_STATS_FRAMEWORK)
@@ -330,18 +335,19 @@ struct rogue_fwif_osdata {
 	u32 fw_sync_check_mark;
 	u32 host_sync_check_mark;
 
-	u32 force_updates_requested;
+	u32 forced_updates_requested;
 	u8 slr_log_wp;
 	struct rogue_fwif_slr_entry slr_log_first;
 	struct rogue_fwif_slr_entry slr_log[PVR_SLR_LOG_ENTRIES];
 	aligned_u64 last_forced_update_time;
 
 	/* Interrupt count from Threads > */
-	volatile u32 interrupt_count[ROGUE_FW_THREAD_NUM];
+	volatile u32 interrupt_count[MAX_THREAD_NUM];
 	u32 kccb_cmds_executed;
 	u32 power_sync_fw_addr;
 	/* Compatibility and other flags */
 	u32 fw_os_data_flags;
+	u32 padding;
 } __aligned(8);
 
 /* Firmware trace time-stamp field breakup */
@@ -454,7 +460,7 @@ struct rogue_pollinfo {
 struct rogue_tlbinfo {
 	u32 bad_addr;
 	u32 entry_lo;
-} __aligned(8);
+};
 
 struct rogue_hwrinfo {
 	union {
@@ -692,6 +698,7 @@ struct rogue_fwif_fwmemcontext {
 	u32 breakpoint_ctl;
 	/* Compatibility and other flags */
 	u32 fw_mem_ctx_flags;
+	u32 padding;
 } __aligned(8);
 
 /*
@@ -702,6 +709,8 @@ struct rogue_fwif_fwmemcontext {
 #define ROGUE_FWIF_CONTEXT_FLAGS_TDM_HEADER_STALE (0x00000100U)
 #define ROGUE_FWIF_CONTEXT_FLAGS_LAST_KICK_SECURE (0x00000200U)
 
+#define ROGUE_NUM_GEOM_CORES_MAX 4
+
 /*
  * FW-accessible TA state which must be written out to memory on context store
  */
@@ -711,12 +720,13 @@ struct rogue_fwif_geom_ctx_state_per_geom {
 	/* Initial value (in case is 'lost' due to a lock-up */
 	aligned_u64 geom_reg_vdm_call_stack_pointer_init;
 	u32 geom_reg_vbs_so_prim[4];
-	s16 geom_current_idx;
+	u16 geom_current_idx;
+	u16 padding[3];
 } __aligned(8);
 
 struct rogue_fwif_geom_ctx_state {
 	/* FW-accessible TA state which must be written out to memory on context store */
-	struct rogue_fwif_geom_ctx_state_per_geom geom_core[ROGUE_NUM_GEOM_CORES];
+	struct rogue_fwif_geom_ctx_state_per_geom geom_core[ROGUE_NUM_GEOM_CORES_MAX];
 } __aligned(8);
 
 /*
@@ -785,7 +795,7 @@ struct rogue_fwif_fwcommoncontext {
 	/* Max HWR deadline limit in ms */
 	u32 max_deadline_ms;
 	/* Following HWR circular buffer read-offset needs resetting */
-	bool read_offset_needs_reset __aligned(4);
+	bool read_offset_needs_reset;
 
 	/* List entry for the waiting list */
 	struct rogue_fwif_dllist_node waiting_node __aligned(8);
@@ -856,7 +866,7 @@ struct rogue_fwif_fwtdmcontext {
 struct rogue_fwif_fwtransfercontext {
 	/* Firmware context for TQ3D. */
 	struct rogue_fwif_fwcommoncontext tq_context;
-};
+} __aligned(8);
 
 /*
  ******************************************************************************
@@ -1073,7 +1083,7 @@ struct rogue_fwif_coreclkspeedchange_data {
 #define ROGUE_FWIF_HWPERF_CTRL_BLKS_MAX 16
 
 struct rogue_fwif_hwperf_ctrl_blks {
-	bool enable __aligned(4);
+	bool enable;
 	/* Number of block IDs in the array */
 	u32 num_blocks;
 	/* Array of ROGUE_HWPERF_CNTBLK_ID values */
@@ -1102,8 +1112,11 @@ struct rogue_fwif_freelist_gs_data {
 	u32 ready_pages;
 };
 
+#define MAX_FREELISTS_SIZE 3
+#define MAX_HW_GEOM_FRAG_CONTEXTS_SIZE 3
+
 #define ROGUE_FWIF_MAX_FREELISTS_TO_RECONSTRUCT \
-	(MAX_HW_GEOM_FRAG_CONTEXTS * ROGUE_FW_MAX_FREELISTS * 2U)
+	(MAX_HW_GEOM_FRAG_CONTEXTS_SIZE * MAX_FREELISTS_SIZE * 2U)
 #define ROGUE_FWIF_FREELISTS_RECONSTRUCTION_FAILED_FLAG 0x80000000U
 
 struct rogue_fwif_freelists_reconstruction_data {
@@ -1131,7 +1144,8 @@ struct pdvfs_opp {
 } __aligned(8);
 
 struct rogue_fwif_pdvfs_opp {
-	struct pdvfs_opp opp_salues[NUM_OPP_VALUES];
+	struct pdvfs_opp opp_values[NUM_OPP_VALUES];
+	u32 min_opp_point;
 	u32 max_opp_point;
 } __aligned(8);
 
@@ -1701,6 +1715,7 @@ struct rogue_fwif_compchecks_bvnc {
 
 struct rogue_fwif_init_options {
 	u8 os_count_support;
+	u8 padding[7];
 } __aligned(8);
 
 #define ROGUE_FWIF_COMPCHECKS_BVNC_DECLARE_AND_INIT(name) \
@@ -1731,6 +1746,7 @@ struct rogue_fwif_compchecks {
 	struct rogue_fwif_init_options init_options;
 	/* Information is valid */
 	bool updated __aligned(4);
+	u32 padding;
 } __aligned(8);
 
 /*
@@ -1762,6 +1778,7 @@ struct rogue_fwif_runtime_cfg {
 	u32 osid_priority[ROGUE_FW_MAX_NUM_OS];
 	/* On-demand allocated HWPerf buffer address, to be passed to the FW */
 	u32 hwperf_buf_fw_addr;
+	bool padding __aligned(4);
 };
 
 /*
@@ -1920,7 +1937,7 @@ struct rogue_fwif_sysinit {
 	/* Event filter for Firmware events */
 	u64 hw_perf_filter;
 
-	aligned_u64 slc3_fence_dev_vaddr;
+	aligned_u64 slc3_fence_dev_addr;
 
 	u32 tpu_trilinear_frac_mask[ROGUE_FWIF_TPU_DM_LAST] __aligned(8);
 
@@ -2137,6 +2154,9 @@ struct rogue_fwif_freelist {
 	u32 ready_pages;
 	/* Compatibility and other flags */
 	u32 freelist_flags;
+	/* PM Global PB on which Freelist is loaded */
+	u32 pm_global_pb;
+	u32 padding;
 } __aligned(8);
 
 /*
@@ -2189,12 +2209,13 @@ struct rogue_fwif_hwrtdata_common {
 	u32 isp_merge_lower_x;
 	u32 isp_merge_lower_y;
 	u32 isp_merge_upper_x;
-	u32 isp_mergy_upper_y;
+	u32 isp_merge_upper_y;
 	u32 isp_merge_scale_x;
 	u32 isp_merge_scale_y;
 	u32 rgn_header_size;
 	u32 isp_mtile_size;
-};
+	u32 padding;
+} __aligned(8);
 
 struct rogue_fwif_hwrtdata {
 	/* MList Data Store */
@@ -2215,8 +2236,8 @@ struct rogue_fwif_hwrtdata {
 	u32 hwrt_data_flags;
 	enum rogue_fwif_rtdata_state state;
 
-	u32 freelists_fw_addr[ROGUE_FW_MAX_FREELISTS] __aligned(8);
-	u32 freelist_hwr_snapshot[ROGUE_FW_MAX_FREELISTS];
+	u32 freelists_fw_addr[MAX_FREELISTS_SIZE] __aligned(8);
+	u32 freelist_hwr_snapshot[MAX_FREELISTS_SIZE];
 
 	aligned_u64 vheap_table_dev_addr;
 
@@ -2230,6 +2251,8 @@ struct rogue_fwif_hwrtdata {
 	aligned_u64 rtc_dev_addr;
 
 	u32 owner_geom_not_used_by_host __aligned(8);
+
+	bool geom_caches_need_zeroing __aligned(4);
 } __aligned(8);
 
 /*
@@ -2242,5 +2265,7 @@ struct rogue_fwif_hwrtdata {
 #define PVR_SYNC_CHECKPOINT_ACTIVE 0xac1     /* Checkpoint has not signaled. */
 #define PVR_SYNC_CHECKPOINT_SIGNALED 0x519   /* Checkpoint has signaled. */
 #define PVR_SYNC_CHECKPOINT_ERRORED 0xeff    /* Checkpoint has been errored. */
+
+#include "pvr_rogue_fwif_check.h"
 
 #endif /* __PVR_ROGUE_FWIF_H__ */

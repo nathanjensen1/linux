@@ -290,7 +290,7 @@ hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
 	hwrt_data_common_fw->isp_merge_lower_x = args->isp_merge_lower_x;
 	hwrt_data_common_fw->isp_merge_lower_y = args->isp_merge_lower_y;
 	hwrt_data_common_fw->isp_merge_upper_x = args->isp_merge_upper_x;
-	hwrt_data_common_fw->isp_mergy_upper_y = args->isp_merge_upper_y;
+	hwrt_data_common_fw->isp_merge_upper_y = args->isp_merge_upper_y;
 	hwrt_data_common_fw->isp_merge_scale_x = args->isp_merge_scale_x;
 	hwrt_data_common_fw->isp_merge_scale_y = args->isp_merge_scale_y;
 
