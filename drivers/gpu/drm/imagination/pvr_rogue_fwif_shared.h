@@ -12,6 +12,8 @@
 #define ROGUE_FWIF_NUM_RTDATA_FREELISTS 2U
 #define ROGUE_NUM_GEOM_CORES 1U
 
+#define ROGUE_NUM_GEOM_CORES_SIZE 2U
+
 /*
  * Maximum number of UFOs in a CCB command.
  * The number is based on having 32 sync prims (as originally), plus 32 sync
@@ -41,6 +43,7 @@
 struct rogue_fwif_dma_addr {
 	aligned_u64 dev_addr;
 	u32 fw_addr;
+	u32 padding;
 } __aligned(8);
 
 struct rogue_fwif_ufo {
@@ -86,6 +89,7 @@ struct rogue_fwif_cmd_common {
 struct rogue_fwif_cmd_geom_frag_shared {
 	/* Common command attributes */
 	struct rogue_fwif_cmd_common cmn;
+
 	/*
 	 * RTData associated with this command, this is used for context
 	 * selection and for storing out HW-context, when TA is switched out for
@@ -126,6 +130,16 @@ struct rogue_fwif_cccb_ctl {
 	u32 dep_offset;
 	/* Offset wrapping mask, total capacity in bytes of the CCB-1 */
 	u32 wrap_mask;
+
+	/* Only used if SUPPORT_AGP is present. */
+	u32 read_offset2;
+
+	/* Only used if SUPPORT_AGP4 is present. */
+	u32 read_offset3;
+	/* Only used if SUPPORT_AGP4 is present. */
+	u32 read_offset4;
+
+	u32 padding;
 } __aligned(8);
 
 #define ROGUE_FW_LOCAL_FREELIST (0)
@@ -173,7 +187,7 @@ struct rogue_fwif_cdm_registers_cswitch {
 
 struct rogue_fwif_static_rendercontext_state {
 	/* Geom registers for ctx switch */
-	struct rogue_fwif_geom_registers_caswitch ctxswitch_regs[ROGUE_NUM_GEOM_CORES]
+	struct rogue_fwif_geom_registers_caswitch ctxswitch_regs[ROGUE_NUM_GEOM_CORES_SIZE]
 		__aligned(8);
 };
 
@@ -222,18 +236,6 @@ enum rogue_context_reset_reason {
 	ROGUE_CONTEXT_RESET_REASON_INNOCENT_OVERRUNING = 4,
 	/* Forced reset to ensure scheduling requirements */
 	ROGUE_CONTEXT_RESET_REASON_HARD_CONTEXT_SWITCH = 5,
-	/* CDM Mission/safety checksum mismatch */
-	ROGUE_CONTEXT_RESET_REASON_WGP_CHECKSUM = 6,
-	/* TRP checksum mismatch */
-	ROGUE_CONTEXT_RESET_REASON_TRP_CHECKSUM = 7,
-	/* GPU ECC error (corrected, OK) */
-	ROGUE_CONTEXT_RESET_REASON_GPU_ECC_OK = 8,
-	/* GPU ECC error (uncorrected, HWR) */
-	ROGUE_CONTEXT_RESET_REASON_GPU_ECC_HWR = 9,
-	/* FW ECC error (corrected, OK) */
-	ROGUE_CONTEXT_RESET_REASON_FW_ECC_OK = 10,
-	/* FW ECC error (uncorrected, ERR) */
-	ROGUE_CONTEXT_RESET_REASON_FW_ECC_ERR = 11,
 	/* FW Safety watchdog triggered */
 	ROGUE_CONTEXT_RESET_REASON_FW_WATCHDOG = 12,
 	/* FW page fault (no HWR) */
@@ -250,5 +252,7 @@ struct rogue_context_reset_reason_data {
 	enum rogue_context_reset_reason reset_reason;
 	u32 reset_ext_job_ref;
 };
+
+#include "pvr_rogue_fwif_shared_check.h"
 
 #endif /* __PVR_ROGUE_FWIF_SHARED_H__ */
