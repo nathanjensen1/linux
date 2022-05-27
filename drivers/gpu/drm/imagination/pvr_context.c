@@ -229,11 +229,11 @@ static int
 pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render *ctx_render,
 			   struct drm_pvr_ioctl_create_context_args *args)
 {
-	struct rogue_fwif_geom_registers_caswitch *ctxswitch_regs;
+	struct rogue_fwif_static_rendercontext_state *static_rendercontext_state;
 	struct rogue_fwif_fwrendercontext *fw_render_context;
 	int err;
 
-	if (args->static_context_state_len != sizeof(*ctxswitch_regs)) {
+	if (args->static_context_state_len != sizeof(*static_rendercontext_state)) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -248,12 +248,11 @@ pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render 
 		goto err_out;
 	}
 
-	ctxswitch_regs =
-		&fw_render_context->static_render_context_state.ctxswitch_regs[0];
+	static_rendercontext_state = &fw_render_context->static_render_context_state;
 
 	/* Copy static render context state from userspace. */
-	if (copy_from_user(ctxswitch_regs, u64_to_user_ptr(args->static_context_state),
-			   sizeof(*ctxswitch_regs))) {
+	if (copy_from_user(static_rendercontext_state, u64_to_user_ptr(args->static_context_state),
+			   sizeof(*static_rendercontext_state))) {
 		err = -EFAULT;
 		goto err_destroy_gem_object;
 	}
