@@ -9,7 +9,9 @@
 #include <linux/types.h>
 
 const struct pvr_device_features pvr_device_4_V_2_51 = {
+	.has_common_store_size_in_dwords = true,
 	.has_isp_samples_per_pixel = true,
+	.has_max_partitions = true,
 	.has_meta = true,
 	.has_meta_coremem_size = true,
 	.has_num_clusters = true,
@@ -17,10 +19,13 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.has_slc_cache_line_size_in_bits = true,
 	.has_tile_size_x = true,
 	.has_tile_size_y = true,
+	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 	.has_xt_top_infrastructure = true,
 
+	.common_store_size_in_dwords = 1280U * 4U * 4U,
 	.isp_samples_per_pixel = 2,
+	.max_partitions = 8,
 	.meta = true,
 	.meta_coremem_size = 32,
 	.num_clusters = 2,
@@ -28,6 +33,7 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.slc_cache_line_size_in_bits = 512,
 	.tile_size_x = 32,
 	.tile_size_y = 32,
+	.usc_min_output_registers_per_pix = 2,
 	.virtual_address_space_bits = 40,
 };
 
@@ -50,7 +56,9 @@ struct pvr_device_enhancements pvr_device_enhancements_4_40_2_51 = {
 };
 
 const struct pvr_device_features pvr_device_33_V_11_3 = {
+	.has_common_store_size_in_dwords = true,
 	.has_isp_samples_per_pixel = true,
+	.has_max_partitions = true,
 	.has_mips = true,
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
@@ -60,9 +68,12 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.has_sys_bus_secure_reset = true,
 	.has_tile_size_x = true,
 	.has_tile_size_y = true,
+	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 
+	.common_store_size_in_dwords = 512U * 4U * 4U,
 	.isp_samples_per_pixel = 1,
+	.max_partitions = 4,
 	.mips = true,
 	.num_clusters = 1,
 	.phys_bus_width = 36,
@@ -70,6 +81,7 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.slc_cache_line_size_in_bits = 512,
 	.tile_size_x = 16,
 	.tile_size_y = 16,
+	.usc_min_output_registers_per_pix = 1,
 	.virtual_address_space_bits = 40,
 };
 
@@ -82,7 +94,9 @@ struct pvr_device_enhancements pvr_device_enhancements_33_15_11_3 = {
 };
 
 const struct pvr_device_features pvr_device_36_V_104_796 = {
+	.has_common_store_size_in_dwords = true,
 	.has_isp_samples_per_pixel = true,
+	.has_max_partitions = true,
 	.has_num_clusters = true,
 	.has_phys_bus_width = true,
 	.has_riscv_fw_processor = true,
@@ -92,9 +106,12 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_sys_bus_secure_reset = true,
 	.has_tile_size_x = true,
 	.has_tile_size_y = true,
+	.has_usc_min_output_registers_per_pix = true,
 	.has_virtual_address_space_bits = true,
 
+	.common_store_size_in_dwords = 1344U * 4U * 4U,
 	.isp_samples_per_pixel = 4,
+	.max_partitions = 16,
 	.num_clusters = 1,
 	.phys_bus_width = 36,
 	.riscv_fw_processor = true,
@@ -102,6 +119,7 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.slc_cache_line_size_in_bits = 512,
 	.tile_size_x = 16,
 	.tile_size_y = 16,
+	.usc_min_output_registers_per_pix = 2,
 	.virtual_address_space_bits = 40,
 };
 

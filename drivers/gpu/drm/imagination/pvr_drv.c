@@ -25,6 +25,7 @@
 #include <linux/export.h>
 #include <linux/fs.h>
 #include <linux/limits.h>
+#include <linux/minmax.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -219,6 +220,50 @@ pvr_fw_version_packed(u32 major, u32 minor)
 	return ((u64)major << 32) | minor;
 }
 
+static u32
+rogue_get_total_reserved_partition_size(struct pvr_device *pvr_dev)
+{
+	u32 max_partitions = 0;
+	u32 tile_size_x = 0;
+	u32 tile_size_y = 0;
+
+	PVR_FEATURE_VALUE(pvr_dev, tile_size_x, &tile_size_x);
+	PVR_FEATURE_VALUE(pvr_dev, tile_size_y, &tile_size_y);
+	PVR_FEATURE_VALUE(pvr_dev, max_partitions, &max_partitions);
+
+	if (tile_size_x == 16 && tile_size_y == 16) {
+		u32 usc_min_output_registers_per_pix = 0;
+
+		PVR_FEATURE_VALUE(pvr_dev, usc_min_output_registers_per_pix,
+				  &usc_min_output_registers_per_pix);
+
+		return tile_size_x * tile_size_y * max_partitions *
+		       usc_min_output_registers_per_pix;
+	}
+
+	return max_partitions * 1024;
+}
+
+static u32
+rogue_get_reserved_shared_size(struct pvr_device *pvr_dev)
+{
+	u32 common_store_size_in_dwords = 512 * 4 * 4;
+	u32 reserved_shared_size;
+
+	PVR_FEATURE_VALUE(pvr_dev, common_store_size_in_dwords, &common_store_size_in_dwords);
+
+	reserved_shared_size = common_store_size_in_dwords - (256U * 4U) -
+			       rogue_get_total_reserved_partition_size(pvr_dev);
+
+	if (PVR_HAS_QUIRK(pvr_dev, 44079)) {
+		u32 common_store_split_point = (768U * 4U * 4U);
+
+		return min(common_store_split_point - (256U * 4U), reserved_shared_size);
+	}
+
+	return reserved_shared_size;
+}
+
 /**
  * pvr_get_quirks0() - Get first word of quirks mask for the current GPU & FW
  * @pvr_dev: Device pointer
@@ -237,7 +282,6 @@ pvr_get_quirks0(struct pvr_device *pvr_dev)
 			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
 	} while (0)
 
-	PVR_SET_QUIRKS0_FLAG(pvr_dev, 44079);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48492);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48545);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 49927);
@@ -357,6 +401,12 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		break;
 	case DRM_PVR_PARAM_FREE_LIST_MIN_SIZE:
 		value = pvr_get_free_list_min_size(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_RESERVED_SHARED_SIZE:
+		value = rogue_get_reserved_shared_size(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE:
+		value = rogue_get_total_reserved_partition_size(pvr_dev);
 		break;
 	case DRM_PVR_PARAM_INVALID:
 	default:
