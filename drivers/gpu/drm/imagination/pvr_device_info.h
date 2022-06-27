@@ -19,6 +19,7 @@ struct pvr_device_features {
 	bool has_num_clusters : 1;
 	bool has_phys_bus_width : 1;
 	bool has_riscv_fw_processor : 1;
+	bool has_roguexe : 1;
 	bool has_simple_internal_parameter_format : 1;
 	bool has_slc_cache_line_size_in_bits : 1;
 	bool has_sys_bus_secure_reset : 1;
