@@ -186,7 +186,6 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
 #define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
 #define DRM_PVR_QUIRKS0_HAS_BRN51764 _BITULL(4)
 #define DRM_PVR_QUIRKS0_HAS_BRN62269 _BITULL(5)
-#define DRM_PVR_QUIRKS0_HAS_BRN66011 _BITULL(6)
 
 /**
  * DOC: Enhancements returned by %DRM_PVR_PARAM_ENHANCEMENTS0
@@ -274,6 +273,12 @@ enum drm_pvr_param {
 	 * This is a bitmask of %DRM_PVR_ENHANCEMENTS0_HAS_*.
 	 */
 	DRM_PVR_PARAM_ENHANCEMENTS0,
+
+	/*
+	 * @DRM_PVR_PARAM_FREE_LIST_MIN_SIZE: Minimum allowed free list size,
+	 * in pages.
+	 */
+	DRM_PVR_PARAM_FREE_LIST_MIN_SIZE,
 };
 
 /**
