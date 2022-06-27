@@ -180,7 +180,6 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
  * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
  *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
  */
-#define DRM_PVR_QUIRKS0_HAS_BRN44079 _BITULL(0)
 #define DRM_PVR_QUIRKS0_HAS_BRN48492 _BITULL(1)
 #define DRM_PVR_QUIRKS0_HAS_BRN48545 _BITULL(2)
 #define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
@@ -279,6 +278,17 @@ enum drm_pvr_param {
 	 * in pages.
 	 */
 	DRM_PVR_PARAM_FREE_LIST_MIN_SIZE,
+
+	/*
+	 * @DRM_PVR_PARAM_RESERVED_SHARED_SIZE: Reserved shared size, in dwords.
+	 */
+	DRM_PVR_PARAM_RESERVED_SHARED_SIZE,
+
+	/**
+	 * @DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE: Total reserved
+	 * partition size.
+	 */
+	DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE,
 };
 
 /**
