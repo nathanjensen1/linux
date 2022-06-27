@@ -5,8 +5,9 @@
 #include "pvr_debugfs.h"
 #include "pvr_device.h"
 #include "pvr_drv.h"
-#include "pvr_gem.h"
+#include "pvr_free_list.h"
 #include "pvr_fw.h"
+#include "pvr_gem.h"
 #include "pvr_job.h"
 #include "pvr_object.h"
 #include "pvr_power.h"
@@ -242,7 +243,6 @@ pvr_get_quirks0(struct pvr_device *pvr_dev)
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 49927);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 51764);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 62269);
-	PVR_SET_QUIRKS0_FLAG(pvr_dev, 66011);
 
 #undef PVR_SET_QUIRKS0_FLAG
 
@@ -354,6 +354,9 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		break;
 	case DRM_PVR_PARAM_ENHANCEMENTS0:
 		value = pvr_get_enhancements0(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_FREE_LIST_MIN_SIZE:
+		value = pvr_get_free_list_min_size(pvr_dev);
 		break;
 	case DRM_PVR_PARAM_INVALID:
 	default:
