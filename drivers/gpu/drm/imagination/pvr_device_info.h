@@ -13,6 +13,9 @@ struct pvr_device;
  */
 struct pvr_device_features {
 	bool has_common_store_size_in_dwords : 1;
+	bool has_compute : 1;
+	bool has_compute_overlap : 1;
+	bool has_isp_max_tiles_in_flight : 1;
 	bool has_isp_samples_per_pixel : 1;
 	bool has_max_partitions : 1;
 	bool has_meta : 1;
@@ -32,6 +35,7 @@ struct pvr_device_features {
 	bool has_xt_top_infrastructure : 1;
 
 	u32 common_store_size_in_dwords;
+	u16 isp_max_tiles_in_flight;
 	bool isp_samples_per_pixel;
 	u16 max_partitions;
 	bool meta;
@@ -70,6 +74,8 @@ struct pvr_device_quirks {
  */
 struct pvr_device_enhancements {
 	bool has_ern35421 : 1;
+	bool has_ern38020 : 1;
+	bool has_ern38748 : 1;
 	bool has_ern42064 : 1;
 };
 
