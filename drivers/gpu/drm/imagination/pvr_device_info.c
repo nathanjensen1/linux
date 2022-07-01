@@ -10,6 +10,9 @@
 
 const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.has_common_store_size_in_dwords = true,
+	.has_compute = true,
+	.has_compute_overlap = true,
+	.has_isp_max_tiles_in_flight = true,
 	.has_isp_samples_per_pixel = true,
 	.has_max_partitions = true,
 	.has_meta = true,
@@ -24,6 +27,7 @@ const struct pvr_device_features pvr_device_4_V_2_51 = {
 	.has_xt_top_infrastructure = true,
 
 	.common_store_size_in_dwords = 1280U * 4U * 4U,
+	.isp_max_tiles_in_flight = 4,
 	.isp_samples_per_pixel = 2,
 	.max_partitions = 8,
 	.meta = true,
@@ -52,11 +56,15 @@ const struct pvr_device_quirks pvr_device_quirks_4_40_2_51 = {
 
 struct pvr_device_enhancements pvr_device_enhancements_4_40_2_51 = {
 	.has_ern35421 = true,
+	.has_ern38020 = true,
+	.has_ern38748 = true,
 	.has_ern42064 = true,
 };
 
 const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.has_common_store_size_in_dwords = true,
+	.has_compute = true,
+	.has_isp_max_tiles_in_flight = true,
 	.has_isp_samples_per_pixel = true,
 	.has_max_partitions = true,
 	.has_mips = true,
@@ -72,6 +80,7 @@ const struct pvr_device_features pvr_device_33_V_11_3 = {
 	.has_virtual_address_space_bits = true,
 
 	.common_store_size_in_dwords = 512U * 4U * 4U,
+	.isp_max_tiles_in_flight = 1,
 	.isp_samples_per_pixel = 1,
 	.max_partitions = 4,
 	.mips = true,
@@ -91,10 +100,14 @@ const struct pvr_device_quirks pvr_device_quirks_33_15_11_3 = {
 
 struct pvr_device_enhancements pvr_device_enhancements_33_15_11_3 = {
 	.has_ern35421 = true,
+	.has_ern38748 = true,
 };
 
 const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_common_store_size_in_dwords = true,
+	.has_compute = true,
+	.has_compute_overlap = true,
+	.has_isp_max_tiles_in_flight = true,
 	.has_isp_samples_per_pixel = true,
 	.has_max_partitions = true,
 	.has_num_clusters = true,
@@ -110,6 +123,7 @@ const struct pvr_device_features pvr_device_36_V_104_796 = {
 	.has_virtual_address_space_bits = true,
 
 	.common_store_size_in_dwords = 1344U * 4U * 4U,
+	.isp_max_tiles_in_flight = 6,
 	.isp_samples_per_pixel = 4,
 	.max_partitions = 16,
 	.num_clusters = 1,
@@ -129,6 +143,7 @@ const struct pvr_device_quirks pvr_device_quirks_36_53_104_796 = {
 
 struct pvr_device_enhancements pvr_device_enhancements_36_53_104_796 = {
 	.has_ern35421 = true,
+	.has_ern38748 = true,
 };
 
 /**

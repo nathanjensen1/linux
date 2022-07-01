@@ -114,6 +114,23 @@
 	ROGUE_CR_FWCORE_ADDR_REMAP_CONFIG0_CBASE_CLRMSK
 #define FWCORE_ADDR_REMAP_CONFIG0_SIZE_ALIGNSHIFT (12U)
 
+#define ROGUE_MAX_COMPUTE_SHARED_REGISTERS (2 * 1024)
+#define ROGUE_MAX_VERTEX_SHARED_REGISTERS 1024
+#define ROGUE_MAX_PIXEL_SHARED_REGISTERS 1024
+#define ROGUE_CSRM_LINE_SIZE_IN_DWORDS (64 * 4 * 4)
+
+#define ROGUE_CDMCTRL_USC_COMMON_SIZE_ALIGNSIZE 64
+#define ROGUE_CDMCTRL_USC_COMMON_SIZE_UPPER 256
+
+/*
+ * The maximum amount of local memory which can be allocated by a single kernel
+ * (in dwords/32-bit registers).
+ *
+ * ROGUE_CDMCTRL_USC_COMMON_SIZE_ALIGNSIZE is in bytes so we divide by four.
+ */
+#define ROGUE_MAX_PER_KERNEL_LOCAL_MEM_SIZE_REGS ((ROGUE_CDMCTRL_USC_COMMON_SIZE_ALIGNSIZE * \
+						   ROGUE_CDMCTRL_USC_COMMON_SIZE_UPPER) >> 2)
+
 /*
  ******************************************************************************
  * WA HWBRNs

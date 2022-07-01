@@ -180,7 +180,6 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
  * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
  *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
  */
-#define DRM_PVR_QUIRKS0_HAS_BRN48492 _BITULL(1)
 #define DRM_PVR_QUIRKS0_HAS_BRN48545 _BITULL(2)
 #define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
 #define DRM_PVR_QUIRKS0_HAS_BRN51764 _BITULL(4)
@@ -289,6 +288,22 @@ enum drm_pvr_param {
 	 * partition size.
 	 */
 	DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE,
+
+	/**
+	 * @DRM_PVR_PARAM_NUM_PHANTOMS: Number of Phantoms present.
+	 */
+	DRM_PVR_PARAM_NUM_PHANTOMS,
+
+	/**
+	 * @DRM_PVR_PARAM_MAX_COEFFS: Maximum coefficients, in dwords.
+	 */
+	DRM_PVR_PARAM_MAX_COEFFS,
+
+	/**
+	 * @DRM_PVR_PARAM_CDM_MAX_LOCAL_MEM_SIZE_REGS: Maximum amount of local
+	 * memory available to a kernel, in dwords.
+	 */
+	DRM_PVR_PARAM_CDM_MAX_LOCAL_MEM_SIZE_REGS,
 };
 
 /**
