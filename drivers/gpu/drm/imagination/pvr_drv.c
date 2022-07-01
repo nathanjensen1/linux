@@ -25,6 +25,7 @@
 #include <linux/export.h>
 #include <linux/fs.h>
 #include <linux/limits.h>
+#include <linux/math.h>
 #include <linux/minmax.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
@@ -264,6 +265,70 @@ rogue_get_reserved_shared_size(struct pvr_device *pvr_dev)
 	return reserved_shared_size;
 }
 
+static inline u32
+rogue_get_num_phantoms(struct pvr_device *pvr_dev)
+{
+	u32 num_clusters = 1;
+
+	PVR_FEATURE_VALUE(pvr_dev, num_clusters, &num_clusters);
+
+	return ROGUE_REQ_NUM_PHANTOMS(num_clusters);
+}
+
+static inline u32
+rogue_get_max_coeffs(struct pvr_device *pvr_dev)
+{
+	u32 max_coeff_additional_portion = ROGUE_MAX_VERTEX_SHARED_REGISTERS;
+	u32 pending_allocation_shared_regs = 2U * 1024U;
+	u32 pending_allocation_coeff_regs = 0U;
+	u32 num_phantoms = rogue_get_num_phantoms(pvr_dev);
+	u32 tiles_in_flight = 0;
+	u32 max_coeff_pixel_portion;
+
+	PVR_FEATURE_VALUE(pvr_dev, isp_max_tiles_in_flight, &tiles_in_flight);
+	max_coeff_pixel_portion = DIV_ROUND_UP(tiles_in_flight, num_phantoms);
+	max_coeff_pixel_portion *= ROGUE_MAX_PIXEL_SHARED_REGISTERS;
+
+	/*
+	 * Compute tasks on cores with BRN48492 and without compute overlap may lock
+	 * up without two additional lines of coeffs.
+	 */
+	if (PVR_HAS_QUIRK(pvr_dev, 48492) && !PVR_HAS_FEATURE(pvr_dev, compute_overlap))
+		pending_allocation_coeff_regs = 2U * 1024U;
+
+	if (PVR_HAS_ENHANCEMENT(pvr_dev, 38748))
+		pending_allocation_shared_regs = 0;
+
+	if (PVR_HAS_ENHANCEMENT(pvr_dev, 38020) && PVR_HAS_FEATURE(pvr_dev, compute))
+		max_coeff_additional_portion += ROGUE_MAX_COMPUTE_SHARED_REGISTERS;
+
+	return rogue_get_reserved_shared_size(pvr_dev) + pending_allocation_coeff_regs -
+		(max_coeff_pixel_portion + max_coeff_additional_portion +
+		 pending_allocation_shared_regs);
+}
+
+static inline u32
+rogue_get_cdm_max_local_mem_size_regs(struct pvr_device *pvr_dev)
+{
+	u32 available_coeffs_in_dwords = rogue_get_max_coeffs(pvr_dev);
+
+	if (PVR_HAS_QUIRK(pvr_dev, 48492) && PVR_HAS_FEATURE(pvr_dev, roguexe) &&
+	    !PVR_HAS_FEATURE(pvr_dev, compute_overlap)) {
+		/* Driver must not use the 2 reserved lines. */
+		available_coeffs_in_dwords -= ROGUE_CSRM_LINE_SIZE_IN_DWORDS * 2;
+	}
+
+	/*
+	 * The maximum amount of local memory available to a kernel is the minimum
+	 * of the total number of coefficient registers available and the max common
+	 * store allocation size which can be made by the CDM.
+	 *
+	 * If any coeff lines are reserved for tessellation or pixel then we need to
+	 * subtract those too.
+	 */
+	return min(available_coeffs_in_dwords, (u32)ROGUE_MAX_PER_KERNEL_LOCAL_MEM_SIZE_REGS);
+}
+
 /**
  * pvr_get_quirks0() - Get first word of quirks mask for the current GPU & FW
  * @pvr_dev: Device pointer
@@ -282,7 +347,6 @@ pvr_get_quirks0(struct pvr_device *pvr_dev)
 			value |= DRM_PVR_QUIRKS0_HAS_BRN ## quirk; \
 	} while (0)
 
-	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48492);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 48545);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 49927);
 	PVR_SET_QUIRKS0_FLAG(pvr_dev, 51764);
@@ -407,6 +471,15 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		break;
 	case DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE:
 		value = rogue_get_total_reserved_partition_size(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_NUM_PHANTOMS:
+		value = rogue_get_num_phantoms(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_MAX_COEFFS:
+		value = rogue_get_max_coeffs(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_CDM_MAX_LOCAL_MEM_SIZE_REGS:
+		value = rogue_get_cdm_max_local_mem_size_regs(pvr_dev);
 		break;
 	case DRM_PVR_PARAM_INVALID:
 	default:
