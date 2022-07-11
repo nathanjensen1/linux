@@ -76,11 +76,8 @@ OFFSET_CHECK(struct rogue_fwif_cmd_frag, regs, 16);
 OFFSET_CHECK(struct rogue_fwif_cmd_frag, flags, 472);
 OFFSET_CHECK(struct rogue_fwif_cmd_frag, zls_stride, 476);
 OFFSET_CHECK(struct rogue_fwif_cmd_frag, sls_stride, 480);
-OFFSET_CHECK(struct rogue_fwif_cmd_frag, deprecated1, 484);
-OFFSET_CHECK(struct rogue_fwif_cmd_frag, deprecated2, 485);
-OFFSET_CHECK(struct rogue_fwif_cmd_frag, deprecated3, 486);
-OFFSET_CHECK(struct rogue_fwif_cmd_frag, execute_count, 488);
-SIZE_CHECK(struct rogue_fwif_cmd_frag, 496);
+OFFSET_CHECK(struct rogue_fwif_cmd_frag, execute_count, 484);
+SIZE_CHECK(struct rogue_fwif_cmd_frag, 488);
 
 
 OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu_border_colour_table, 0);
