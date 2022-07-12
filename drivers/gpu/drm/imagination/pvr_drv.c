@@ -299,7 +299,7 @@ rogue_get_max_coeffs(struct pvr_device *pvr_dev)
 	if (PVR_HAS_ENHANCEMENT(pvr_dev, 38748))
 		pending_allocation_shared_regs = 0;
 
-	if (PVR_HAS_ENHANCEMENT(pvr_dev, 38020) && PVR_HAS_FEATURE(pvr_dev, compute))
+	if (PVR_HAS_ENHANCEMENT(pvr_dev, 38020))
 		max_coeff_additional_portion += ROGUE_MAX_COMPUTE_SHARED_REGISTERS;
 
 	return rogue_get_reserved_shared_size(pvr_dev) + pending_allocation_coeff_regs -
