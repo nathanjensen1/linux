@@ -463,8 +463,8 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 	case DRM_PVR_PARAM_ENHANCEMENTS0:
 		value = pvr_get_enhancements0(pvr_dev);
 		break;
-	case DRM_PVR_PARAM_FREE_LIST_MIN_SIZE:
-		value = pvr_get_free_list_min_size(pvr_dev);
+	case DRM_PVR_PARAM_FREE_LIST_MIN_PAGES:
+		value = pvr_get_free_list_min_pages(pvr_dev);
 		break;
 	case DRM_PVR_PARAM_RESERVED_SHARED_SIZE:
 		value = rogue_get_reserved_shared_size(pvr_dev);

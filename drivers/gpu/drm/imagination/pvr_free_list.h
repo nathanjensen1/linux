@@ -101,7 +101,7 @@ pvr_free_list_create(struct pvr_file *pvr_file,
 void pvr_free_list_destroy(struct pvr_free_list *free_list);
 
 u32
-pvr_get_free_list_min_size(struct pvr_device *pvr_dev);
+pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
 
 /**
  * pvr_free_list_get() - Get free list pointer from handle
