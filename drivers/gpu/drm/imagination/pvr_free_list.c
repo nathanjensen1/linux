@@ -17,29 +17,29 @@
 #define FREE_LIST_ALIGNMENT \
 	((ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE / FREE_LIST_ENTRY_SIZE) - 1)
 
-#define FREE_LIST_MIN_SIZE 25
-#define FREE_LIST_MIN_SIZE_BRN66011 40
-#define FREE_LIST_MIN_SIZE_ROGUEXE 25
+#define FREE_LIST_MIN_PAGES 25
+#define FREE_LIST_MIN_PAGES_BRN66011 40
+#define FREE_LIST_MIN_PAGES_ROGUEXE 25
 
 /**
- * pvr_get_free_list_min_size() - Get minimum free list size for this device
+ * pvr_get_free_list_min_pages() - Get minimum free list size for this device
  * @pvr_dev: Device pointer.
  *
  * Returns:
  *  * Minimum free list size, in PM physical pages.
  */
 u32
-pvr_get_free_list_min_size(struct pvr_device *pvr_dev)
+pvr_get_free_list_min_pages(struct pvr_device *pvr_dev)
 {
 	u32 value;
 
 	if (PVR_HAS_FEATURE(pvr_dev, roguexe)) {
 		if (PVR_HAS_QUIRK(pvr_dev, 66011))
-			value = FREE_LIST_MIN_SIZE_BRN66011;
+			value = FREE_LIST_MIN_PAGES_BRN66011;
 		else
-			value = FREE_LIST_MIN_SIZE_ROGUEXE;
+			value = FREE_LIST_MIN_PAGES_ROGUEXE;
 	} else {
-		value = FREE_LIST_MIN_SIZE;
+		value = FREE_LIST_MIN_PAGES;
 	}
 
 	return value;
