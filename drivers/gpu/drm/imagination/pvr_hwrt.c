@@ -43,11 +43,12 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 			   struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
 			   struct pvr_hwrt_dataset *hwrt)
 {
+	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	int err;
 	int i;
 
 	hwrt->base.type = DRM_PVR_OBJECT_TYPE_HWRT_DATASET;
-	hwrt->pvr_dev = pvr_file->pvr_dev;
+	hwrt->pvr_dev = pvr_dev;
 
 	/* Get pointers to the free lists */
 	for (i = 0; i < ARRAY_SIZE(hwrt->free_lists); i++) {
@@ -56,6 +57,12 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 			err = -EINVAL;
 			goto err_put_free_lists;
 		}
+	}
+
+	if (hwrt->free_lists[ROGUE_FW_LOCAL_FREELIST]->current_pages <
+	    pvr_get_free_list_min_pages(pvr_dev)) {
+		err = -EINVAL;
+		goto err_put_free_lists;
 	}
 
 	return 0;
