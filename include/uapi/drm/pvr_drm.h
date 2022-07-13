@@ -547,7 +547,12 @@ struct drm_pvr_ioctl_create_hwrt_dataset_args {
 	/** @rt_data_args: [IN] Array of render target arguments. */
 	struct create_hwrt_rt_data_args rt_data_args[2];
 
-	/** @free_list_args: [IN] Array of free list handles. */
+	/**
+	 * @free_list_args: [IN] Array of free list handles.
+	 *
+	 * free_list_handles[0] must have initial size of at least that reported
+	 * by %DRM_PVR_PARAM_FREE_LIST_MIN_PAGES.
+	 */
 	__u32 free_list_handles[2];
 
 	/** @width: [IN] Width in pixels. */
