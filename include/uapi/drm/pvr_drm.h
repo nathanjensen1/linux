@@ -279,15 +279,18 @@ enum drm_pvr_param {
 	DRM_PVR_PARAM_FREE_LIST_MIN_PAGES,
 
 	/*
-	 * @DRM_PVR_PARAM_RESERVED_SHARED_SIZE: Reserved shared size, in dwords.
+	 * @DRM_PVR_PARAM_COMMON_STORE_ALLOC_REGION_SIZE: Size of the Allocation
+	 * Region within the Common Store used for coefficient and shared
+	 * registers, in dwords.
 	 */
-	DRM_PVR_PARAM_RESERVED_SHARED_SIZE,
+	DRM_PVR_PARAM_COMMON_STORE_ALLOC_REGION_SIZE,
 
 	/**
-	 * @DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE: Total reserved
-	 * partition size.
+	 * @DRM_PVR_PARAM_COMMON_STORE_PARTITION_SPACE_SIZE: Size of the
+	 * Partition Space within the Common Store for output buffers, in
+	 * dwords.
 	 */
-	DRM_PVR_PARAM_TOTAL_RESERVED_PARTITION_SIZE,
+	DRM_PVR_PARAM_COMMON_STORE_PARTITION_SPACE_SIZE,
 
 	/**
 	 * @DRM_PVR_PARAM_NUM_PHANTOMS: Number of Phantoms present.
