@@ -189,12 +189,6 @@ struct rogue_fwif_cmd_frag {
 struct rogue_fwif_compute_regs {
 	u64 tpu_border_colour_table;
 
-	/* Only used when feature COMPUTE_MORTON_CAPABLE present. */
-	u64 cdm_item;
-
-	/* Only used when feature CLUSTER_GROUPING present. */
-	u64 compute_cluster;
-
 	/* Only used when feature TPU_DM_GLOBAL_REGISTERS present. */
 	u64 tpu_tag_cdm_ctrl;
 
@@ -221,6 +215,12 @@ struct rogue_fwif_compute_regs {
 	/* Only used when BRN 49927 is present. */
 	u32 tpu;
 	u32 cdm_resume_pds1;
+
+	/* Only used when feature COMPUTE_MORTON_CAPABLE present. */
+	u32 cdm_item;
+
+	/* Only used when feature CLUSTER_GROUPING present. */
+	u32 compute_cluster;
 };
 
 struct rogue_fwif_cmd_compute {
