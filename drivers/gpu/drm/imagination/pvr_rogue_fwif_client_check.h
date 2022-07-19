@@ -81,25 +81,25 @@ SIZE_CHECK(struct rogue_fwif_cmd_frag, 488);
 
 
 OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu_border_colour_table, 0);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_item, 8);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, compute_cluster, 16);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu_tag_cdm_ctrl, 24);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_queue, 32);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_secure_queue, 40);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_base, 48);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb, 56);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_ctrl_stream_base, 64);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_context_state_base_addr, 72);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu, 80);
-OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_resume_pds1, 84);
-SIZE_CHECK(struct rogue_fwif_compute_regs, 88);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu_tag_cdm_ctrl, 8);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_queue, 16);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_secure_queue, 24);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb_base, 32);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_cb, 40);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_ctrl_stream_base, 48);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_context_state_base_addr, 56);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, tpu, 64);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_resume_pds1, 68);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, cdm_item, 72);
+OFFSET_CHECK(struct rogue_fwif_compute_regs, compute_cluster, 76);
+SIZE_CHECK(struct rogue_fwif_compute_regs, 80);
 
 OFFSET_CHECK(struct rogue_fwif_cmd_compute, common, 0);
 OFFSET_CHECK(struct rogue_fwif_cmd_compute, regs, 8);
-OFFSET_CHECK(struct rogue_fwif_cmd_compute, flags, 96);
-OFFSET_CHECK(struct rogue_fwif_cmd_compute, num_temp_regions, 100);
-OFFSET_CHECK(struct rogue_fwif_cmd_compute, stream_start_offset, 104);
-OFFSET_CHECK(struct rogue_fwif_cmd_compute, execute_count, 108);
-SIZE_CHECK(struct rogue_fwif_cmd_compute, 112);
+OFFSET_CHECK(struct rogue_fwif_cmd_compute, flags, 88);
+OFFSET_CHECK(struct rogue_fwif_cmd_compute, num_temp_regions, 92);
+OFFSET_CHECK(struct rogue_fwif_cmd_compute, stream_start_offset, 96);
+OFFSET_CHECK(struct rogue_fwif_cmd_compute, execute_count, 100);
+SIZE_CHECK(struct rogue_fwif_cmd_compute, 104);
 
 #endif /* __PVR_ROGUE_FWIF_CLIENT_CHECK_H__ */
