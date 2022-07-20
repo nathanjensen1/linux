@@ -180,6 +180,7 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
  * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
  *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
  */
+#define DRM_PVR_QUIRKS0_HAS_BRN47217 _BITULL(0)
 #define DRM_PVR_QUIRKS0_HAS_BRN48545 _BITULL(2)
 #define DRM_PVR_QUIRKS0_HAS_BRN49927 _BITULL(3)
 #define DRM_PVR_QUIRKS0_HAS_BRN51764 _BITULL(4)
