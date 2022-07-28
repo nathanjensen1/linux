@@ -17,6 +17,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/gfp.h>
+#include <linux/iosys-map.h>
 #include <linux/log2.h>
 #include <linux/mutex.h>
 #include <linux/pagemap.h>
@@ -449,7 +450,7 @@ pvr_gem_object_vmap_prot(struct pvr_gem_object *pvr_obj, bool sync_to_cpu,
 	int err;
 
 	if (gem_obj->import_attach) {
-		struct dma_buf_map map;
+		struct iosys_map map;
 
 		err = dma_buf_vmap(gem_obj->import_attach->dmabuf, &map);
 		if (err)
@@ -549,7 +550,7 @@ pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, void *cpu_ptr,
 	}
 
 	if (gem_obj->import_attach) {
-		struct dma_buf_map map = DMA_BUF_MAP_INIT_VADDR(cpu_ptr);
+		struct iosys_map map = IOSYS_MAP_INIT_VADDR(cpu_ptr);
 
 		dma_buf_vunmap(gem_obj->import_attach->dmabuf, &map);
 	} else {
