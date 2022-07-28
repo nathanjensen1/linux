@@ -276,7 +276,7 @@ get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
 		dma_fence_get(fence);
 
 	for (i = 0; i < job->num_bos; i++)
-		dma_resv_add_excl_fence(job->bos[i]->resv, out_fence);
+		dma_resv_add_fence(job->bos[i]->resv, out_fence, DMA_RESV_USAGE_WRITE);
 
 	drm_gem_unlock_reservations(job->bos, job->num_bos, &acquire_ctx);
 
