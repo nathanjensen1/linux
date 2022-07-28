@@ -22,6 +22,85 @@
 #include <linux/xarray.h>
 #include <uapi/drm/pvr_drm.h>
 
+/**
+ * fence_array_add() - Adds the fence to an array of fences to be waited on,
+ *                     deduplicating fences from the same context.
+ * @fence_array: array of dma_fence * for the job to block on.
+ * @fence: the dma_fence to add to the list of dependencies.
+ *
+ * This functions consumes the reference for @fence both on success and error
+ * cases.
+ *
+ * Returns:
+ *  * 0 on success, or an error on failing to expand the array.
+ */
+static int
+fence_array_add(struct xarray *fence_array, struct dma_fence *fence)
+{
+	struct dma_fence *entry;
+	unsigned long index;
+	u32 id = 0;
+	int ret;
+
+	if (!fence)
+		return 0;
+
+	/* Deduplicate if we already depend on a fence from the same context.
+	 * This lets the size of the array of deps scale with the number of
+	 * engines involved, rather than the number of BOs.
+	 */
+	xa_for_each(fence_array, index, entry) {
+		if (entry->context != fence->context)
+			continue;
+
+		if (dma_fence_is_later(fence, entry)) {
+			dma_fence_put(entry);
+			xa_store(fence_array, index, fence, GFP_KERNEL);
+		} else {
+			dma_fence_put(fence);
+		}
+		return 0;
+	}
+
+	ret = xa_alloc(fence_array, &id, fence, xa_limit_32b, GFP_KERNEL);
+	if (ret != 0)
+		dma_fence_put(fence);
+
+	return ret;
+}
+
+/**
+ * fence_array_add_implicit() - Adds the implicit dependencies tracked in the
+ *                              GEM object's reservation object to an array of
+ *                              dma_fences for use in scheduling a rendering job.
+ * @fence_array: array of dma_fence * for the job to block on.
+ * @obj: the gem object to add new dependencies from.
+ * @write: whether the job might write the object (so we need to depend on
+ *         shared fences in the reservation object).
+ *
+ * This should be called after drm_gem_lock_reservations() on your array of
+ * GEM objects used in the job but before updating the reservations with your
+ * own fences.
+ *
+ * Returns:
+ *  * 0 on success, or an error on failing to expand the array.
+ */
+static int
+fence_array_add_implicit(struct xarray *fence_array, struct drm_gem_object *obj,
+			 bool write)
+{
+	struct dma_resv_iter cursor;
+	struct dma_fence *fence;
+	int ret = 0;
+
+	dma_resv_for_each_fence(&cursor, obj->resv, write, fence) {
+		ret = fence_array_add(fence_array, fence);
+		if (ret)
+			break;
+	}
+	return ret;
+}
+
 static u32 *
 get_syncobj_handles(u32 num_in_syncobj_handles, u64 in_syncobj_handles_p)
 {
@@ -75,7 +154,7 @@ import_fences(struct pvr_file *pvr_file, u32 *in_syncobj_handles, u32 num_in_syn
 			goto err_release_fences;
 		}
 
-		err = drm_gem_fence_array_add(in_fences, pvr_fence);
+		err = fence_array_add(in_fences, pvr_fence);
 		if (err)
 			goto err_release_fences;
 	}
@@ -185,9 +264,8 @@ get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
 	xa_init_flags(&implicit_fences, XA_FLAGS_ALLOC);
 
 	for (i = 0; i < job->num_bos; i++) {
-		err = drm_gem_fence_array_add_implicit(&implicit_fences, job->bos[i],
-						       job->bo_refs[i].flags &
-						       DRM_PVR_BO_REF_WRITE);
+		err = fence_array_add_implicit(&implicit_fences, job->bos[i],
+					       job->bo_refs[i].flags & DRM_PVR_BO_REF_WRITE);
 		if (err) {
 			drm_gem_unlock_reservations(job->bos, job->num_bos, &acquire_ctx);
 			goto err_release_implicit_fences;
@@ -215,7 +293,7 @@ get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
 			goto err_release_fences;
 		}
 
-		err = drm_gem_fence_array_add(imported_implicit_fences, pvr_fence);
+		err = fence_array_add(imported_implicit_fences, pvr_fence);
 		if (err) {
 			dma_fence_put(pvr_fence);
 			goto err_release_fences;
