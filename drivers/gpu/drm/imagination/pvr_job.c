@@ -363,6 +363,7 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	struct rogue_fwif_ufo out_ufo;
 	struct xarray in_fences;
 	u32 ctx_fw_addr;
+	u32 ufo_nr = 0;
 	int err;
 
 	pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr);
@@ -387,7 +388,6 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		struct dma_fence *fence;
 		unsigned long id;
-		u32 ufo_nr = 0;
 
 		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
 				    &in_fences, &ctx_geom->cccb.pvr_fence_context);
@@ -403,7 +403,6 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		if (num_implicit_fences) {
 			xa_for_each(implicit_fences, id, fence) {
 				pvr_fence_add_fence_dependency(out_fence, fence);
-
 				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
 				if (err)
 					goto err_kfree_in_ufos;
@@ -414,7 +413,6 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		xa_for_each(&in_fences, id, fence) {
 			pvr_fence_add_fence_dependency(out_fence, fence);
-
 			err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
 			if (err)
 				goto err_kfree_in_ufos;
@@ -425,10 +423,10 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	pvr_cccb_lock(&ctx_geom->cccb);
 
-	if (num_in_fences) {
+	if (ufo_nr) {
 		err = pvr_cccb_write_command_with_header(&ctx_geom->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 num_in_fences * sizeof(*in_ufos), in_ufos,
+							 ufo_nr * sizeof(*in_ufos), in_ufos,
 							 args->ext_job_ref, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
@@ -498,6 +496,7 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	struct rogue_fwif_ufo out_ufo;
 	struct xarray in_fences;
 	u32 ctx_fw_addr;
+	u32 ufo_nr = 0;
 	int err;
 
 	pvr_gem_get_fw_addr(hwrt->fw_obj, &cmd_shared->hwrt_data_fw_addr);
@@ -531,7 +530,6 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		struct dma_fence *fence;
 		unsigned long id;
-		u32 ufo_nr = 0;
 
 		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
 				    &in_fences, &ctx_frag->cccb.pvr_fence_context);
@@ -569,10 +567,10 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	pvr_cccb_lock(&ctx_frag->cccb);
 
-	if (num_in_fences) {
+	if (ufo_nr) {
 		err = pvr_cccb_write_command_with_header(&ctx_frag->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 num_in_fences * sizeof(*in_ufos), in_ufos,
+							 ufo_nr * sizeof(*in_ufos), in_ufos,
 							 args->ext_job_ref, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
@@ -655,6 +653,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	struct rogue_fwif_ufo out_ufo;
 	struct xarray in_fences;
 	u32 ctx_fw_addr;
+	u32 ufo_nr = 0;
 	int err;
 
 	pvr_gem_get_fw_addr(ctx_compute->fw_obj, &ctx_fw_addr);
@@ -677,7 +676,6 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		struct dma_fence *fence;
 		unsigned long id;
-		u32 ufo_nr = 0;
 
 		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
 				    &in_fences, &ctx_compute->cccb.pvr_fence_context);
@@ -718,7 +716,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		err = pvr_cccb_write_command_with_header(&ctx_compute->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 num_in_fences * sizeof(*in_ufos),
+							 ufo_nr * sizeof(*in_ufos),
 							 in_ufos, args->ext_job_ref, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
