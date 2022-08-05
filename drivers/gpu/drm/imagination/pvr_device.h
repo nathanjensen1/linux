@@ -8,6 +8,8 @@
 #include "pvr_device_info.h"
 #include "pvr_fw.h"
 #include "pvr_params.h"
+#include "pvr_rogue_fwif_stream.h"
+#include "pvr_stream.h"
 #include "pvr_vendor.h"
 #include "pvr_vm.h"
 
@@ -211,6 +213,9 @@ struct pvr_device {
 	 *          modified at runtime via debugfs (if enabled).
 	 */
 	struct pvr_device_params params;
+
+	/** @stream_musthave_quirks: Bit array of "must-have" quirks for stream commands. */
+	u32 stream_musthave_quirks[PVR_STREAM_TYPE_MAX][PVR_STREAM_EXTHDR_TYPE_MAX];
 };
 
 /**
