@@ -8,6 +8,7 @@
 #include "pvr_params.h"
 #include "pvr_power.h"
 #include "pvr_rogue_cr_defs.h"
+#include "pvr_stream.h"
 
 #include <drm/drm_print.h>
 
@@ -510,6 +511,8 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 		err = -EINVAL;
 		goto err_out;
 	}
+
+	pvr_stream_create_musthave_masks(pvr_dev);
 
 	err = pvr_set_dma_info(pvr_dev);
 	if (err)

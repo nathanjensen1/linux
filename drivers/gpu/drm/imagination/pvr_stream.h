@@ -10,6 +10,14 @@
 
 struct pvr_device;
 
+enum pvr_stream_type {
+	PVR_STREAM_TYPE_GEOM = 0,
+	PVR_STREAM_TYPE_FRAG,
+	PVR_STREAM_TYPE_COMPUTE,
+
+	PVR_STREAM_TYPE_MAX
+};
+
 enum pvr_stream_size {
 	PVR_STREAM_SIZE_8 = 0,
 	PVR_STREAM_SIZE_16,
@@ -42,6 +50,8 @@ struct pvr_stream_ext_header {
 };
 
 struct pvr_stream_cmd_defs {
+	enum pvr_stream_type type;
+
 	const struct pvr_stream_def *main_stream;
 	u32 main_stream_len;
 
@@ -55,5 +65,8 @@ int
 pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
 		   void *stream, u32 stream_size, void *ext_stream, u32 ext_steam_size,
 		   void **out_p);
+
+void
+pvr_stream_create_musthave_masks(struct pvr_device *pvr_dev);
 
 #endif /* __PVR_STREAM_H__ */
