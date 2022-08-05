@@ -82,6 +82,8 @@ static const struct pvr_stream_ext_header cmd_geom_ext_headers[] = {
 };
 
 const struct pvr_stream_cmd_defs pvr_cmd_geom_stream = {
+	.type = PVR_STREAM_TYPE_GEOM,
+
 	.main_stream = rogue_fwif_cmd_geom_stream,
 	.main_stream_len = ARRAY_SIZE(rogue_fwif_cmd_geom_stream),
 
@@ -160,6 +162,8 @@ static const struct pvr_stream_ext_header cmd_frag_ext_headers[] = {
 };
 
 const struct pvr_stream_cmd_defs pvr_cmd_frag_stream = {
+	.type = PVR_STREAM_TYPE_FRAG,
+
 	.main_stream = rogue_fwif_cmd_frag_stream,
 	.main_stream_len = ARRAY_SIZE(rogue_fwif_cmd_frag_stream),
 
@@ -215,6 +219,8 @@ static const struct pvr_stream_ext_header cmd_compute_ext_headers[] = {
 };
 
 const struct pvr_stream_cmd_defs pvr_cmd_compute_stream = {
+	.type = PVR_STREAM_TYPE_COMPUTE,
+
 	.main_stream = rogue_fwif_cmd_compute_stream,
 	.main_stream_len = ARRAY_SIZE(rogue_fwif_cmd_compute_stream),
 
