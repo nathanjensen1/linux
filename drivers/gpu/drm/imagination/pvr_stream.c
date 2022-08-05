@@ -134,15 +134,20 @@ pvr_stream_process_ext_stream(struct pvr_device *pvr_dev,
 			      const struct pvr_stream_cmd_defs *cmd_defs, void *ext_stream,
 			      u32 ext_stream_size, void *dest)
 {
+	u32 musthave_masks[PVR_STREAM_EXTHDR_TYPE_MAX];
 	u32 stream_offset = 0;
 	u32 ext_header;
 	int err = 0;
+	u32 i;
+
+	/* Copy "must have" mask from device. We clear this as we process the stream. */
+	memcpy(musthave_masks, pvr_dev->stream_musthave_quirks[cmd_defs->type],
+	       sizeof(musthave_masks));
 
 	do {
 		const struct pvr_stream_ext_header *header;
 		u32 type;
 		u32 data;
-		u32 i;
 
 		err = pvr_stream_get_data(ext_stream, &stream_offset, ext_stream_size, sizeof(u32),
 					  sizeof(ext_header), &ext_header);
@@ -163,6 +168,8 @@ pvr_stream_process_ext_stream(struct pvr_device *pvr_dev,
 			goto err_out;
 		}
 
+		musthave_masks[type] &= ~data;
+
 		for (i = 0; i < header->ext_streams_num; i++) {
 			const struct pvr_stream_ext_def *ext_def = &header->ext_streams[i];
 
@@ -182,6 +189,17 @@ pvr_stream_process_ext_stream(struct pvr_device *pvr_dev,
 				goto err_out;
 		}
 	} while (ext_header & PVR_STREAM_EXTHDR_CONTINUATION);
+
+	/*
+	 * Verify that "must have" mask is now zero. If it isn't then one of the "must have" quirks
+	 * for this command was not present.
+	 */
+	for (i = 0; i < cmd_defs->ext_nr_headers; i++) {
+		if (musthave_masks[i]) {
+			err = -EINVAL;
+			goto err_out;
+		}
+	}
 
 err_out:
 	return err;
@@ -234,6 +252,19 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 						    dest);
 		if (err)
 			goto err_free_dest;
+	} else {
+		u32 i;
+
+		/*
+		 * If we don't have an extension stream then there must not be any "must have"
+		 * quirks for this command.
+		 */
+		for (i = 0; i < cmd_defs->ext_nr_headers; i++) {
+			if (pvr_dev->stream_musthave_quirks[cmd_defs->type][i]) {
+				err = -EINVAL;
+				goto err_out;
+			}
+		}
 	}
 
 	*dest_out = dest;
@@ -247,3 +278,26 @@ err_out:
 	return err;
 }
 
+/**
+ * pvr_stream_create_musthave_masks() - Create "must have" masks for streams based on current device
+ *                                      quirks
+ * @pvr_dev: Device pointer.
+ */
+void
+pvr_stream_create_musthave_masks(struct pvr_device *pvr_dev)
+{
+	memset(pvr_dev->stream_musthave_quirks, 0, sizeof(pvr_dev->stream_musthave_quirks));
+
+	if (pvr_device_has_uapi_quirk(pvr_dev, DRM_PVR_QUIRK_BRN47217))
+		pvr_dev->stream_musthave_quirks[PVR_STREAM_TYPE_FRAG][0] |=
+			PVR_STREAM_EXTHDR_FRAG0_BRN47217;
+
+	if (pvr_device_has_uapi_quirk(pvr_dev, DRM_PVR_QUIRK_BRN49927)) {
+		pvr_dev->stream_musthave_quirks[PVR_STREAM_TYPE_GEOM][0] |=
+			PVR_STREAM_EXTHDR_GEOM0_BRN49927;
+		pvr_dev->stream_musthave_quirks[PVR_STREAM_TYPE_FRAG][0] |=
+			PVR_STREAM_EXTHDR_FRAG0_BRN49927;
+		pvr_dev->stream_musthave_quirks[PVR_STREAM_TYPE_COMPUTE][0] |=
+			PVR_STREAM_EXTHDR_COMPUTE0_BRN49927;
+	}
+}
