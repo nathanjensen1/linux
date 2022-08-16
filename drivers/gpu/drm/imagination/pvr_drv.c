@@ -517,7 +517,7 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 	u32 handle;
 	int err;
 
-	if (args->flags || args->_padding_1c || !args->static_context_state) {
+	if (args->flags || args->_padding_1c) {
 		/* Context creation flags are currently unused and must be zero. */
 		err = -EINVAL;
 		goto err_out;
@@ -531,6 +531,11 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 
 	case DRM_PVR_CTX_TYPE_COMPUTE: {
 		err = pvr_create_compute_context(pvr_file, args, &handle);
+		break;
+	}
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG: {
+		err = pvr_create_transfer_context(pvr_file, args, &handle);
 		break;
 	}
 

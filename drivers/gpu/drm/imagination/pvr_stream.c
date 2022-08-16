@@ -231,7 +231,7 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 	int err;
 
 	if (!stream || !stream_size || (!ext_stream && ext_stream_size) ||
-	    (ext_stream && !ext_stream_size)) {
+	    (ext_stream && !ext_stream_size) || (ext_stream && !cmd_defs->ext_nr_headers)) {
 		err = -EINVAL;
 		goto err_out;
 	}

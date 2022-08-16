@@ -9,5 +9,6 @@
 extern const struct pvr_stream_cmd_defs pvr_cmd_geom_stream;
 extern const struct pvr_stream_cmd_defs pvr_cmd_frag_stream;
 extern const struct pvr_stream_cmd_defs pvr_cmd_compute_stream;
+extern const struct pvr_stream_cmd_defs pvr_cmd_transfer_stream;
 
 #endif /* __PVR_STREAM_DEFS_H__ */
