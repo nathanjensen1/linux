@@ -914,7 +914,12 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		err = -EINVAL;
 		goto err_put_hwrt;
 	}
+	/* to_pvr_context_render() will validate the context type. */
 	ctx_render = to_pvr_context_render(job->ctx);
+	if (!ctx_render) {
+		err = -EINVAL;
+		goto err_put_context;
+	}
 
 	out_fence = pvr_fence_create(render_args->frag_stream ?
 					&ctx_render->ctx_frag.cccb.pvr_fence_context :
@@ -1070,7 +1075,12 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 		err = -EINVAL;
 		goto err_free_syncobj;
 	}
+	/* to_pvr_context_compute() will validate the context type. */
 	ctx_compute = to_pvr_context_compute(job->ctx);
+	if (!ctx_compute) {
+		err = -EINVAL;
+		goto err_put_context;
+	}
 
 	out_fence = pvr_fence_create(&ctx_compute->cccb.pvr_fence_context);
 	if (IS_ERR(out_fence)) {
