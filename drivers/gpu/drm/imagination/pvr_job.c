@@ -769,6 +769,139 @@ err_out:
 	return err;
 }
 
+static int
+submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
+		    struct pvr_context_transfer *ctx_transfer,
+		    struct drm_pvr_ioctl_submit_job_args *args,
+		    struct drm_pvr_job_transfer_args *transfer_args,
+		    struct rogue_fwif_cmd_transfer *cmd_transfer, u32 *syncobj_handles,
+		    struct xarray *implicit_fences, u32 num_implicit_fences,
+		    struct dma_fence *out_fence)
+{
+	u32 num_in_syncobj_handles = transfer_args->num_in_syncobj_handles;
+	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
+	struct drm_syncobj *out_syncobj;
+	struct rogue_fwif_ufo *in_ufos;
+	struct rogue_fwif_ufo out_ufo;
+	struct xarray in_fences;
+	u32 ctx_fw_addr;
+	u32 ufo_nr = 0;
+	int err;
+
+	pvr_gem_get_fw_addr(ctx_transfer->fw_obj, &ctx_fw_addr);
+
+	err = pvr_fence_to_ufo(out_fence, &out_ufo);
+	if (err)
+		goto err_out;
+
+	if (transfer_args->out_syncobj) {
+		out_syncobj = drm_syncobj_find(from_pvr_file(pvr_file),
+					       transfer_args->out_syncobj);
+		if (!out_syncobj) {
+			err = -ENOENT;
+			goto err_out;
+		}
+	}
+
+	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
+
+	if (num_in_fences) {
+		struct dma_fence *fence;
+		unsigned long id;
+
+		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
+				    &in_fences, &ctx_transfer->cccb.pvr_fence_context);
+		if (err)
+			goto err_put_out_syncobj;
+
+		in_ufos = kcalloc(num_in_fences, sizeof(*in_ufos), GFP_KERNEL);
+		if (!in_ufos) {
+			err = -EINVAL;
+			goto err_release_fences;
+		}
+
+		if (num_implicit_fences) {
+			xa_for_each(implicit_fences, id, fence) {
+				pvr_fence_add_fence_dependency(out_fence, fence);
+
+				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
+				if (err)
+					goto err_kfree_in_ufos;
+
+				ufo_nr++;
+			}
+		}
+
+		xa_for_each(&in_fences, id, fence) {
+			pvr_fence_add_fence_dependency(out_fence, fence);
+
+			err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
+			if (err)
+				goto err_kfree_in_ufos;
+
+			ufo_nr++;
+		}
+	}
+
+	pvr_cccb_lock(&ctx_transfer->cccb);
+
+	if (num_in_fences) {
+		err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb,
+							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+							 ufo_nr * sizeof(*in_ufos),
+							 in_ufos, args->ext_job_ref, 0);
+		if (err)
+			goto err_cccb_unlock_rollback;
+	}
+
+	/* Submit job to FW */
+	err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb, ROGUE_FWIF_CCB_CMD_TYPE_TQ_3D,
+						 sizeof(*cmd_transfer), cmd_transfer,
+						 args->ext_job_ref, 0);
+	if (err)
+		goto err_cccb_unlock_rollback;
+
+	err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb,
+						 ROGUE_FWIF_CCB_CMD_TYPE_UPDATE,
+						 sizeof(out_ufo), &out_ufo, args->ext_job_ref, 0);
+	if (err)
+		goto err_cccb_unlock_rollback;
+
+	err = pvr_cccb_unlock_send_kccb_kick(pvr_dev, &ctx_transfer->cccb, ctx_fw_addr, NULL);
+	if (err)
+		goto err_cccb_unlock_rollback;
+
+	/* Signal completion of transfer job */
+	if (transfer_args->out_syncobj) {
+		drm_syncobj_replace_fence(out_syncobj, out_fence);
+		drm_syncobj_put(out_syncobj);
+	}
+
+	release_fences(&in_fences, false);
+
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
+
+	return 0;
+
+err_cccb_unlock_rollback:
+	pvr_cccb_unlock_rollback(&ctx_transfer->cccb);
+
+err_kfree_in_ufos:
+	if (num_in_syncobj_handles)
+		kfree(in_ufos);
+
+err_release_fences:
+	release_fences(&in_fences, true);
+
+err_put_out_syncobj:
+	if (transfer_args->out_syncobj)
+		drm_syncobj_put(out_syncobj);
+
+err_out:
+	return err;
+}
+
 static int pvr_fw_cmd_init(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *stream_def,
 			   u64 stream_userptr, u32 stream_len, u64 ext_stream_userptr,
 			   u32 ext_stream_len, void **cmd_out)
@@ -1138,6 +1271,119 @@ err_out:
 	return err;
 }
 
+static int
+pvr_process_job_transfer(struct pvr_device *pvr_dev,
+			 struct pvr_file *pvr_file,
+			 struct drm_pvr_ioctl_submit_job_args *args,
+			 struct drm_pvr_job_transfer_args *transfer_args,
+			 struct pvr_job *job)
+{
+	struct rogue_fwif_cmd_transfer *cmd_transfer;
+	struct pvr_context_transfer *ctx_transfer;
+	struct xarray imported_implicit_fences;
+	u32 *syncobj_handles = NULL;
+	struct dma_fence *out_fence;
+	u32 num_implicit_fences;
+	int err;
+
+	if (transfer_args->flags & ~DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_FLAGS_MASK) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	/* Copy commands from userspace. */
+	if (!transfer_args->stream) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_transfer_stream, transfer_args->stream,
+			      transfer_args->stream_len, transfer_args->ext_stream,
+			      transfer_args->ext_stream_len, (void **)&cmd_transfer);
+	if (err)
+		goto err_out;
+
+	cmd_transfer->common.frame_num = args->frame_num;
+	cmd_transfer->flags = transfer_args->flags;
+
+	if (transfer_args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(transfer_args->num_in_syncobj_handles,
+						      transfer_args->in_syncobj_handles);
+
+		if (IS_ERR(syncobj_handles)) {
+			err = PTR_ERR(syncobj_handles);
+			goto err_free_cmd_transfer;
+		}
+	}
+
+	job->ctx = pvr_context_get(pvr_file, args->context_handle);
+	if (!job->ctx) {
+		err = -EINVAL;
+		goto err_free_syncobj;
+	}
+
+	ctx_transfer = to_pvr_context_transfer_frag(job->ctx);
+	if (!ctx_transfer) {
+		err = -EINVAL;
+		goto err_put_context;
+	}
+
+	out_fence = pvr_fence_create(&ctx_transfer->cccb.pvr_fence_context);
+	if (IS_ERR(out_fence)) {
+		err = PTR_ERR(out_fence);
+		goto err_put_context;
+	}
+
+	xa_init_flags(&imported_implicit_fences, XA_FLAGS_ALLOC);
+
+	err = get_bos(pvr_file, job, transfer_args->num_bo_handles, transfer_args->bo_handles);
+	if (err)
+		goto err_put_out_fence;
+
+	err = get_implicit_fences(job, &ctx_transfer->cccb.pvr_fence_context, out_fence,
+				  &imported_implicit_fences, &num_implicit_fences);
+	if (err)
+		goto err_release_bos;
+
+	err = submit_cmd_transfer(pvr_dev, pvr_file, ctx_transfer, args, transfer_args,
+				  cmd_transfer, syncobj_handles, &imported_implicit_fences,
+				  num_implicit_fences, out_fence);
+	if (err)
+		goto err_release_implicit_fences;
+
+	dma_fence_put(out_fence);
+	release_implicit_fences(job, &imported_implicit_fences, false);
+	release_bos(job);
+	pvr_context_put(job->ctx);
+
+	kfree(cmd_transfer);
+
+	return 0;
+
+err_release_implicit_fences:
+	release_implicit_fences(job, &imported_implicit_fences, true);
+
+err_release_bos:
+	release_bos(job);
+
+err_put_out_fence:
+	/* As out_fence will now never be signaled, we need to drop two references here. */
+	pvr_fence_deactivate_and_put(out_fence);
+	dma_fence_put(out_fence);
+
+err_put_context:
+	pvr_context_put(job->ctx);
+
+err_free_syncobj:
+	kfree(syncobj_handles);
+
+err_free_cmd_transfer:
+	kfree(cmd_transfer);
+
+err_out:
+	return err;
+}
+
 /**
  * pvr_submit_job() - Submit a job to the GPU
  * @pvr_dev: Target PowerVR device.
@@ -1196,6 +1442,21 @@ pvr_submit_job(struct pvr_device *pvr_dev,
 		}
 
 		err = pvr_process_job_compute(pvr_dev, pvr_file, args, &compute_args, job);
+		if (err)
+			goto err_free;
+		break;
+	}
+
+	case DRM_PVR_JOB_TYPE_TRANSFER_FRAG: {
+		struct drm_pvr_job_transfer_args transfer_args;
+
+		if (copy_from_user(&transfer_args, u64_to_user_ptr(args->data),
+				   sizeof(transfer_args))) {
+			err = -EFAULT;
+			goto err_free;
+		}
+
+		err = pvr_process_job_transfer(pvr_dev, pvr_file, args, &transfer_args, job);
 		if (err)
 			goto err_free;
 		break;

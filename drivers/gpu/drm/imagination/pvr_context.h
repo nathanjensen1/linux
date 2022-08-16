@@ -116,12 +116,37 @@ struct pvr_context_compute {
 	struct pvr_cccb cccb;
 };
 
+/**
+ * struct pvr_context_transfer - Transfer context data
+ */
+struct pvr_context_transfer {
+	/** @base: Base context structure. */
+	struct pvr_context base;
+
+	/** @fw_obj: FW object representing FW-side context data. */
+	struct pvr_fw_object *fw_obj;
+
+	/** @ctx_id: FW context ID. */
+	u32 ctx_id;
+
+	/**
+	 * @ctx_state_obj: FW object representing context register state.
+	 */
+	struct pvr_fw_object *ctx_state_obj;
+
+	/** @cccb: Client Circular Command Buffer. */
+	struct pvr_cccb cccb;
+};
+
 int pvr_create_render_context(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_context_args *args,
 			      u32 *handle_out);
 int pvr_create_compute_context(struct pvr_file *pvr_file,
 			       struct drm_pvr_ioctl_create_context_args *args,
 			       u32 *handle_out);
+int pvr_create_transfer_context(struct pvr_file *pvr_file,
+				struct drm_pvr_ioctl_create_context_args *args,
+				u32 *handle_out);
 
 static __always_inline struct pvr_context *
 from_pvr_context_render(struct pvr_context_render *ctx_render)
@@ -151,6 +176,21 @@ to_pvr_context_compute(struct pvr_context *ctx)
 		return NULL;
 
 	return container_of(ctx, struct pvr_context_compute, base);
+}
+
+static __always_inline struct pvr_context *
+from_pvr_context_transfer(struct pvr_context_transfer *ctx_context)
+{
+	return &ctx_context->base;
+};
+
+static __always_inline struct pvr_context_transfer *
+to_pvr_context_transfer_frag(struct pvr_context *ctx)
+{
+	if (ctx->type != DRM_PVR_CTX_TYPE_TRANSFER_FRAG)
+		return NULL;
+
+	return container_of(ctx, struct pvr_context_transfer, base);
 }
 
 /**

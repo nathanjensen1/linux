@@ -368,6 +368,12 @@ enum drm_pvr_ctx_type {
 	 * drm_pvr_ioctl_create_compute_context_args for context creation arguments.
 	 */
 	DRM_PVR_CTX_TYPE_COMPUTE,
+
+	/**
+	 * @DRM_PVR_CTX_TYPE_TRANSFER_FRAG: Transfer context for fragment data masters. Use
+	 * &struct drm_pvr_ioctl_create_transfer_context_args for context creation arguments.
+	 */
+	DRM_PVR_CTX_TYPE_TRANSFER_FRAG,
 };
 
 /* clang-format on */
@@ -1125,11 +1131,85 @@ struct drm_pvr_job_compute_args {
 };
 
 /**
+ * DOC: Flags for SUBMIT_JOB ioctl transfer command.
+ */
+#define DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_FLAGS_MASK 0
+
+/*
+ * struct drm_pvr_job_transfer_args - Arguments for %DRM_PVR_JOB_TYPE_TRANSFER_FRAG
+ */
+struct drm_pvr_job_transfer_args {
+	/**
+	 * @stream: [IN] Pointer to main stream for transfer command.
+	 *
+	 * The main stream must be u64-aligned.
+	 */
+	__u64 stream;
+
+	/**
+	 * @ext_stream: [IN] Pointer to extension stream for transfer command.
+	 *
+	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
+	 * affect transfer commands; if not provided, this must be set to %NULL.
+	 *
+	 * The extension stream must be u64-aligned.
+	 */
+	__u64 ext_stream;
+
+	/**
+	 * @stream_len: [IN] Length of transfer command stream, in bytes.
+	 */
+	__u32 stream_len;
+
+	/**
+	 * @ext_stream_len: [IN] Length of transfer command extension stream, in bytes.
+	 */
+	__u32 ext_stream_len;
+
+	/**
+	 * @in_syncobj_handles: [IN] Pointer to array of drm_syncobj handles for input fences.
+	 *
+	 * This array must be &num_in_syncobj_handles entries large.
+	 */
+	__u64 in_syncobj_handles;
+
+	/**
+	 * @bo_handles: [IN] Pointer to array of struct drm_pvr_bo_ref.
+	 *
+	 * This array must be &num_bo_handles entries large.
+	 */
+	__u64 bo_handles;
+
+	/**
+	 * @num_in_syncobj_handles: [IN] Number of input syncobj handles.
+	 */
+	__u32 num_in_syncobj_handles;
+
+	/**
+	 * @num_bo_handles: [IN] Number of DRM Buffer Objects.
+	 *
+	 * This detemines the size of the array &bo_handles points to.
+	 */
+	__u32 num_bo_handles;
+
+	/**
+	 * @flags: [IN] Flags for command.
+	 */
+	__u32 flags;
+
+	/**
+	 * @out_syncobj: [OUT] drm_syncobj handle for output fence
+	 */
+	__u32 out_syncobj;
+};
+
+/**
  * enum drm_pvr_job_type - Arguments for &drm_pvr_ioctl_submit_job_args.job_type
  */
 enum drm_pvr_job_type {
 	DRM_PVR_JOB_TYPE_RENDER = 0,
 	DRM_PVR_JOB_TYPE_COMPUTE,
+	DRM_PVR_JOB_TYPE_TRANSFER_FRAG,
 };
 
 /**

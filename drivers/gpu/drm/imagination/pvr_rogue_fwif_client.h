@@ -238,6 +238,60 @@ struct rogue_fwif_cmd_compute {
 	u32 execute_count;
 };
 
+struct rogue_fwif_transfer_regs {
+	/*
+	 * All 32 bit values should be added in the top section. This then requires only a
+	 * single RGXFW_ALIGN to align all the 64 bit values in the second section.
+	 */
+	u32 isp_bgobjvals;
+
+	u32 usc_pixel_output_ctrl;
+	u32 usc_clear_register0;
+	u32 usc_clear_register1;
+	u32 usc_clear_register2;
+	u32 usc_clear_register3;
+
+	u32 isp_mtile_size;
+	u32 isp_render_origin;
+	u32 isp_ctl;
+
+	/* Only used when feature S7_TOP_INFRASTRUCTURE present. */
+	u32 isp_xtp_pipe_enable;
+	u32 isp_aa;
+
+	u32 event_pixel_pds_info;
+
+	u32 event_pixel_pds_code;
+	u32 event_pixel_pds_data;
+
+	u32 isp_render;
+	u32 isp_rgn;
+
+	/* Only used when feature GPU_MULTICORE_SUPPORT present. */
+	u32 frag_screen;
+
+	/* All values below the aligned_u64 must be 64 bit. */
+	aligned_u64 pds_bgnd0_base;
+	u64 pds_bgnd1_base;
+	u64 pds_bgnd3_sizeinfo;
+
+	u64 isp_mtile_base;
+#define ROGUE_PBE_WORDS_REQUIRED_FOR_TQS 3
+	/* TQ_MAX_RENDER_TARGETS * PBE_STATE_SIZE */
+	u64 pbe_wordx_mrty[3U * ROGUE_PBE_WORDS_REQUIRED_FOR_TQS];
+};
+
+struct rogue_fwif_cmd_transfer {
+	/* Common command attributes */
+	struct rogue_fwif_cmd_common common __aligned(8);
+
+	struct rogue_fwif_transfer_regs regs __aligned(8);
+
+	u32 flags;
+
+	u32 padding;
+};
+
 #include "pvr_rogue_fwif_client_check.h"
 
 #endif /* __PVR_ROGUE_FWIF_CLIENT_H__ */

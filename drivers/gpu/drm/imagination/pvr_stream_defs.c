@@ -230,3 +230,41 @@ const struct pvr_stream_cmd_defs pvr_cmd_compute_stream = {
 
 	.dest_size = sizeof(struct rogue_fwif_cmd_compute),
 };
+
+static const struct pvr_stream_def rogue_fwif_cmd_transfer_stream[] = {
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.pds_bgnd0_base, 64),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.pds_bgnd1_base, 64),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.pds_bgnd3_sizeinfo, 64),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_mtile_base, 64),
+	PVR_STREAM_DEF_ARRAY(rogue_fwif_cmd_transfer, regs.pbe_wordx_mrty),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_bgobjvals, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.usc_pixel_output_ctrl, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.usc_clear_register0, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.usc_clear_register1, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.usc_clear_register2, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.usc_clear_register3, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_mtile_size, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_render_origin, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_ctl, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_aa, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.event_pixel_pds_info, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.event_pixel_pds_code, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.event_pixel_pds_data, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_render, 32),
+	PVR_STREAM_DEF(rogue_fwif_cmd_transfer, regs.isp_rgn, 32),
+	PVR_STREAM_DEF_FEATURE(rogue_fwif_cmd_transfer, regs.isp_xtp_pipe_enable, 32,
+			       PVR_FEATURE_S7_TOP_INFRASTRUCTURE),
+	PVR_STREAM_DEF_FEATURE(rogue_fwif_cmd_transfer, regs.frag_screen, 32,
+			       PVR_FEATURE_GPU_MULTICORE_SUPPORT),
+};
+
+const struct pvr_stream_cmd_defs pvr_cmd_transfer_stream = {
+	.type = PVR_STREAM_TYPE_TRANSFER,
+
+	.main_stream = rogue_fwif_cmd_transfer_stream,
+	.main_stream_len = ARRAY_SIZE(rogue_fwif_cmd_transfer_stream),
+
+	.ext_nr_headers = 0,
+
+	.dest_size = sizeof(struct rogue_fwif_cmd_transfer),
+};
