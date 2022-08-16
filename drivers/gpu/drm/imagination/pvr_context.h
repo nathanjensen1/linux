@@ -132,6 +132,9 @@ from_pvr_context_render(struct pvr_context_render *ctx_render)
 static __always_inline struct pvr_context_render *
 to_pvr_context_render(struct pvr_context *ctx)
 {
+	if (ctx->type != DRM_PVR_CTX_TYPE_RENDER)
+		return NULL;
+
 	return container_of(ctx, struct pvr_context_render, base);
 }
 
@@ -144,6 +147,9 @@ from_pvr_context_compute(struct pvr_context_compute *ctx_context)
 static __always_inline struct pvr_context_compute *
 to_pvr_context_compute(struct pvr_context *ctx)
 {
+	if (ctx->type != DRM_PVR_CTX_TYPE_COMPUTE)
+		return NULL;
+
 	return container_of(ctx, struct pvr_context_compute, base);
 }
 
