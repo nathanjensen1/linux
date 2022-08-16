@@ -101,4 +101,33 @@ OFFSET_CHECK(struct rogue_fwif_cmd_compute, stream_start_offset, 88);
 OFFSET_CHECK(struct rogue_fwif_cmd_compute, execute_count, 92);
 SIZE_CHECK(struct rogue_fwif_cmd_compute, 96);
 
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_bgobjvals, 0);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, usc_pixel_output_ctrl, 4);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, usc_clear_register0, 8);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, usc_clear_register1, 12);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, usc_clear_register2, 16);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, usc_clear_register3, 20);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_mtile_size, 24);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_render_origin, 28);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_ctl, 32);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_xtp_pipe_enable, 36);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_aa, 40);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, event_pixel_pds_info, 44);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, event_pixel_pds_code, 48);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, event_pixel_pds_data, 52);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_render, 56);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_rgn, 60);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, frag_screen, 64);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, pds_bgnd0_base, 72);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, pds_bgnd1_base, 80);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, pds_bgnd3_sizeinfo, 88);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, isp_mtile_base, 96);
+OFFSET_CHECK(struct rogue_fwif_transfer_regs, pbe_wordx_mrty, 104);
+SIZE_CHECK(struct rogue_fwif_transfer_regs, 176);
+
+OFFSET_CHECK(struct rogue_fwif_cmd_transfer, common, 0);
+OFFSET_CHECK(struct rogue_fwif_cmd_transfer, regs, 8);
+OFFSET_CHECK(struct rogue_fwif_cmd_transfer, flags, 184);
+SIZE_CHECK(struct rogue_fwif_cmd_transfer, 192);
+
 #endif /* __PVR_ROGUE_FWIF_CLIENT_CHECK_H__ */
