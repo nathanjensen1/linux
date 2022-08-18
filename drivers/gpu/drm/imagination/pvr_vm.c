@@ -4014,6 +4014,17 @@ static const struct pvr_heap pvr_heaps[] = {
 		.static_data_areas = NULL,
 		.nr_static_data_areas = 0,
 	},
+	{
+		.id = DRM_PVR_HEAP_TRANSFER_FRAG,
+		.flags = 0,
+		.base = ROGUE_TRANSFER_FRAG_HEAP_BASE,
+		.size = ROGUE_TRANSFER_FRAG_HEAP_SIZE,
+		.static_data_carveout_base = 0,
+		.static_data_carveout_size = 0,
+		.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
+		.static_data_areas = NULL,
+		.nr_static_data_areas = 0,
+	},
 };
 
 static const struct pvr_heap rgnhdr_heap = {

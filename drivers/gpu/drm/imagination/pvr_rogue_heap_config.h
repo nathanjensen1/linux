@@ -89,8 +89,13 @@
 /* 0xE2_0000_0000 - 0xE3_FFFF_FFFF */
 /* 904 GiB to 912 GiB, size of 8 GiB : FREE */
 
-/* 0xE4_0000_0000 - 0xF1_FFFF_FFFF */
-/* 912 GiB to 968 GiB, size of 56 GiB : RESERVED */
+/* 0xE4_0000_0000 - 0xE7_FFFF_FFFF */
+/* 912 GiB to 968 GiB, size of 16 GiB : TRANSFER_FRAG */
+#define ROGUE_TRANSFER_FRAG_HEAP_BASE 0xE400000000ull
+#define ROGUE_TRANSFER_FRAG_HEAP_SIZE SZ_16G
+
+/* 0xE8_0000_0000 - 0xF1_FFFF_FFFF */
+/* 928 GiB to 968 GiB, size of 40 GiB : RESERVED */
 
 /* 0xF2_0000_0000 - 0xF2_001F_FFFF **/
 /* 968 GiB to 969 GiB, size of 2 MiB : VISTEST_HEAP */

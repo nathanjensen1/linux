@@ -678,6 +678,8 @@ enum drm_pvr_heap_id {
 	DRM_PVR_HEAP_RGNHDR,
 	/** @DRM_PVR_HEAP_VIS_TEST: Visibility test heap. */
 	DRM_PVR_HEAP_VIS_TEST,
+	/** @DRM_PVR_HEAP_TRANSFER_FRAG: Transfer fragment heap. */
+	DRM_PVR_HEAP_TRANSFER_FRAG,
 };
 
 /*
