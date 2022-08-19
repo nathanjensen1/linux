@@ -122,6 +122,8 @@ pvr_init_frag_context(struct pvr_context_render *ctx_render,
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
 	struct pvr_file *pvr_file = ctx_render->base.pvr_file;
 	struct pvr_context_frag *ctx_frag = &ctx_render->ctx_frag;
+	u32 num_isp_store_registers;
+	size_t frag_ctx_state_size;
 	int err;
 
 	ctx_frag->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
@@ -130,7 +132,24 @@ pvr_init_frag_context(struct pvr_context_render *ctx_render,
 	if (err)
 		goto err_out;
 
-	err = pvr_gem_create_fw_object(pvr_dev, sizeof(struct rogue_fwif_frag_ctx_state),
+	if (PVR_HAS_FEATURE(pvr_dev, xe_memory_hierarchy)) {
+		WARN_ON(PVR_FEATURE_VALUE(pvr_dev, num_raster_pipes, &num_isp_store_registers));
+
+		if (PVR_HAS_FEATURE(pvr_dev, gpu_multicore_support)) {
+			u32 xpu_max_slaves;
+
+			WARN_ON(PVR_FEATURE_VALUE(pvr_dev, xpu_max_slaves, &xpu_max_slaves));
+
+			num_isp_store_registers *= (1 + xpu_max_slaves);
+		}
+	} else {
+		WARN_ON(PVR_FEATURE_VALUE(pvr_dev, num_isp_ipp_pipes, &num_isp_store_registers));
+	}
+
+	frag_ctx_state_size = sizeof(struct rogue_fwif_frag_ctx_state) + num_isp_store_registers *
+			      sizeof(((struct rogue_fwif_frag_ctx_state *)0)->frag_reg_isp_store[0]);
+
+	err = pvr_gem_create_fw_object(pvr_dev, frag_ctx_state_size,
 				       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 				       DRM_PVR_BO_CREATE_ZEROED, &ctx_frag->ctx_state_obj);
 	if (err)

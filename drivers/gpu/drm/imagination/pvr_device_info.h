@@ -29,6 +29,8 @@ struct pvr_device_features {
 	bool has_meta_coremem_size : 1;
 	bool has_mips : 1;
 	bool has_num_clusters : 1;
+	bool has_num_isp_ipp_pipes : 1;
+	bool has_num_raster_pipes : 1;
 	bool has_phys_bus_width : 1;
 	bool has_riscv_fw_processor : 1;
 	bool has_roguexe : 1;
@@ -44,6 +46,8 @@ struct pvr_device_features {
 	bool has_vdm_drawindirect : 1;
 	bool has_vdm_object_level_lls : 1;
 	bool has_virtual_address_space_bits : 1;
+	bool has_xe_memory_hierarchy : 1;
+	bool has_xpu_max_slaves : 1;
 	bool has_xt_top_infrastructure : 1;
 	bool has_zls_subtile : 1;
 
@@ -57,6 +61,8 @@ struct pvr_device_features {
 	u32 meta_coremem_size;
 	bool mips;
 	u16 num_clusters;
+	u8 num_isp_ipp_pipes;
+	u8 num_raster_pipes;
 	u16 phys_bus_width;
 	bool riscv_fw_processor;
 	u32 simple_internal_parameter_format;
@@ -65,6 +71,7 @@ struct pvr_device_features {
 	u16 tile_size_y;
 	u16 usc_min_output_registers_per_pix;
 	u16 virtual_address_space_bits;
+	u8 xpu_max_slaves;
 };
 
 /**
