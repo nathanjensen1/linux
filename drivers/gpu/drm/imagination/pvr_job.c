@@ -15,6 +15,8 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_syncobj.h>
 #include <linux/dma-fence.h>
+#include <linux/dma-fence-array.h>
+#include <linux/dma-fence-unwrap.h>
 #include <linux/dma-resv.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -1077,8 +1079,8 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_put_geom_fence;
 
 	err = get_implicit_fences(job, render_args->geom_stream ?
-				       &ctx_render->ctx_geom.cccb.pvr_fence_context :
-				       &ctx_render->ctx_frag.cccb.pvr_fence_context,
+				  &ctx_render->ctx_geom.cccb.pvr_fence_context :
+				  &ctx_render->ctx_frag.cccb.pvr_fence_context,
 				  out_fence, &imported_implicit_fences, &num_implicit_fences);
 	if (err)
 		goto err_release_bos;
@@ -1384,6 +1386,138 @@ err_out:
 	return err;
 }
 
+static int
+pvr_process_job_null(struct pvr_device *pvr_dev,
+		     struct pvr_file *pvr_file,
+		     struct drm_pvr_ioctl_submit_job_args *args,
+		     struct drm_pvr_job_null_args *null_args,
+		     struct pvr_job *job)
+{
+	struct drm_syncobj *out_syncobj;
+	struct xarray in_fences;
+	u32 num_in_fences = 0;
+	u32 *syncobj_handles = NULL;
+	struct dma_fence_array *fence_array;
+	struct dma_fence **in_fence_array;
+	struct dma_fence *fence;
+	unsigned long id;
+	u32 array_idx = 0;
+	int err;
+	u32 i;
+
+	if (null_args->flags & ~DRM_PVR_SUBMIT_JOB_NULL_CMD_FLAGS_MASK ||
+	    !null_args->out_syncobj || null_args->_padding_14 || args->context_handle) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	out_syncobj = drm_syncobj_find(from_pvr_file(pvr_file),
+				       null_args->out_syncobj);
+	if (!out_syncobj) {
+		err = -ENOENT;
+		goto err_out;
+	}
+
+	if (null_args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(null_args->num_in_syncobj_handles,
+						      null_args->in_syncobj_handles);
+
+		if (IS_ERR(syncobj_handles)) {
+			err = PTR_ERR(syncobj_handles);
+			goto err_put_syncobj;
+		}
+	}
+
+	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
+
+	for (i = 0; i < null_args->num_in_syncobj_handles; i++) {
+		err = drm_syncobj_find_fence(from_pvr_file(pvr_file),
+					     syncobj_handles[i], 0, 0, &fence);
+		if (err)
+			goto err_release_in_fences;
+
+		err = fence_array_add(&in_fences, fence);
+		if (err) {
+			dma_fence_put(fence);
+			goto err_release_in_fences;
+		}
+	}
+
+	xa_for_each(&in_fences, id, fence) {
+		struct dma_fence *unwrapped_fence;
+		struct dma_fence_unwrap iter;
+
+		dma_fence_unwrap_for_each(unwrapped_fence, &iter, fence)
+			num_in_fences++;
+	}
+
+	if (!num_in_fences) {
+		/* No input fences, just assign a stub fence. */
+		fence = dma_fence_allocate_private_stub();
+
+		if (IS_ERR(fence)) {
+			err = PTR_ERR(fence);
+			goto err_release_in_fences;
+		}
+
+		drm_syncobj_replace_fence(out_syncobj, fence);
+		drm_syncobj_put(out_syncobj);
+
+		dma_fence_put(fence);
+
+		return 0;
+	}
+
+	in_fence_array = kcalloc(num_in_fences, sizeof(*in_fence_array), GFP_KERNEL);
+	if (!in_fence_array) {
+		err = -ENOMEM;
+		goto err_release_in_fences;
+	}
+
+	xa_for_each(&in_fences, id, fence) {
+		struct dma_fence *unwrapped_fence;
+		struct dma_fence_unwrap iter;
+
+		dma_fence_unwrap_for_each(unwrapped_fence, &iter, fence) {
+			dma_fence_get(unwrapped_fence);
+			in_fence_array[array_idx++] = unwrapped_fence;
+		}
+	}
+
+	fence_array = dma_fence_array_create(array_idx, in_fence_array,
+					     pvr_dev->fence_context.fence_context,
+					     atomic_inc_return(&pvr_dev->fence_context.fence_id),
+					     false);
+	if (!fence_array) {
+		err = -ENOMEM;
+		goto err_free_in_fence_array;
+	}
+
+	/* dma_fence_array now owns in_fence_array[] and the fence references within it. */
+
+	drm_syncobj_replace_fence(out_syncobj, &fence_array->base);
+	drm_syncobj_put(out_syncobj);
+
+	dma_fence_put(&fence_array->base);
+	release_fences(&in_fences, false);
+
+	return 0;
+
+err_free_in_fence_array:
+	kfree(in_fence_array);
+
+err_release_in_fences:
+	release_fences(&in_fences, false);
+
+	kfree(syncobj_handles);
+
+err_put_syncobj:
+	drm_syncobj_put(out_syncobj);
+
+err_out:
+	return err;
+}
+
 /**
  * pvr_submit_job() - Submit a job to the GPU
  * @pvr_dev: Target PowerVR device.
@@ -1457,6 +1591,21 @@ pvr_submit_job(struct pvr_device *pvr_dev,
 		}
 
 		err = pvr_process_job_transfer(pvr_dev, pvr_file, args, &transfer_args, job);
+		if (err)
+			goto err_free;
+		break;
+	}
+
+	case DRM_PVR_JOB_TYPE_NULL: {
+		struct drm_pvr_job_null_args null_args;
+
+		if (copy_from_user(&null_args, u64_to_user_ptr(args->data),
+				   sizeof(null_args))) {
+			err = -EFAULT;
+			goto err_free;
+		}
+
+		err = pvr_process_job_null(pvr_dev, pvr_file, args, &null_args, job);
 		if (err)
 			goto err_free;
 		break;
