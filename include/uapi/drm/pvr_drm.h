@@ -1203,6 +1203,41 @@ struct drm_pvr_job_transfer_args {
 	__u32 out_syncobj;
 };
 
+/*
+ * DOC: Flags for SUBMIT_JOB ioctl null command.
+ */
+#define DRM_PVR_SUBMIT_JOB_NULL_CMD_FLAGS_MASK 0
+
+/*
+ * struct drm_pvr_job_null_args - Arguments for %DRM_PVR_JOB_TYPE_NULL
+ */
+struct drm_pvr_job_null_args {
+	/**
+	 * @in_syncobj_handles: [IN] Pointer to array of drm_syncobj handles for input fences.
+	 *
+	 * This array must be &num_in_syncobj_handles entries large.
+	 */
+	__u64 in_syncobj_handles;
+
+	/**
+	 * @num_in_syncobj_handles: [IN] Number of input syncobj handles.
+	 */
+	__u32 num_in_syncobj_handles;
+
+	/**
+	 * @flags: [IN] Flags for command.
+	 */
+	__u32 flags;
+
+	/**
+	 * @out_syncobj: [OUT] drm_syncobj handle for output fence
+	 */
+	__u32 out_syncobj;
+
+	/** @_padding_14: Reserved. This field must be zeroed. */
+	__u32 _padding_14;
+};
+
 /**
  * enum drm_pvr_job_type - Arguments for &drm_pvr_ioctl_submit_job_args.job_type
  */
@@ -1210,6 +1245,7 @@ enum drm_pvr_job_type {
 	DRM_PVR_JOB_TYPE_RENDER = 0,
 	DRM_PVR_JOB_TYPE_COMPUTE,
 	DRM_PVR_JOB_TYPE_TRANSFER_FRAG,
+	DRM_PVR_JOB_TYPE_NULL,
 };
 
 /**
@@ -1226,8 +1262,12 @@ struct drm_pvr_ioctl_submit_job_args {
 	/**
 	 * @context: [IN] Context handle.
 	 *
-	 * This must be a valid handle returned by %DRM_IOCTL_PVR_CREATE_CONTEXT. The type of
-	 * context must be compatible with the type of job being submitted.
+	 * When @job_type is %DRM_PVR_JOB_TYPE_RENDER, %DRM_PVR_JOB_TYPE_COMPUTE or
+	 * %DRM_PVR_JOB_TYPE_TRANSFER_FRAG, this must be a valid handle returned by
+	 * %DRM_IOCTL_PVR_CREATE_CONTEXT. The type of context must be compatible with the type of
+	 * job being submitted.
+	 *
+	 * When @job_type is %DRM_PVR_JOB_TYPE_NULL, this must be zero.
 	 */
 	__u32 context_handle;
 

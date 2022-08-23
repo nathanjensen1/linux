@@ -444,3 +444,51 @@ pvr_fence_deactivate_and_put(struct dma_fence *fence)
 		dma_fence_put(fence);
 	}
 }
+
+/**
+ * pvr_fence_add_fence_dependency() - Add dependency to pvr_fence
+ * @fence: Target fence.
+ * @dep_fence: Dependency to add.
+ *
+ * Dependency will be released when target fence is signalled or destroyed.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%EINVAL if provided fences are not pvr_fences, or
+ *  * -%EINVAL if dependency is already attached to a &struct pvr_fence.
+ */
+int
+pvr_fence_add_fence_dependency(struct dma_fence *fence, struct dma_fence *dep_fence)
+{
+	struct pvr_fence *pvr_dep_fence = to_pvr_fence(dep_fence);
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+	struct pvr_device *pvr_dev;
+	unsigned long flags;
+	int err;
+
+	if (!pvr_fence || !pvr_dep_fence) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	pvr_dev = pvr_fence->context->pvr_dev;
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+
+	if (!list_empty(&pvr_dep_fence->dep_head)) {
+		err = -EINVAL;
+		goto err_unlock;
+	}
+
+	dma_fence_get(dep_fence);
+	list_add_tail(&pvr_dep_fence->dep_head, &pvr_fence->dep_list);
+
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	return 0;
+
+err_unlock:
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+err_out:
+	return err;
+}

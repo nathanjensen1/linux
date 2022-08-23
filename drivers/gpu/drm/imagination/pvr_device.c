@@ -622,6 +622,8 @@ pvr_device_init(struct pvr_device *pvr_dev)
 
 	pm_runtime_put_autosuspend(dev);
 
+	pvr_fence_context_init(pvr_dev, &pvr_dev->fence_context, "misc");
+
 	return 0;
 
 err_device_irq_fini:
