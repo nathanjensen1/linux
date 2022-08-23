@@ -752,6 +752,15 @@ pvr_device_has_feature(struct pvr_device *pvr_dev, u32 feature)
 		return (cdm_control_stream_format >= 2 && cdm_control_stream_format <= 4);
 	}
 
+	case PVR_FEATURE_REQUIRES_FB_CDC_ZLS_SETUP:
+		if (PVR_HAS_FEATURE(pvr_dev, fbcdc_algorithm)) {
+			u8 fbcdc_algorithm = 0;
+
+			PVR_FEATURE_VALUE(pvr_dev, fbcdc_algorithm, &fbcdc_algorithm);
+			return (fbcdc_algorithm < 3 || PVR_HAS_FEATURE(pvr_dev, fb_cdc_v4));
+		}
+		return false;
+
 	default:
 		WARN(true, "Looking up undefined feature %u\n", feature);
 		return false;
