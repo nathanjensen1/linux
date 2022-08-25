@@ -433,6 +433,8 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_fwtransfercontext *fw_transfer_context;
+	size_t transfer_ctx_state_size;
+	u32 num_isp_store_registers;
 	int err;
 
 	err = pvr_cccb_init(pvr_dev, &ctx_transfer->cccb, CTX_TRANSFER_CCCB_SIZE_LOG2,
@@ -440,7 +442,16 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 	if (err)
 		goto err_out;
 
-	err = pvr_gem_create_fw_object(pvr_dev, sizeof(struct rogue_fwif_frag_ctx_state),
+	if (PVR_HAS_FEATURE(pvr_dev, xe_memory_hierarchy))
+		num_isp_store_registers = 1;
+	else
+		WARN_ON(PVR_FEATURE_VALUE(pvr_dev, num_isp_ipp_pipes, &num_isp_store_registers));
+
+	transfer_ctx_state_size = sizeof(struct rogue_fwif_frag_ctx_state) +
+				  num_isp_store_registers *
+				  sizeof(((struct rogue_fwif_frag_ctx_state *)0)->frag_reg_isp_store[0]);
+
+	err = pvr_gem_create_fw_object(pvr_dev, transfer_ctx_state_size,
 				       PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 				       DRM_PVR_BO_CREATE_ZEROED, &ctx_transfer->ctx_state_obj);
 	if (err)
