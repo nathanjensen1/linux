@@ -29,9 +29,8 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-/* Major and minor numbers for the supported version of the firmware. */
+/* Major number for the supported version of the firmware. */
 #define PVR_FW_VERSION_MAJOR 1
-#define PVR_FW_VERSION_MINOR 17
 
 /**
  * pvr_device_reg_init() - Initialize kernel access to a PowerVR device's
@@ -319,13 +318,12 @@ pvr_device_irq_fini(struct pvr_device *pvr_dev)
  * @pvr_dev: Target PowerVR device.
  * @base: First part of the filename.
  * @major: Major version number.
- * @minor: Minor version number.
  *
  * A PowerVR firmware filename consists of three parts separated by underscores
  * (``'_'``) along with a '.fw' file suffix. The first part is the exact value
  * of @base, the second part is the hardware version string derived from @pvr_fw
- * and the final part is the firmware version number constructed from @major and
- * @minor with a 'v' prefix, e.g. powervr/rogue_4.40.2.51_v1.14.fw.
+ * and the final part is the firmware version number constructed from @major with
+ * a 'v' prefix, e.g. powervr/rogue_4.40.2.51_v1.fw.
  *
  * The returned string will have been slab allocated and must be freed with
  * kfree().
@@ -336,12 +334,12 @@ pvr_device_irq_fini(struct pvr_device *pvr_dev)
  */
 static char *
 pvr_build_firmware_filename(struct pvr_device *pvr_dev, const char *base,
-			    u8 major, u8 minor)
+			    u8 major)
 {
 	struct pvr_gpu_id *gpu_id = &pvr_dev->gpu_id;
 
-	return kasprintf(GFP_KERNEL, "%s_%d.%d.%d.%d_v%d.%d.fw", base, gpu_id->b,
-			 gpu_id->v, gpu_id->n, gpu_id->c, major, minor);
+	return kasprintf(GFP_KERNEL, "%s_%d.%d.%d.%d_v%d.fw", base, gpu_id->b,
+			 gpu_id->v, gpu_id->n, gpu_id->c, major);
 }
 
 /**
@@ -364,8 +362,7 @@ pvr_request_firmware(struct pvr_device *pvr_dev)
 	int err;
 
 	filename = pvr_build_firmware_filename(pvr_dev, "powervr/rogue",
-					       PVR_FW_VERSION_MAJOR,
-					       PVR_FW_VERSION_MINOR);
+					       PVR_FW_VERSION_MAJOR);
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
 
