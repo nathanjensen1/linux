@@ -4,6 +4,7 @@
 #ifndef __PVR_FW_INFO_H__
 #define __PVR_FW_INFO_H__
 
+#include <linux/bits.h>
 #include <linux/sizes.h>
 #include <linux/types.h>
 
@@ -64,7 +65,9 @@ enum pvr_fw_section_type {
  *                          FILE_SIZE
  */
 
-#define PVR_FW_INFO_VERSION 1
+#define PVR_FW_INFO_VERSION 2
+
+#define PVR_FW_FLAGS_OPEN_SOURCE BIT(0)
 
 /** struct pvr_fw_info_header - Firmware header */
 struct pvr_fw_info_header {
@@ -76,12 +79,18 @@ struct pvr_fw_info_header {
 	u32 layout_entry_num;
 	/** @layout_entry_size: Size of an entry in the layout table. */
 	u32 layout_entry_size;
-	/** @bvnc: FW version number. */
+	/** @bvnc: GPU ID supported by firmware. */
 	aligned_u64 bvnc;
 	/** @fw_page_size: Page size of processor on which firmware executes. */
 	u32 fw_page_size;
 	/** @flags: Compatibility flags. */
 	u32 flags;
+	/** @fw_version_major: Firmware major version number. */
+	u16 fw_version_major;
+	/** @fw_version_minor: Firmware minor version number. */
+	u16 fw_version_minor;
+	/** @fw_version_build: Firmware build number. */
+	u32 fw_version_build;
 };
 
 /**

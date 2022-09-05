@@ -17,6 +17,8 @@
 #include <linux/minmax.h>
 #include <linux/sizes.h>
 
+#define FW_MAX_SUPPORTED_MAJOR_VERSION 1
+
 #define FW_BOOT_TIMEOUT_USEC 5000000
 
 /* Config heap occupies top 192k of the firmware heap. */
@@ -113,6 +115,17 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 		goto err_out;
 	}
 
+	if (!(header->flags & PVR_FW_FLAGS_OPEN_SOURCE) ||
+	    header->fw_version_major > FW_MAX_SUPPORTED_MAJOR_VERSION ||
+	    header->fw_version_major == 0) {
+		drm_err(drm_dev, "Unsupported FW version %u.%u (build: %u%s)\n",
+			header->fw_version_major, header->fw_version_minor,
+			header->fw_version_build,
+			(header->flags & PVR_FW_FLAGS_OPEN_SOURCE) ? " OS" : "");
+		err = -EINVAL;
+		goto err_out;
+	}
+
 	if (pvr_gpu_id_to_packed_bvnc(&pvr_dev->gpu_id) != header->bvnc) {
 		struct pvr_gpu_id fw_gpu_id;
 
@@ -142,6 +155,12 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 			goto err_out;
 		}
 	}
+
+	drm_info(drm_dev, "FW version v%u.%u (build %u OS)\n", header->fw_version_major,
+		 header->fw_version_minor, header->fw_version_build);
+
+	pvr_dev->fw_version.major = header->fw_version_major;
+	pvr_dev->fw_version.minor = header->fw_version_minor;
 
 	*header_out = header;
 	*layout_entries_out = layout_entries;
@@ -835,7 +854,6 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 	u32 kccb_size_log2 = ROGUE_FWIF_KCCB_NUMCMDS_LOG2_DEFAULT;
 	u32 kccb_rtn_size = (1 << kccb_size_log2) * sizeof(*pvr_dev->kccb_rtn);
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
-	u32 ddk_version;
 	int err;
 
 	if (fw_dev->processor_type == PVR_FW_PROCESSOR_TYPE_META) {
@@ -893,11 +911,6 @@ pvr_fw_init(struct pvr_device *pvr_dev)
 		goto err_power_unlock;
 
 	fw_dev->booted = true;
-
-	/* Now that firmware has booted, we can get the firmware version. */
-	ddk_version = fw_dev->fwif_osinit->rogue_comp_checks.ddk_version;
-	pvr_dev->fw_version.major = ddk_version >> 16;
-	pvr_dev->fw_version.minor = ddk_version & 0xffff;
 
 	pvr_power_unlock(pvr_dev);
 
