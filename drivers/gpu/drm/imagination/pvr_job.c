@@ -96,6 +96,8 @@ fence_array_add_implicit(struct xarray *fence_array, struct drm_gem_object *obj,
 	int ret = 0;
 
 	dma_resv_for_each_fence(&cursor, obj->resv, write, fence) {
+		dma_fence_get(fence);
+
 		ret = fence_array_add(fence_array, fence);
 		if (ret)
 			break;
@@ -274,9 +276,6 @@ get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
 		}
 	}
 
-	xa_for_each(&implicit_fences, id, fence)
-		dma_fence_get(fence);
-
 	for (i = 0; i < job->num_bos; i++) {
 		err = dma_resv_reserve_fences(job->bos[i]->resv, 1);
 		if (err)
@@ -300,10 +299,8 @@ get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
 		}
 
 		err = fence_array_add(imported_implicit_fences, pvr_fence);
-		if (err) {
-			dma_fence_put(pvr_fence);
+		if (err)
 			goto err_release_fences;
-		}
 
 		num_fences++;
 	}
@@ -1437,10 +1434,8 @@ pvr_process_job_null(struct pvr_device *pvr_dev,
 			goto err_release_in_fences;
 
 		err = fence_array_add(&in_fences, fence);
-		if (err) {
-			dma_fence_put(fence);
+		if (err)
 			goto err_release_in_fences;
-		}
 	}
 
 	xa_for_each(&in_fences, id, fence) {
