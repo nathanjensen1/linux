@@ -180,7 +180,7 @@ struct pvr_device_enhancements pvr_device_enhancements_36_53_104_796 = {
  * pvr_device_info_init() - Initialize a PowerVR device's hardware features and quirks
  * @pvr_dev: Target PowerVR device.
  *
- * This function relies on &pvr_dev.version having already been initialized. If
+ * This function relies on &pvr_dev.gpu_id having already been initialized. If
  * PowerVR device version is supported then sets &pvr_dev.features and &pvr_dev.quirks.
  *
  * Return:
@@ -191,8 +191,8 @@ int
 pvr_device_info_init(struct pvr_device *pvr_dev)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
-	struct pvr_version *version = &pvr_dev->version;
-	const u64 bvnc = pvr_version_to_packed_bvnc(version);
+	struct pvr_gpu_id *gpu_id = &pvr_dev->gpu_id;
+	const u64 bvnc = pvr_gpu_id_to_packed_bvnc(gpu_id);
 
 	/*
 	 * This macro results in a "Macros with multiple statements should be
@@ -216,8 +216,8 @@ pvr_device_info_init(struct pvr_device *pvr_dev)
 
 #undef CASE_PACKED_BVNC_DEVICE_INFO
 
-	drm_warn(drm_dev, "Unsupported BVNC: %u.%u.%u.%u\n", version->b,
-		 version->v, version->n, version->c);
+	drm_warn(drm_dev, "Unsupported BVNC: %u.%u.%u.%u\n", gpu_id->b,
+		 gpu_id->v, gpu_id->n, gpu_id->c);
 
 	return -ENODEV;
 }
