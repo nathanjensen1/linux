@@ -443,7 +443,7 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 
 	switch (args->param) {
 	case DRM_PVR_PARAM_GPU_ID:
-		value = pvr_version_to_packed_bvnc(&pvr_dev->version);
+		value = pvr_gpu_id_to_packed_bvnc(&pvr_dev->gpu_id);
 		break;
 	case DRM_PVR_PARAM_HWRT_NUM_GEOMDATAS:
 		value = ROGUE_FWIF_NUM_GEOMDATAS;
