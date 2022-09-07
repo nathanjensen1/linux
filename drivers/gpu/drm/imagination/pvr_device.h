@@ -44,13 +44,13 @@ struct regulator;
 struct pvr_fw_funcs;
 
 /**
- * struct pvr_version - Hardware version information for a PowerVR device
+ * struct pvr_gpu_id - Hardware GPU ID information for a PowerVR device
  * @b: Branch ID.
  * @v: Version ID.
  * @n: Number of scalable units.
  * @c: Config ID.
  */
-struct pvr_version {
+struct pvr_gpu_id {
 	u16 b, v, n, c;
 };
 
@@ -95,8 +95,8 @@ struct pvr_device {
 	 */
 	struct drm_device base;
 
-	/** @version: Hardware version detected at runtime. */
-	struct pvr_version version;
+	/** @gpu_id: GPU ID detected at runtime. */
+	struct pvr_gpu_id gpu_id;
 
 	/**
 	 * @features: Hardware feature information.
@@ -374,8 +374,8 @@ to_pvr_file(struct drm_file *file)
  *    | B      | V      | N      | C     |
  *    +--------+--------+--------+-------+
  *
- * pvr_version_to_packed_bvnc() should be used instead of this macro when a
- * &struct pvr_version is available in order to ensure proper type checking.
+ * pvr_gpu_id_to_packed_bvnc() should be used instead of this macro when a
+ * &struct pvr_gpu_id is available in order to ensure proper type checking.
  *
  * Return: Packed BVNC.
  */
@@ -388,9 +388,9 @@ to_pvr_file(struct drm_file *file)
 /* clang-format on */
 
 /**
- * pvr_version_to_packed_bvnc() - Packs B, V, N and C values into a 64-bit
+ * pvr_gpu_id_to_packed_bvnc() - Packs B, V, N and C values into a 64-bit
  * unsigned integer
- * @version: Version information.
+ * @gpu_id: GPU ID.
  *
  * The packed layout is as follows:
  *
@@ -401,23 +401,23 @@ to_pvr_file(struct drm_file *file)
  *    +--------+--------+--------+-------+
  *
  * This should be used in preference to PVR_PACKED_BVNC() when a &struct
- * pvr_version is available in order to ensure proper type checking.
+ * pvr_gpu_id is available in order to ensure proper type checking.
  *
  * Return: Packed BVNC.
  */
 static __always_inline u64
-pvr_version_to_packed_bvnc(struct pvr_version *version)
+pvr_gpu_id_to_packed_bvnc(struct pvr_gpu_id *gpu_id)
 {
-	return PVR_PACKED_BVNC(version->b, version->v, version->n, version->c);
+	return PVR_PACKED_BVNC(gpu_id->b, gpu_id->v, gpu_id->n, gpu_id->c);
 }
 
 static __always_inline void
-packed_bvnc_to_pvr_version(u64 bvnc, struct pvr_version *version)
+packed_bvnc_to_pvr_gpu_id(u64 bvnc, struct pvr_gpu_id *gpu_id)
 {
-	version->b = (bvnc & GENMASK_ULL(63, 48)) >> 48;
-	version->v = (bvnc & GENMASK_ULL(47, 32)) >> 32;
-	version->n = (bvnc & GENMASK_ULL(31, 16)) >> 16;
-	version->c = bvnc & GENMASK_ULL(15, 0);
+	gpu_id->b = (bvnc & GENMASK_ULL(63, 48)) >> 48;
+	gpu_id->v = (bvnc & GENMASK_ULL(47, 32)) >> 32;
+	gpu_id->n = (bvnc & GENMASK_ULL(31, 16)) >> 16;
+	gpu_id->c = bvnc & GENMASK_ULL(15, 0);
 }
 
 int pvr_device_init(struct pvr_device *pvr_dev);

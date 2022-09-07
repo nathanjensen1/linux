@@ -113,12 +113,13 @@ pvr_fw_validate(struct pvr_device *pvr_dev,
 		goto err_out;
 	}
 
-	if (pvr_version_to_packed_bvnc(&pvr_dev->version) != header->bvnc) {
-		struct pvr_version fw_version;
+	if (pvr_gpu_id_to_packed_bvnc(&pvr_dev->gpu_id) != header->bvnc) {
+		struct pvr_gpu_id fw_gpu_id;
 
-		packed_bvnc_to_pvr_version(header->bvnc, &fw_version);
-		drm_err(drm_dev, "Unsupported fw version %i.%i.%i.%i\n",
-			fw_version.b, fw_version.v, fw_version.n, fw_version.c);
+		packed_bvnc_to_pvr_gpu_id(header->bvnc, &fw_gpu_id);
+		drm_err(drm_dev, "FW built for incorrect GPU ID %i.%i.%i.%i (expected %i.%i.%i.%i)\n",
+			fw_gpu_id.b, fw_gpu_id.v, fw_gpu_id.n, fw_gpu_id.c,
+			pvr_dev->gpu_id.b, pvr_dev->gpu_id.v, pvr_dev->gpu_id.n, pvr_dev->gpu_id.c);
 		err = -EINVAL;
 		goto err_out;
 	}
