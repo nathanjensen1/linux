@@ -338,10 +338,10 @@ static char *
 pvr_build_firmware_filename(struct pvr_device *pvr_dev, const char *base,
 			    u8 major, u8 minor)
 {
-	struct pvr_version *version = &pvr_dev->version;
+	struct pvr_gpu_id *gpu_id = &pvr_dev->gpu_id;
 
-	return kasprintf(GFP_KERNEL, "%s_%d.%d.%d.%d_v%d.%d.fw", base, version->b,
-			 version->v, version->n, version->c, major, minor);
+	return kasprintf(GFP_KERNEL, "%s_%d.%d.%d.%d_v%d.%d.fw", base, gpu_id->b,
+			 gpu_id->v, gpu_id->n, gpu_id->c, major, minor);
 }
 
 /**
@@ -394,17 +394,16 @@ err_free_filename:
 }
 
 /**
- * pvr_load_hw_version() - Load a PowerVR device's hardware version (BVNC) from
- * control registers.
+ * pvr_load_gpu_id() - Load a PowerVR device's GPU ID (BVNC) from control registers.
  *
- * Sets struct pvr_dev.version.
+ * Sets struct pvr_dev.gpu_id.
  *
  * @pvr_dev: Target PowerVR device.
  */
 static void
-pvr_load_hw_version(struct pvr_device *pvr_dev)
+pvr_load_gpu_id(struct pvr_device *pvr_dev)
 {
-	struct pvr_version *version = &pvr_dev->version;
+	struct pvr_gpu_id *gpu_id = &pvr_dev->gpu_id;
 	u64 bvnc;
 
 	/*
@@ -413,20 +412,20 @@ pvr_load_hw_version(struct pvr_device *pvr_dev)
 	 */
 	bvnc = PVR_CR_READ64(pvr_dev, CORE_ID__PBVNC);
 
-	version->b = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__BRANCH_ID);
-	if (version->b != 0) {
-		version->v = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__VERSION_ID);
-		version->n = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__NUMBER_OF_SCALABLE_UNITS);
-		version->c = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__CONFIG_ID);
+	gpu_id->b = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__BRANCH_ID);
+	if (gpu_id->b != 0) {
+		gpu_id->v = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__VERSION_ID);
+		gpu_id->n = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__NUMBER_OF_SCALABLE_UNITS);
+		gpu_id->c = PVR_CR_FIELD_GET(bvnc, CORE_ID__PBVNC__CONFIG_ID);
 	} else {
 		u32 core_rev = PVR_CR_READ32(pvr_dev, CORE_REVISION);
 		u32 core_id = PVR_CR_READ32(pvr_dev, CORE_ID);
 		u16 core_id_config = PVR_CR_FIELD_GET(core_id, CORE_ID_CONFIG);
 
-		version->b = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MAJOR);
-		version->v = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MINOR);
-		version->n = FIELD_GET(0xFF00, core_id_config);
-		version->c = FIELD_GET(0x00FF, core_id_config);
+		gpu_id->b = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MAJOR);
+		gpu_id->v = PVR_CR_FIELD_GET(core_rev, CORE_REVISION_MINOR);
+		gpu_id->n = FIELD_GET(0xFF00, core_id_config);
+		gpu_id->c = FIELD_GET(0x00FF, core_id_config);
 	}
 }
 
@@ -495,7 +494,7 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 {
 	int err;
 
-	pvr_load_hw_version(pvr_dev);
+	pvr_load_gpu_id(pvr_dev);
 
 	err = pvr_device_info_init(pvr_dev);
 	if (err)
