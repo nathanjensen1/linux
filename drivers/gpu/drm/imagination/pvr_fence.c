@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR MIT
 /* Copyright (c) 2022 Imagination Technologies Ltd. */
 
+#include "pvr_context.h"
 #include "pvr_device.h"
 #include "pvr_drv.h"
 #include "pvr_fence.h"
@@ -20,6 +21,7 @@
 /**
  * pvr_fence_create() - Create a PowerVR fence
  * @context: Target PowerVR fence context
+ * @pvr_ctx: Associated PowerVR context. May be %NULL.
  *
  * The fence will be created with two references; one for the caller, one for the fence worker. The
  * caller's reference (and any other references subsequently taken) should be released with
@@ -32,7 +34,7 @@
  *  * Any error returned by pvr_gem_create_and_map_fw_object().
  */
 struct dma_fence *
-pvr_fence_create(struct pvr_fence_context *context)
+pvr_fence_create(struct pvr_fence_context *context, struct pvr_context *pvr_ctx)
 {
 	struct pvr_device *pvr_dev = context->pvr_dev;
 	struct pvr_fence *pvr_fence;
@@ -55,6 +57,7 @@ pvr_fence_create(struct pvr_fence_context *context)
 		err = PTR_ERR(pvr_fence->sync_checkpoint);
 		goto err_free;
 	}
+	pvr_fence->pvr_ctx = pvr_context_get(pvr_ctx);
 
 	pvr_fence->sync_checkpoint->state = PVR_SYNC_CHECKPOINT_ACTIVE;
 
@@ -121,6 +124,9 @@ pvr_fence_destroy(struct pvr_fence *pvr_fence)
 
 	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, pvr_fence->sync_checkpoint, false);
 	pvr_fw_object_release(pvr_fence->sync_checkpoint_fw_obj);
+
+	if (pvr_fence->pvr_ctx)
+		pvr_context_put(pvr_fence->pvr_ctx);
 
 	BUILD_BUG_ON(offsetof(typeof(*pvr_fence), base));
 	dma_fence_free(&pvr_fence->base);

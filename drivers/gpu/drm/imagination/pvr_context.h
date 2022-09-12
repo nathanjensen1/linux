@@ -215,6 +215,25 @@ pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 	return ctx;
 }
 
+/**
+ * pvr_context_get() - Take additional reference on context.
+ * @ctx: Context pointer.
+ *
+ * Call pvr_context_put() to release.
+ *
+ * Returns:
+ *  * The requested context on success, or
+ *  * %NULL if no context pointer passed.
+ */
+static __always_inline struct pvr_context *
+pvr_context_get(struct pvr_context *ctx)
+{
+	if (ctx)
+		kref_get(&ctx->ref_count);
+
+	return ctx;
+}
+
 void pvr_context_put(struct pvr_context *ctx);
 
 int pvr_context_destroy(struct pvr_file *pvr_file, u32 handle);
