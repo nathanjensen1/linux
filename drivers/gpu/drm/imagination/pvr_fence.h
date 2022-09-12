@@ -10,6 +10,9 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
+/* Forward declaration from pvr_context.h. */
+struct pvr_context;
+
 /* Forward declaration from pvr_gem.h. */
 struct pvr_fw_object;
 
@@ -79,6 +82,9 @@ struct pvr_fence {
 	/** @signal_work: Work item for imported fence signalling. */
 	struct work_struct signal_work;
 
+	/** @pvr_ctx: PowerVR context associated with this fence. May be %NULL. */
+	struct pvr_context *pvr_ctx;
+
 	/** @flags: Flags for this fence. Must be a combination of %PVR_FENCE_FLAGS_*. */
 	u32 flags;
 };
@@ -92,7 +98,7 @@ void
 pvr_fence_context_init(struct pvr_device *pvr_dev, struct pvr_fence_context *context,
 		       const char *name);
 struct dma_fence *
-pvr_fence_create(struct pvr_fence_context *context);
+pvr_fence_create(struct pvr_fence_context *context, struct pvr_context *pvr_ctx);
 int
 pvr_fence_to_ufo(struct dma_fence *fence, struct rogue_fwif_ufo *ufo);
 struct dma_fence *
