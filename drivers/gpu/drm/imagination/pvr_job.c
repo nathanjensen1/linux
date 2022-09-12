@@ -1055,14 +1055,16 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 
 	out_fence = pvr_fence_create(render_args->frag_stream ?
 					&ctx_render->ctx_frag.cccb.pvr_fence_context :
-					&ctx_render->ctx_geom.cccb.pvr_fence_context);
+					&ctx_render->ctx_geom.cccb.pvr_fence_context,
+				     job->ctx);
 	if (IS_ERR(out_fence)) {
 		err = PTR_ERR(out_fence);
 		goto err_put_context;
 	}
 
 	if (render_args->geom_stream && render_args->frag_stream) {
-		geom_fence = pvr_fence_create(&ctx_render->ctx_geom.cccb.pvr_fence_context);
+		geom_fence = pvr_fence_create(&ctx_render->ctx_geom.cccb.pvr_fence_context,
+					      job->ctx);
 		if (IS_ERR(geom_fence)) {
 			err = PTR_ERR(geom_fence);
 			goto err_put_out_fence;
@@ -1214,7 +1216,7 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	out_fence = pvr_fence_create(&ctx_compute->cccb.pvr_fence_context);
+	out_fence = pvr_fence_create(&ctx_compute->cccb.pvr_fence_context, job->ctx);
 	if (IS_ERR(out_fence)) {
 		err = PTR_ERR(out_fence);
 		goto err_put_context;
@@ -1327,7 +1329,7 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	out_fence = pvr_fence_create(&ctx_transfer->cccb.pvr_fence_context);
+	out_fence = pvr_fence_create(&ctx_transfer->cccb.pvr_fence_context, job->ctx);
 	if (IS_ERR(out_fence)) {
 		err = PTR_ERR(out_fence);
 		goto err_put_context;
