@@ -1041,7 +1041,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_free_syncobj_frag;
 	}
 
-	job->ctx = pvr_context_get(pvr_file, args->context_handle);
+	job->ctx = pvr_context_lookup(pvr_file, args->context_handle);
 	if (!job->ctx) {
 		err = -EINVAL;
 		goto err_put_hwrt;
@@ -1202,7 +1202,7 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 		}
 	}
 
-	job->ctx = pvr_context_get(pvr_file, args->context_handle);
+	job->ctx = pvr_context_lookup(pvr_file, args->context_handle);
 	if (!job->ctx) {
 		err = -EINVAL;
 		goto err_free_syncobj;
@@ -1315,7 +1315,7 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 		}
 	}
 
-	job->ctx = pvr_context_get(pvr_file, args->context_handle);
+	job->ctx = pvr_context_lookup(pvr_file, args->context_handle);
 	if (!job->ctx) {
 		err = -EINVAL;
 		goto err_free_syncobj;
