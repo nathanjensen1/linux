@@ -194,7 +194,7 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
 }
 
 /**
- * pvr_context_get() - Get context pointer from handle.
+ * pvr_context_lookup() - Lookup context pointer from handle.
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Context handle.
  *
@@ -205,7 +205,7 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
  *  * %NULL on failure.
  */
 static __always_inline struct pvr_context *
-pvr_context_get(struct pvr_file *pvr_file, u32 handle)
+pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 {
 	struct pvr_context *ctx = xa_load(&pvr_file->contexts, handle);
 
