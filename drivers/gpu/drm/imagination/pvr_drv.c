@@ -45,6 +45,7 @@
  * Technologies:
  *
  * * GX6250 (found in MediaTek MT8173)
+ * * AXE-1-16M (found in Texas Instruments AM62)
  */
 
 /**
