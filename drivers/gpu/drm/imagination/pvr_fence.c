@@ -382,7 +382,7 @@ pvr_fence_import(struct pvr_fence_context *context, struct dma_fence *imported_f
 	err = dma_fence_add_callback(imported_fence, &pvr_fence->cb, pvr_fence_imported_signal);
 	if (err == -ENOENT) {
 		/* Fence has already signaled. Call callback directly. */
-		pvr_fence_imported_signal(imported_fence, &pvr_fence->cb);
+		pvr_fence_imported_signal(&pvr_fence->base, &pvr_fence->cb);
 	} else if (err) {
 		goto err_fw_obj_release;
 	}
