@@ -395,7 +395,7 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		in_ufos = kcalloc(num_in_fences, sizeof(*in_ufos), GFP_KERNEL);
 		if (!in_ufos) {
-			err = -EINVAL;
+			err = -ENOMEM;
 			goto err_release_fences;
 		}
 
@@ -537,7 +537,7 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		in_ufos = kcalloc(num_in_fences, sizeof(*in_ufos), GFP_KERNEL);
 		if (!in_ufos) {
-			err = -EINVAL;
+			err = -ENOMEM;
 			goto err_release_fences;
 		}
 
@@ -683,7 +683,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		in_ufos = kcalloc(num_in_fences, sizeof(*in_ufos), GFP_KERNEL);
 		if (!in_ufos) {
-			err = -EINVAL;
+			err = -ENOMEM;
 			goto err_release_fences;
 		}
 
@@ -815,7 +815,7 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		in_ufos = kcalloc(num_in_fences, sizeof(*in_ufos), GFP_KERNEL);
 		if (!in_ufos) {
-			err = -EINVAL;
+			err = -ENOMEM;
 			goto err_release_fences;
 		}
 
