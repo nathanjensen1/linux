@@ -27,7 +27,7 @@
  * reference should be manually dropped via pvr_fence_deactivate_and_put().
  *
  * Returns:
- *  * 0 on success,
+ *  * Pointer to the new fence on success,
  *  * -%ENOMEM on out of memory, or
  *  * Any error returned by pvr_gem_create_and_map_fw_object().
  */
@@ -328,7 +328,7 @@ static void pvr_fence_imported_signal(struct dma_fence *fence, struct dma_fence_
  * race conditions due to uncertainty about whether the fence will be signaled or not.
  *
  * Returns:
- *  * 0 on success,
+ *  * Pointer to the new fence on success,
  *  * -%ENOMEM on out of memory, or
  *  * Any error returned by pvr_gem_create_and_map_fw_object().
  */
