@@ -39,7 +39,7 @@ pvr_fence_create(struct pvr_fence_context *context)
 	unsigned long flags;
 	int err;
 
-	pvr_fence = kmalloc(sizeof(*pvr_fence), GFP_KERNEL);
+	pvr_fence = kzalloc(sizeof(*pvr_fence), GFP_KERNEL);
 	if (!pvr_fence) {
 		err = -ENOMEM;
 		goto err_out;
