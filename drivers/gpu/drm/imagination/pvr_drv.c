@@ -858,15 +858,11 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	xa_init_flags(&pvr_file->objects, XA_FLAGS_ALLOC);
 
 	/* Initialize the file-scoped memory context. */
-	pvr_file->user_vm_ctx = pvr_vm_create_context(pvr_dev);
+	pvr_file->user_vm_ctx = pvr_vm_create_context(pvr_dev, true);
 	if (IS_ERR(pvr_file->user_vm_ctx)) {
 		err = PTR_ERR(pvr_file->user_vm_ctx);
 		goto err_xa_destroy;
 	}
-
-	err = pvr_fw_mem_context_create(pvr_file);
-	if (err)
-		goto err_vm_ctx_destroy;
 
 	/*
 	 * Store reference to powervr-specific file private data in DRM file
@@ -875,9 +871,6 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	file->driver_priv = pvr_file;
 
 	return 0;
-
-err_vm_ctx_destroy:
-	pvr_vm_destroy_context(pvr_file->user_vm_ctx, false);
 
 err_xa_destroy:
 	xa_destroy(&pvr_file->contexts);
@@ -908,10 +901,12 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 	struct pvr_object *obj;
 	unsigned long id;
 
-	pvr_fw_mem_context_destroy(pvr_file);
-	pvr_vm_destroy_context(pvr_file->user_vm_ctx, false);
-
 	/* clang-format off */
+	xa_for_each(&pvr_file->contexts, id, ctx) {
+		WARN_ON(pvr_context_wait_idle(ctx, HZ));
+		WARN_ON(pvr_context_fail_fences(ctx, -ENODEV));
+	}
+
 	/* Drop references on any remaining objects. */
 	xa_for_each(&pvr_file->objects, id, obj) {
 		pvr_object_put(obj);
@@ -924,6 +919,10 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 	/* clang-format on */
 
 	xa_destroy(&pvr_file->contexts);
+
+	pvr_vm_context_teardown_mappings(pvr_file->user_vm_ctx, false);
+
+	pvr_vm_context_put(pvr_file->user_vm_ctx);
 
 	kfree(pvr_file);
 	file->driver_priv = NULL;

@@ -20,6 +20,8 @@
 /* TODO: placeholder */
 #define MAX_DEADLINE_MS 30000
 
+#define CLEANUP_SLEEP_TIME_MS 20
+
 #define CTX_COMPUTE_CCCB_SIZE_LOG2 15
 #define CTX_FRAG_CCCB_SIZE_LOG2 15
 #define CTX_GEOM_CCCB_SIZE_LOG2 15
@@ -33,7 +35,7 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 {
 	ctx->type = type;
 	ctx->pvr_dev = pvr_dev;
-	ctx->pvr_file = pvr_file;
+	ctx->vm_ctx = pvr_vm_context_get(pvr_file->user_vm_ctx);
 
 	ctx->flags = args->flags;
 	ctx->priority = priority;
@@ -46,10 +48,12 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 static void
 pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
 {
+	pvr_vm_context_put(ctx->vm_ctx);
 }
 
 /**
  * pvr_init_geom_context() - Initialise a geometry context
+ * @pvr_file: Pointer to pvr_file structure.
  * @ctx_render: Pointer to parent render context.
  * @args: Arguments from userspace.
  *
@@ -58,7 +62,8 @@ pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
  *  * Any error returned by pvr_gem_create_and_map_fw_object().
  */
 static int
-pvr_init_geom_context(struct pvr_context_render *ctx_render,
+pvr_init_geom_context(struct pvr_file *pvr_file,
+		      struct pvr_context_render *ctx_render,
 		      struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
@@ -66,7 +71,7 @@ pvr_init_geom_context(struct pvr_context_render *ctx_render,
 	struct rogue_fwif_geom_ctx_state *geom_ctx_state_fw;
 	int err;
 
-	ctx_geom->ctx_id = atomic_inc_return(&ctx_render->base.pvr_file->ctx_id);
+	ctx_geom->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
 
 	err = pvr_cccb_init(pvr_dev, &ctx_geom->cccb, CTX_GEOM_CCCB_SIZE_LOG2, "geometry");
 	if (err)
@@ -110,6 +115,7 @@ pvr_fini_geom_context(struct pvr_context_render *ctx_render)
 
 /**
  * pvr_init_frag_context() - Initialise a fragment context
+ * @pvr_file: Pointer to pvr_file structure.
  * @ctx_render: Pointer to parent render context.
  * @args: Arguments from userspace.
  *
@@ -117,11 +123,11 @@ pvr_fini_geom_context(struct pvr_context_render *ctx_render)
  *  * 0 on success.
  */
 static int
-pvr_init_frag_context(struct pvr_context_render *ctx_render,
+pvr_init_frag_context(struct pvr_file *pvr_file,
+		      struct pvr_context_render *ctx_render,
 		      struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct pvr_device *pvr_dev = ctx_render->base.pvr_dev;
-	struct pvr_file *pvr_file = ctx_render->base.pvr_file;
 	struct pvr_context_frag *ctx_frag = &ctx_render->ctx_frag;
 	u32 num_isp_store_registers;
 	size_t frag_ctx_state_size;
@@ -204,7 +210,6 @@ remap_priority(struct pvr_file *pvr_file, s32 uapi_priority,
 
 /**
  * pvr_init_fw_common_context() - Initialise an FW-side common context structure
- * @pvr_file: Pointer to pvr_file structure.
  * @ctx: Pointer to context.
  * @cctx_fw: Pointer to FW common context structure.
  * @dm_type: Data master type.
@@ -215,12 +220,14 @@ remap_priority(struct pvr_file *pvr_file, s32 uapi_priority,
  * @cccb: Client CCB for this context.
  */
 static void
-pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
+pvr_init_fw_common_context(struct pvr_context *ctx,
 			   struct rogue_fwif_fwcommoncontext *cctx_fw,
 			   u32 dm_type, u32 priority, u32 max_deadline_ms,
 			   u32 cctx_id, struct pvr_fw_object *ctx_state_obj,
 			   struct pvr_cccb *cccb)
 {
+	struct pvr_fw_object *fw_mem_ctx_obj = pvr_vm_get_fw_mem_context(ctx->vm_ctx);
+
 	cctx_fw->ccbctl_fw_addr = cccb->ctrl_fw_addr;
 	cctx_fw->ccb_fw_addr = cccb->cccb_fw_addr;
 
@@ -231,14 +238,18 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
 	cctx_fw->pid = task_tgid_nr(current);
 	cctx_fw->server_common_context_id = cctx_id;
 
-	pvr_gem_get_fw_addr(pvr_file->fw_mem_ctx_obj, &cctx_fw->fw_mem_context_fw_addr);
+	pvr_gem_get_fw_addr(fw_mem_ctx_obj, &cctx_fw->fw_mem_context_fw_addr);
 
 	pvr_gem_get_fw_addr(ctx_state_obj, &cctx_fw->context_state_addr);
 }
 
+static void
+pvr_fini_fw_common_context(struct pvr_context *ctx)
+{
+}
+
 /**
  * pvr_init_fw_render_context() - Initialise an FW-side render context structure
- * @pvr_file: Pointer to pvr_file structure.
  * @ctx_render: Pointer to parent render context.
  * @args: Context creation arguments from userspace.
  *
@@ -246,7 +257,7 @@ pvr_init_fw_common_context(struct pvr_file *pvr_file, struct pvr_context *ctx,
  *  * 0 on success.
  */
 static int
-pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render *ctx_render,
+pvr_init_fw_render_context(struct pvr_context_render *ctx_render,
 			   struct drm_pvr_ioctl_create_context_args *args)
 {
 	struct rogue_fwif_static_rendercontext_state *static_rendercontext_state;
@@ -277,12 +288,12 @@ pvr_init_fw_render_context(struct pvr_file *pvr_file, struct pvr_context_render 
 		goto err_destroy_gem_object;
 	}
 
-	pvr_init_fw_common_context(pvr_file, &ctx_render->base, &fw_render_context->geom_context,
+	pvr_init_fw_common_context(&ctx_render->base, &fw_render_context->geom_context,
 				   PVR_FWIF_DM_GEOM, args->priority, MAX_DEADLINE_MS,
 				   ctx_render->ctx_geom.ctx_id, ctx_render->ctx_geom.ctx_state_obj,
 				   &ctx_render->ctx_geom.cccb);
 
-	pvr_init_fw_common_context(pvr_file, &ctx_render->base, &fw_render_context->frag_context,
+	pvr_init_fw_common_context(&ctx_render->base, &fw_render_context->frag_context,
 				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
 				   ctx_render->ctx_frag.ctx_id, ctx_render->ctx_frag.ctx_state_obj,
 				   &ctx_render->ctx_frag.cccb);
@@ -305,6 +316,11 @@ err_out:
 static void
 pvr_fini_fw_render_context(struct pvr_context_render *ctx_render)
 {
+	struct pvr_context *ctx = from_pvr_context_render(ctx_render);
+
+	pvr_fini_fw_common_context(ctx);
+	pvr_fini_fw_common_context(ctx);
+
 	pvr_fw_object_release(ctx_render->fw_obj);
 }
 
@@ -364,7 +380,7 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 		goto err_destroy_gem_object;
 	}
 
-	pvr_init_fw_common_context(pvr_file, &ctx_compute->base, &fw_compute_context->cdm_context,
+	pvr_init_fw_common_context(&ctx_compute->base, &fw_compute_context->cdm_context,
 				   PVR_FWIF_DM_CDM, args->priority, MAX_DEADLINE_MS,
 				   ctx_compute->ctx_id, ctx_compute->ctx_state_obj,
 				   &ctx_compute->cccb);
@@ -393,6 +409,9 @@ err_out:
 static void
 pvr_fini_compute_context(struct pvr_context_compute *ctx_compute)
 {
+	struct pvr_context *ctx = from_pvr_context_compute(ctx_compute);
+
+	pvr_fini_fw_common_context(ctx);
 	pvr_fw_object_release(ctx_compute->fw_obj);
 	pvr_fw_object_release(ctx_compute->ctx_state_obj);
 	pvr_cccb_fini(&ctx_compute->cccb);
@@ -438,7 +457,7 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 		goto err_destroy_ctx_state_obj;
 	}
 
-	pvr_init_fw_common_context(pvr_file, &ctx_transfer->base, &fw_transfer_context->tq_context,
+	pvr_init_fw_common_context(&ctx_transfer->base, &fw_transfer_context->tq_context,
 				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
 				   ctx_transfer->ctx_id, ctx_transfer->ctx_state_obj,
 				   &ctx_transfer->cccb);
@@ -463,6 +482,9 @@ err_out:
 static void
 pvr_fini_transfer_context(struct pvr_context_transfer *ctx_transfer)
 {
+	struct pvr_context *ctx = from_pvr_context_transfer(ctx_transfer);
+
+	pvr_fini_fw_common_context(ctx);
 	pvr_fw_object_release(ctx_transfer->fw_obj);
 	pvr_fw_object_release(ctx_transfer->ctx_state_obj);
 	pvr_cccb_fini(&ctx_transfer->cccb);
@@ -514,15 +536,15 @@ pvr_create_render_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_free;
 
-	err = pvr_init_geom_context(ctx_render, args);
+	err = pvr_init_geom_context(pvr_file, ctx_render, args);
 	if (err < 0)
 		goto err_destroy_common_context;
 
-	err = pvr_init_frag_context(ctx_render, args);
+	err = pvr_init_frag_context(pvr_file, ctx_render, args);
 	if (err < 0)
 		goto err_destroy_geom_context;
 
-	err = pvr_init_fw_render_context(pvr_file, ctx_render, args);
+	err = pvr_init_fw_render_context(ctx_render, args);
 	if (err < 0)
 		goto err_destroy_frag_context;
 
@@ -707,20 +729,11 @@ pvr_release_context(struct kref *ref_count)
 {
 	struct pvr_context *ctx =
 		container_of(ref_count, struct pvr_context, ref_count);
-	struct pvr_device *pvr_dev = ctx->pvr_dev;
+
+	WARN_ON(pvr_context_wait_idle(ctx, 0));
 
 	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
-		struct pvr_context_render *ctx_render =
-			to_pvr_context_render(ctx);
-
-		WARN_ON(pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-					   ctx_render->fw_obj,
-					   offsetof(struct rogue_fwif_fwrendercontext,
-						    geom_context)));
-		WARN_ON(pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-					   ctx_render->fw_obj,
-					   offsetof(struct rogue_fwif_fwrendercontext,
-						    frag_context)));
+		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
 
 		pvr_fini_fw_render_context(ctx_render);
 
@@ -728,13 +741,11 @@ pvr_release_context(struct kref *ref_count)
 		pvr_fini_frag_context(ctx_render);
 		pvr_fini_geom_context(ctx_render);
 	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
-		struct pvr_context_compute *ctx_compute =
-			to_pvr_context_compute(ctx);
+		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
 
 		pvr_fini_compute_context(ctx_compute);
 	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
-		struct pvr_context_transfer *ctx_transfer =
-			to_pvr_context_transfer_frag(ctx);
+		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
 
 		pvr_fini_transfer_context(ctx_transfer);
 	}
@@ -777,4 +788,113 @@ pvr_context_destroy(struct pvr_file *pvr_file, u32 handle)
 	pvr_context_put(ctx);
 
 	return 0;
+}
+
+/**
+ * pvr_context_wait_idle() - Wait for context to go idle
+ * @ctx: Target context.
+ * @timeout: Timeout, in jiffies
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * -ETIMEDOUT on timeout.
+ */
+int
+pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout)
+{
+	struct pvr_device *pvr_dev = ctx->pvr_dev;
+	u32 jiffies_start = jiffies;
+	int err = 0;
+
+	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
+		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
+
+		do {
+			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						 ctx_render->fw_obj,
+						 offsetof(struct rogue_fwif_fwrendercontext,
+							  geom_context));
+			if (err && err != -EBUSY)
+				goto err_out;
+
+			if (!err) {
+				err = pvr_object_cleanup(pvr_dev,
+							 ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+							 ctx_render->fw_obj,
+							 offsetof(struct rogue_fwif_fwrendercontext,
+								  frag_context));
+				if (err && err != -EBUSY)
+					goto err_out;
+			}
+
+			if (err)
+				msleep(CLEANUP_SLEEP_TIME_MS);
+		} while (err && (jiffies - jiffies_start) < timeout);
+	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
+		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
+
+		do {
+			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						 ctx_compute->fw_obj,
+						 offsetof(struct rogue_fwif_fwcomputecontext,
+							  cdm_context));
+			if (err && err != -EBUSY)
+				goto err_out;
+			if (err)
+				msleep(CLEANUP_SLEEP_TIME_MS);
+		} while (err && (jiffies - jiffies_start) < timeout);
+	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
+		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
+
+		do {
+			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						 ctx_transfer->fw_obj,
+						 offsetof(struct rogue_fwif_fwtransfercontext,
+							  tq_context));
+			if (err && err != -EBUSY)
+				goto err_out;
+			if (err)
+				msleep(CLEANUP_SLEEP_TIME_MS);
+		} while (err && (jiffies - jiffies_start) < timeout);
+	}
+
+	if (err)
+		err = -ETIMEDOUT;
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_context_fail_fences() - Fail all outstanding fences associated with a context
+ * @ctx: Target PowerVR context.
+ * @err: Error code.
+ *
+ * Returns:
+ *  * %true if any fences were failed, or
+ *  * %false if there were no outstanding fences.
+ */
+bool
+pvr_context_fail_fences(struct pvr_context *ctx, int err)
+{
+	bool ret = false;
+
+	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
+		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
+
+		ret = pvr_fence_context_fail_fences(&ctx_render->ctx_geom.cccb.pvr_fence_context,
+						    err);
+		ret |= pvr_fence_context_fail_fences(&ctx_render->ctx_frag.cccb.pvr_fence_context,
+						     err);
+	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
+		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
+
+		ret = pvr_fence_context_fail_fences(&ctx_compute->cccb.pvr_fence_context, err);
+	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
+		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
+
+		ret = pvr_fence_context_fail_fences(&ctx_transfer->cccb.pvr_fence_context, err);
+	}
+
+	return ret;
 }

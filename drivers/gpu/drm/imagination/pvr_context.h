@@ -64,8 +64,8 @@ struct pvr_context {
 	/** @pvr_dev: Pointer to owning device. */
 	struct pvr_device *pvr_dev;
 
-	/** @pvr_file: Pointer to owning file. */
-	struct pvr_file *pvr_file;
+	/** @vm_ctx: Pointer to associated VM context. */
+	struct pvr_vm_context *vm_ctx;
 
 	/** @type: Type of context. */
 	enum drm_pvr_ctx_type type;
@@ -237,5 +237,9 @@ pvr_context_get(struct pvr_context *ctx)
 void pvr_context_put(struct pvr_context *ctx);
 
 int pvr_context_destroy(struct pvr_file *pvr_file, u32 handle);
+
+int pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout);
+
+bool pvr_context_fail_fences(struct pvr_context *ctx, int err);
 
 #endif /* __PVR_CONTEXT_H__ */

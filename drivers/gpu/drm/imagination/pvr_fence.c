@@ -498,3 +498,49 @@ err_unlock:
 err_out:
 	return err;
 }
+
+/**
+ * pvr_fence_context_fail_fences(): Fail all outstanding fences on a fence context
+ * @context: Target fence context.
+ * @err: Error code.
+ *
+ * Returns:
+ *  * %true if any fences were failed, or
+ *  * %false if there were no outstanding fences.
+ */
+bool
+pvr_fence_context_fail_fences(struct pvr_fence_context *context, int err)
+{
+	struct pvr_device *pvr_dev = context->pvr_dev;
+	struct pvr_fence *pvr_fence;
+	struct pvr_fence *tmp;
+	unsigned long flags;
+
+	LIST_HEAD(fail_list);
+
+	spin_lock_irqsave(&pvr_dev->fence_list_spinlock, flags);
+
+	/* Move any fences on this context to the fail list for further failing. */
+	list_for_each_entry_safe(pvr_fence, tmp, &pvr_dev->fence_list, head) {
+		if (pvr_fence->context == context)
+			list_move_tail(&pvr_fence->head, &fail_list);
+	}
+
+	/* Finished with device fence list, can now drop lock. */
+	spin_unlock_irqrestore(&pvr_dev->fence_list_spinlock, flags);
+
+	if (list_empty(&fail_list))
+		return false;
+
+	list_for_each_entry_safe(pvr_fence, tmp, &fail_list, head) {
+		list_del_init(&pvr_fence->head);
+
+		/* Signal fence and drop our reference. */
+		dma_fence_set_error(&pvr_fence->base, err);
+		dma_fence_signal(&pvr_fence->base);
+		pvr_fence_release_dep_fences(pvr_fence);
+		dma_fence_put(&pvr_fence->base);
+	}
+
+	return true;
+}

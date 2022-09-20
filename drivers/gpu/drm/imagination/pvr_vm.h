@@ -102,8 +102,8 @@ struct pvr_heap {
 bool pvr_device_addr_is_valid(u64 device_addr);
 bool pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size);
 
-struct pvr_vm_context *pvr_vm_create_context(struct pvr_device *pvr_dev);
-void pvr_vm_destroy_context(struct pvr_vm_context *vm_ctx, bool enable_warnings);
+struct pvr_vm_context *pvr_vm_create_context(struct pvr_device *pvr_dev,
+					     bool create_fw_mem_ctx);
 
 int pvr_vm_map(struct pvr_vm_context *vm_ctx, struct pvr_gem_object *pvr_obj,
 	       u64 device_addr);
@@ -126,5 +126,13 @@ struct pvr_gem_object *pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx,
 
 int
 pvr_vm_mmu_flush(struct pvr_device *pvr_dev);
+
+struct pvr_fw_object *
+pvr_vm_get_fw_mem_context(struct pvr_vm_context *vm_ctx);
+
+struct pvr_vm_context *
+pvr_vm_context_get(struct pvr_vm_context *vm_ctx);
+bool pvr_vm_context_put(struct pvr_vm_context *vm_ctx);
+void pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx, bool enable_warnings);
 
 #endif /* __PVR_VM_H__ */
