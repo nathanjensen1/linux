@@ -21,6 +21,7 @@
 #include <linux/highmem.h>
 #include <linux/interval_tree_generic.h>
 #include <linux/kernel.h>
+#include <linux/kref.h>
 #include <linux/limits.h>
 #include <linux/lockdep.h>
 #include <linux/math.h>
@@ -113,7 +114,7 @@ pvr_vm_mmu_flush(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_out;
 
-	err = pvr_kccb_wait_for_completion(pvr_dev, slot, HZ);
+	err = pvr_kccb_wait_for_completion(pvr_dev, slot, HZ, NULL);
 	if (err)
 		goto err_out;
 
@@ -2524,12 +2525,16 @@ pvr_vm_mapping_last(struct pvr_vm_mapping *mapping);
  * @mappings: An interval tree structure containing every currently
  *            active mapping associated with this context.
  * @lock: Global lock on this entire structure of page tables.
+ * @fw_mem_ctx_obj: Firmware object representing firmware memory context.
+ * @ref_count: Reference count for context.
  */
 struct pvr_vm_context {
 	struct pvr_device *pvr_dev;
 	struct pvr_page_table_l2 root_table;
 	struct pvr_vm_mapping_tree mappings;
 	struct mutex lock;
+	struct pvr_fw_object *fw_mem_ctx_obj;
+	struct kref ref_count;
 };
 
 /**
@@ -2546,9 +2551,17 @@ dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx)
  * pvr_vm_context_init() - Initialize a VM context for the specified device.
  * @vm_ctx: Target VM context.
  * @pvr_dev: Target PowerVR device.
+ * @create_fw_mem_ctx: %true if this function should create a firmware memory context for this VM
+ *                     context.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%ENOMEM on out of memory, or
+ *  * Any error returned by pvr_fw_mem_context_create().
  */
 static int
-pvr_vm_context_init(struct pvr_vm_context *vm_ctx, struct pvr_device *pvr_dev)
+pvr_vm_context_init(struct pvr_vm_context *vm_ctx, struct pvr_device *pvr_dev,
+		    bool create_fw_mem_ctx)
 {
 	int err;
 
@@ -2562,7 +2575,20 @@ pvr_vm_context_init(struct pvr_vm_context *vm_ctx, struct pvr_device *pvr_dev)
 
 	vm_ctx->pvr_dev = pvr_dev;
 
+	if (create_fw_mem_ctx) {
+		err = pvr_fw_mem_context_create(pvr_dev, vm_ctx, &vm_ctx->fw_mem_ctx_obj);
+		if (err)
+			goto err_mutex_destroy;
+	}
+
+	kref_init(&vm_ctx->ref_count);
+
 	return 0;
+
+err_mutex_destroy:
+	mutex_destroy(&vm_ctx->lock);
+	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
+	pvr_page_table_l2_fini(&vm_ctx->root_table);
 
 err_out:
 	return err;
@@ -2581,6 +2607,25 @@ err_out:
 static void
 pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
 {
+	if (vm_ctx->fw_mem_ctx_obj)
+		pvr_fw_mem_context_destroy(vm_ctx->fw_mem_ctx_obj);
+
+	pvr_vm_context_teardown_mappings(vm_ctx, enable_warnings);
+
+	mutex_destroy(&vm_ctx->lock);
+	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
+	pvr_page_table_l2_fini(&vm_ctx->root_table);
+}
+
+/**
+ * pvr_vm_context_teardown_mappings() - Teardown any remaining mappings on this VM context
+ * @vm_ctx: Target VM context.
+ * @enable_warnings: Specify whether warnings should be emitted for mappings
+ *                   which are cleaned up by this function.
+ */
+void
+pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx, bool enable_warnings)
+{
 	struct pvr_vm_mapping_tree_node *node;
 
 	/* Destroy any remaining mappings. */
@@ -2597,10 +2642,6 @@ pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
 	}
 
 	mutex_unlock(&vm_ctx->lock);
-
-	mutex_destroy(&vm_ctx->lock);
-	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
-	pvr_page_table_l2_fini(&vm_ctx->root_table);
 }
 
 /**
@@ -3552,6 +3593,8 @@ pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size)
 /**
  * pvr_vm_create_context() - Create a new VM context.
  * @pvr_dev: Target PowerVR device.
+ * @create_fw_mem_ctx: %true if this function should create a firmware memory context for this VM
+ *                     context.
  *
  * Return:
  *  * A handle to the newly-minted VM context on success,
@@ -3562,7 +3605,7 @@ pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size)
  *  * Any error encountered while setting up internal structures.
  */
 struct pvr_vm_context *
-pvr_vm_create_context(struct pvr_device *pvr_dev)
+pvr_vm_create_context(struct pvr_device *pvr_dev, bool create_fw_mem_ctx)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 
@@ -3592,7 +3635,7 @@ pvr_vm_create_context(struct pvr_device *pvr_dev)
 		goto err_out;
 	}
 
-	err = pvr_vm_context_init(vm_ctx, pvr_dev);
+	err = pvr_vm_context_init(vm_ctx, pvr_dev, create_fw_mem_ctx);
 	if (err)
 		goto err_free_vm_ctx;
 
@@ -3607,18 +3650,49 @@ err_out:
 
 /**
  * pvr_vm_destroy_context() - Destroy an existing VM context.
- * @vm_ctx: Target VM context.
- * @enable_warnings: Specify whether warnings should be emitted for mappings
- *                   which are cleaned up by this function.
+ * @kref: Pointer to VM context refcount.
  *
  * It is an error to call pvr_vm_destroy_context() on a VM context that has
  * already been destroyed.
+ *
+ * This should never be called directly; call pvr_vm_context_put() instead.
  */
-void
-pvr_vm_destroy_context(struct pvr_vm_context *vm_ctx, bool enable_warnings)
+static void
+pvr_vm_destroy_context(struct kref *kref)
 {
-	pvr_vm_context_fini(vm_ctx, enable_warnings);
+	struct pvr_vm_context *vm_ctx = container_of(kref, struct pvr_vm_context, ref_count);
+
+	pvr_vm_context_fini(vm_ctx, true);
 	kfree(vm_ctx);
+}
+
+/**
+ * pvr_vm_context_get() - Take an additional reference on a VM context
+ * @vm_ctx: Target VM context.
+ *
+ * Reference must be released with pvr_vm_context_put().
+ *
+ * Returns:
+ *  * A pointer to the VM context.
+ */
+struct pvr_vm_context *pvr_vm_context_get(struct pvr_vm_context *vm_ctx)
+{
+	kref_get(&vm_ctx->ref_count);
+
+	return vm_ctx;
+}
+
+/**
+ * pvr_vm_context_put() - Release a reference on a VM context
+ * @vm_ctx: Target VM context.
+ *
+ * Returns:
+ *  * %true if the VM context was destroyed, or
+ *  * %false if there are any references still remaining.
+ */
+bool pvr_vm_context_put(struct pvr_vm_context *vm_ctx)
+{
+	return kref_put(&vm_ctx->ref_count, pvr_vm_destroy_context);
 }
 
 static int
@@ -4153,4 +4227,18 @@ err_unlock:
 	mutex_unlock(&vm_ctx->lock);
 
 	return NULL;
+}
+
+/**
+ * pvr_vm_get_fw_mem_context: Get object representing firmware memory context
+ * @vm_ctx: Target VM context.
+ *
+ * Returns:
+ *  * FW object representing firmware memory context, or
+ *  * %NULL if this VM context does not have a firmware memory context.
+ */
+struct pvr_fw_object *
+pvr_vm_get_fw_mem_context(struct pvr_vm_context *vm_ctx)
+{
+	return vm_ctx->fw_mem_ctx_obj;
 }

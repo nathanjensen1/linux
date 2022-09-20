@@ -514,7 +514,7 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 	if (err)
 		goto err_out;
 
-	pvr_dev->kernel_vm_ctx = pvr_vm_create_context(pvr_dev);
+	pvr_dev->kernel_vm_ctx = pvr_vm_create_context(pvr_dev, false);
 	if (IS_ERR(pvr_dev->kernel_vm_ctx)) {
 		err = PTR_ERR(pvr_dev->kernel_vm_ctx);
 		goto err_out;
@@ -522,7 +522,7 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 
 	err = pvr_request_firmware(pvr_dev);
 	if (err)
-		goto err_vm_ctx_destroy;
+		goto err_vm_ctx_put;
 
 	err = pvr_fw_init(pvr_dev);
 	if (err)
@@ -533,8 +533,8 @@ pvr_device_gpu_init(struct pvr_device *pvr_dev)
 err_release_firmware:
 	release_firmware(pvr_dev->fw_dev.firmware);
 
-err_vm_ctx_destroy:
-	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
+err_vm_ctx_put:
+	pvr_vm_context_put(pvr_dev->kernel_vm_ctx);
 	pvr_dev->kernel_vm_ctx = NULL;
 
 err_out:
@@ -551,7 +551,10 @@ pvr_device_gpu_fini(struct pvr_device *pvr_dev)
 	pvr_fw_fini(pvr_dev);
 	release_firmware(pvr_dev->fw_dev.firmware);
 
-	pvr_vm_destroy_context(pvr_dev->kernel_vm_ctx, true);
+	pvr_vm_context_teardown_mappings(pvr_dev->kernel_vm_ctx, true);
+	/* There should be no other references on the kernel_vm_ctx, so warn if there are. */
+	WARN_ON(!pvr_vm_context_put(pvr_dev->kernel_vm_ctx));
+	pvr_dev->kernel_vm_ctx = NULL;
 }
 
 /**

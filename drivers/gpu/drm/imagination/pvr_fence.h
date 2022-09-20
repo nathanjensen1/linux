@@ -107,6 +107,8 @@ void
 pvr_fence_deactivate_and_put(struct dma_fence *fence);
 int
 pvr_fence_add_fence_dependency(struct dma_fence *fence, struct dma_fence *dep_fence);
+bool
+pvr_fence_context_fail_fences(struct pvr_fence_context *context, int err);
 
 static __always_inline struct dma_fence *
 from_pvr_fence(struct pvr_fence *pvr_fence)

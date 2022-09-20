@@ -15,6 +15,12 @@
 struct pvr_device;
 struct pvr_file;
 
+/* Forward declaration from "pvr_gem.h". */
+struct pvr_fw_object;
+
+/* Forward declaration from "pvr_vm.h". */
+struct pvr_vm_context;
+
 #define ROGUE_FWIF_FWCCB_NUMCMDS_LOG2 5
 
 #define ROGUE_FWIF_KCCB_NUMCMDS_LOG2_DEFAULT 7
@@ -311,8 +317,11 @@ int pvr_wait_for_fw_boot(struct pvr_device *pvr_dev);
 
 void pvr_fw_mts_schedule(struct pvr_device *pvr_dev, u32 val);
 
-int pvr_fw_mem_context_create(struct pvr_file *pvr_file);
-void pvr_fw_mem_context_destroy(struct pvr_file *pvr_file);
+int
+pvr_fw_mem_context_create(struct pvr_device *pvr_dev, struct pvr_vm_context *vm_ctx,
+			  struct pvr_fw_object **fw_mem_ctx_obj_out);
+void
+pvr_fw_mem_context_destroy(struct pvr_fw_object *fw_mem_ctx_obj);
 
 void
 pvr_fw_heap_info_init(struct pvr_device *pvr_dev, u32 log2_size, u32 reserved_size);

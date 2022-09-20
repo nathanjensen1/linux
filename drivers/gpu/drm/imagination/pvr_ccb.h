@@ -45,6 +45,7 @@ int pvr_kccb_send_cmd(struct pvr_device *pvr_dev,
 		      struct rogue_fwif_kccb_cmd *cmd, u32 *kccb_slot);
 int pvr_kccb_send_cmd_power_locked(struct pvr_device *pvr_dev,
 				   struct rogue_fwif_kccb_cmd *cmd, u32 *kccb_slot);
-int pvr_kccb_wait_for_completion(struct pvr_device *pvr_dev, u32 slot_nr, u32 timeout);
+int pvr_kccb_wait_for_completion(struct pvr_device *pvr_dev, u32 slot_nr, u32 timeout,
+				 u32 *rtn_out);
 
 #endif /* __PVR_CCB_H__ */
