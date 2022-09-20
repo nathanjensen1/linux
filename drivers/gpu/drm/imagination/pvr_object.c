@@ -174,8 +174,9 @@ pvr_object_destroy(struct pvr_file *pvr_file, u32 handle)
  * @offset: Offset within FW object of object to cleanup.
  *
  * Returns:
- *  * 0 on success, or
- *  * -EBUSY on timeout.
+ *  * 0 on success,
+ *  * -EBUSY if object is busy, or
+ *  * -ETIMEDOUT on timeout.
  */
 int
 pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *fw_obj, u32 offset)
@@ -183,6 +184,7 @@ pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *f
 	struct rogue_fwif_kccb_cmd cmd;
 	int slot_nr;
 	int err;
+	u32 rtn;
 
 	struct rogue_fwif_cleanup_request *cleanup_req = &cmd.cmd_data.cleanup_data;
 
@@ -212,9 +214,12 @@ pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *f
 	if (err)
 		goto err_out;
 
-	err = pvr_kccb_wait_for_completion(pvr_dev, slot_nr, HZ);
+	err = pvr_kccb_wait_for_completion(pvr_dev, slot_nr, HZ, &rtn);
 	if (err)
 		goto err_out;
+
+	if (rtn & ROGUE_FWIF_KCCB_RTN_SLOT_CLEANUP_BUSY)
+		err = -EBUSY;
 
 err_out:
 	return err;
