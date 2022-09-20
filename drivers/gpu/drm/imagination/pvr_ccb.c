@@ -298,19 +298,23 @@ err_power_unlock:
  * @pvr_dev: Device pointer.
  * @slot_nr: KCCB slot to wait on.
  * @timeout: Timeout length (in jiffies).
+ * @rtn_out: Location to store KCCB command result. May be %NULL.
  *
  * Returns:
  *  * Zero on success, or
- *  * -EBUSY on timeout.
+ *  * -ETIMEDOUT on timeout.
  */
 int
 pvr_kccb_wait_for_completion(struct pvr_device *pvr_dev, u32 slot_nr,
-			     u32 timeout)
+			     u32 timeout, u32 *rtn_out)
 {
 	int ret = wait_event_timeout(pvr_dev->kccb_rtn_q, READ_ONCE(pvr_dev->kccb_rtn[slot_nr]) &
 				     ROGUE_FWIF_KCCB_RTN_SLOT_CMD_EXECUTED, timeout);
 
-	return ret ? 0 : -EBUSY;
+	if (ret && rtn_out)
+		*rtn_out = READ_ONCE(pvr_dev->kccb_rtn[slot_nr]);
+
+	return ret ? 0 : -ETIMEDOUT;
 }
 
 /**
