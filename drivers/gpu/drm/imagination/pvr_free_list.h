@@ -104,20 +104,20 @@ u32
 pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
 
 /**
- * pvr_free_list_get() - Get free list pointer from handle
+ * pvr_free_list_lookup() - Lookup free list pointer from handle
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
  *
- * Takes reference on object. Call pvr_object_put() to release.
+ * Takes reference on free list object. Call pvr_free_list_put() to release.
  *
  * Returns:
  *  * The requested object on success, or
  *  * %NULL on failure (object does not exist in list, or is not a free list)
  */
 static __always_inline struct pvr_free_list *
-pvr_free_list_get(struct pvr_file *pvr_file, u32 handle)
+pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = pvr_object_get(pvr_file, handle);
+	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
 
 	if (obj) {
 		if (obj->type == DRM_PVR_OBJECT_TYPE_FREE_LIST)
