@@ -1034,8 +1034,8 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		}
 	}
 
-	hwrt = pvr_hwrt_data_get(pvr_file, render_args->hwrt_data_set_handle,
-				 render_args->hwrt_data_index);
+	hwrt = pvr_hwrt_data_lookup(pvr_file, render_args->hwrt_data_set_handle,
+				    render_args->hwrt_data_index);
 	if (!hwrt) {
 		err = -EINVAL;
 		goto err_free_syncobj_frag;

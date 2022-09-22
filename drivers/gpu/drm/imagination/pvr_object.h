@@ -29,7 +29,7 @@ int pvr_object_create(struct pvr_file *pvr_file,
 		      u32 *handle_out);
 
 /**
- * pvr_object_get() - Get object pointer from handle
+ * pvr_object_lookup() - Lookup object pointer from handle
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
  *
@@ -40,7 +40,7 @@ int pvr_object_create(struct pvr_file *pvr_file,
  *  * %NULL on failure (object is not in object list)
  */
 static __always_inline struct pvr_object *
-pvr_object_get(struct pvr_file *pvr_file, u32 handle)
+pvr_object_lookup(struct pvr_file *pvr_file, u32 handle)
 {
 	struct pvr_object *obj = xa_load(&pvr_file->objects, handle);
 
