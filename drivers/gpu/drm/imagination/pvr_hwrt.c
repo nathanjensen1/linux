@@ -52,7 +52,7 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 
 	/* Get pointers to the free lists */
 	for (i = 0; i < ARRAY_SIZE(hwrt->free_lists); i++) {
-		hwrt->free_lists[i] = pvr_free_list_get(pvr_file,  args->free_list_handles[i]);
+		hwrt->free_lists[i] = pvr_free_list_lookup(pvr_file,  args->free_list_handles[i]);
 		if (!hwrt->free_lists[i]) {
 			err = -EINVAL;
 			goto err_put_free_lists;

@@ -88,11 +88,11 @@ to_pvr_hwrt_dataset(struct pvr_object *obj)
 }
 
 /**
- * pvr_hwrt_dataset_get() - Get HWRT dataset pointer from handle
+ * pvr_hwrt_dataset_lookup() - Lookup HWRT dataset pointer from handle
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
  *
- * Takes reference on object. Call pvr_hwrt_dataset_put() to release.
+ * Takes reference on dataset object. Call pvr_hwrt_dataset_put() to release.
  *
  * Returns:
  *  * The requested object on success, or
@@ -100,9 +100,9 @@ to_pvr_hwrt_dataset(struct pvr_object *obj)
  *    dataset)
  */
 static __always_inline struct pvr_hwrt_dataset *
-pvr_hwrt_dataset_get(struct pvr_file *pvr_file, u32 handle)
+pvr_hwrt_dataset_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = pvr_object_get(pvr_file, handle);
+	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
 
 	if (obj) {
 		if (obj->type == DRM_PVR_OBJECT_TYPE_HWRT_DATASET)
@@ -125,7 +125,7 @@ pvr_hwrt_dataset_put(struct pvr_hwrt_dataset *hwrt)
 }
 
 /**
- * pvr_hwrt_data_get() - Get HWRT data pointer from handle and index
+ * pvr_hwrt_data_lookup() - Lookup HWRT data pointer from handle and index
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
  * @index: Index of RT data within dataset.
@@ -138,9 +138,9 @@ pvr_hwrt_dataset_put(struct pvr_hwrt_dataset *hwrt)
  *    dataset, or index is out of range)
  */
 static __always_inline struct pvr_hwrt_data *
-pvr_hwrt_data_get(struct pvr_file *pvr_file, u32 handle, u32 index)
+pvr_hwrt_data_lookup(struct pvr_file *pvr_file, u32 handle, u32 index)
 {
-	struct pvr_hwrt_dataset *hwrt_dataset = pvr_hwrt_dataset_get(pvr_file, handle);
+	struct pvr_hwrt_dataset *hwrt_dataset = pvr_hwrt_dataset_lookup(pvr_file, handle);
 
 	if (hwrt_dataset) {
 		if (index < ARRAY_SIZE(hwrt_dataset->data))
