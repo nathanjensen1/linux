@@ -90,7 +90,7 @@ pvr_vm_mips_fini(struct pvr_device *pvr_dev)
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	struct pvr_fw_mips_data *mips_data = fw_dev->processor_data.mips_data;
 
-	pvr_gem_object_vunmap(mips_data->pt_obj, mips_data->pt, false);
+	pvr_gem_object_vunmap(mips_data->pt_obj, false);
 	pvr_gem_object_put(mips_data->pt_obj);
 	kfree(mips_data);
 	fw_dev->processor_data.mips_data = NULL;

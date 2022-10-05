@@ -97,8 +97,9 @@ struct pvr_gem_object {
 	struct pvr_device *pvr_dev;
 
 	/**
-	 * @lock: Mutex protecting @pages_ref_count and @fw_mm_ref_count, and
-	 *        writes to @pages, @sgt and @mm_node.
+	 * @lock: Mutex protecting @pages_ref_count, @fw_mm_ref_count,
+	 *        @vmap_ref_count and @vmap_cpu_addr, and writes to @pages, @sgt
+	 *        and @mm_node.
 	 */
 	struct mutex lock;
 
@@ -138,6 +139,18 @@ struct pvr_gem_object {
 	 *    lifetime.
 	 */
 	const u64 flags;
+
+	/**
+	 * @vmap_ref_count: Reference count for @vmap_cpu_addr. @lock must be
+	 *                  held when accessing.
+	 */
+	int vmap_ref_count;
+
+	/**
+	 * @vmap_cpu_addr: CPU address of vmap mapping. Will be %NULL if object
+	 *                 is not mapped. @lock must be held when accessing.
+	 */
+	void *vmap_cpu_addr;
 };
 
 /**
@@ -204,8 +217,7 @@ int pvr_gem_object_get_pages(struct pvr_gem_object *pvr_obj);
 void pvr_gem_object_put_pages(struct pvr_gem_object *pvr_obj);
 
 void *pvr_gem_object_vmap(struct pvr_gem_object *pvr_obj, bool sync_to_cpu);
-void pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, void *cpu_ptr,
-			   bool sync_to_device);
+void pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, bool sync_to_device);
 
 int pvr_gem_create_fw_object(struct pvr_device *pvr_dev, size_t size, u64 flags,
 			     struct pvr_fw_object **pvr_obj_out);
@@ -273,7 +285,7 @@ pvr_fw_object_vmap(struct pvr_fw_object *fw_obj, bool sync_to_cpu)
 static __always_inline void
 pvr_fw_object_vunmap(struct pvr_fw_object *fw_obj, void *cpu_ptr, bool sync_to_device)
 {
-	pvr_gem_object_vunmap(from_pvr_fw_object(fw_obj), cpu_ptr, sync_to_device);
+	pvr_gem_object_vunmap(from_pvr_fw_object(fw_obj), sync_to_device);
 }
 
 /**

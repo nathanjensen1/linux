@@ -148,6 +148,27 @@ static void pvr_gem_unpin(struct drm_gem_object *gem_obj)
 	pvr_gem_object_put_pages(pvr_obj);
 }
 
+static int pvr_gem_vmap(struct drm_gem_object *gem_obj, struct iosys_map *map)
+{
+	struct pvr_gem_object *pvr_obj = to_pvr_gem_object(gem_obj);
+	void *cpu_ptr;
+
+	cpu_ptr = pvr_gem_object_vmap(pvr_obj, true);
+	if (IS_ERR(cpu_ptr))
+		return PTR_ERR(cpu_ptr);
+
+	iosys_map_set_vaddr(map, cpu_ptr);
+
+	return 0;
+}
+
+static void pvr_gem_vunmap(struct drm_gem_object *gem_obj, struct iosys_map *map)
+{
+	struct pvr_gem_object *pvr_obj = to_pvr_gem_object(gem_obj);
+
+	pvr_gem_object_vunmap(pvr_obj, true);
+}
+
 static const struct drm_gem_object_funcs pvr_gem_object_funcs = {
 	.free = pvr_gem_free_object,
 	.get_sg_table = pvr_gem_get_sg_table,
@@ -155,6 +176,8 @@ static const struct drm_gem_object_funcs pvr_gem_object_funcs = {
 	.pin = pvr_gem_pin,
 	.unpin = pvr_gem_unpin,
 	.vm_ops = &pvr_gem_vm_ops,
+	.vmap = pvr_gem_vmap,
+	.vunmap = pvr_gem_vunmap,
 };
 
 static void pvr_free_fw_object(struct drm_gem_object *gem_obj)
@@ -445,27 +468,29 @@ pvr_gem_object_vmap_prot(struct pvr_gem_object *pvr_obj, bool sync_to_cpu,
 	/* The size of @pvr_obj is always CPU page-aligned. */
 	size_t nr_pages = pvr_gem_object_size(pvr_obj) >> PAGE_SHIFT;
 
-	void *cpu_ptr;
-
 	int err;
 
-	if (gem_obj->import_attach) {
-		struct iosys_map map;
+	mutex_lock(&pvr_obj->lock);
 
-		err = dma_buf_vmap(gem_obj->import_attach->dmabuf, &map);
-		if (err)
-			goto err_out;
+	if ((++pvr_obj->vmap_ref_count) == 1) {
+		if (gem_obj->import_attach) {
+			struct iosys_map map;
 
-		cpu_ptr = map.vaddr;
-	} else {
-		err = pvr_gem_object_get_pages(pvr_obj);
-		if (err)
-			goto err_out;
+			err = dma_buf_vmap(gem_obj->import_attach->dmabuf, &map);
+			if (err)
+				goto err_unlock;
 
-		cpu_ptr = vmap(pvr_obj->pages, nr_pages, VM_MAP, prot);
-		if (!cpu_ptr) {
-			err = -ENOMEM;
-			goto err_put_pages;
+			pvr_obj->vmap_cpu_addr = map.vaddr;
+		} else {
+			err = pvr_gem_object_get_pages_locked(pvr_obj);
+			if (err)
+				goto err_unlock;
+
+			pvr_obj->vmap_cpu_addr = vmap(pvr_obj->pages, nr_pages, VM_MAP, prot);
+			if (!pvr_obj->vmap_cpu_addr) {
+				err = -ENOMEM;
+				goto err_put_pages;
+			}
 		}
 	}
 
@@ -479,12 +504,16 @@ pvr_gem_object_vmap_prot(struct pvr_gem_object *pvr_obj, bool sync_to_cpu,
 		dma_sync_sgtable_for_cpu(dev, pvr_obj->sgt, DMA_BIDIRECTIONAL);
 	}
 
-	return cpu_ptr;
+	mutex_unlock(&pvr_obj->lock);
+
+	return pvr_obj->vmap_cpu_addr;
 
 err_put_pages:
 	pvr_gem_object_put_pages(pvr_obj);
 
-err_out:
+err_unlock:
+	mutex_unlock(&pvr_obj->lock);
+
 	return ERR_PTR(err);
 }
 
@@ -526,17 +555,22 @@ pvr_gem_object_vmap(struct pvr_gem_object *pvr_obj, bool sync_to_cpu)
  * pvr_gem_object_vunmap() - Unmap a PowerVR memory object from CPU virtual
  * address space.
  * @pvr_obj: Target PowerVR GEM object.
- * @cpu_ptr: CPU pointer to be unmapped from.
  * @sync_to_device: Specifies whether the buffer should be synced to the device
  * immediately before unmapping from the CPU.
  *
  * If @pvr_obj is not using the CPU cache, @sync_to_device is ignored.
  */
 void
-pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, void *cpu_ptr,
-		      bool sync_to_device)
+pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, bool sync_to_device)
 {
 	struct drm_gem_object *gem_obj = from_pvr_gem_object(pvr_obj);
+
+	mutex_lock(&pvr_obj->lock);
+
+	if (WARN_ON(!pvr_obj->vmap_ref_count || !pvr_obj->vmap_cpu_addr)) {
+		mutex_unlock(&pvr_obj->lock);
+		return;
+	}
 
 	/*
 	 * There's no need for sync operations on the CPU cache if we're not
@@ -549,15 +583,21 @@ pvr_gem_object_vunmap(struct pvr_gem_object *pvr_obj, void *cpu_ptr,
 					    DMA_BIDIRECTIONAL);
 	}
 
-	if (gem_obj->import_attach) {
-		struct iosys_map map = IOSYS_MAP_INIT_VADDR(cpu_ptr);
+	if ((--pvr_obj->vmap_ref_count) == 0) {
+		if (gem_obj->import_attach) {
+			struct iosys_map map = IOSYS_MAP_INIT_VADDR(pvr_obj->vmap_cpu_addr);
 
-		dma_buf_vunmap(gem_obj->import_attach->dmabuf, &map);
-	} else {
-		vunmap(cpu_ptr);
+			dma_buf_vunmap(gem_obj->import_attach->dmabuf, &map);
+		} else {
+			vunmap(pvr_obj->vmap_cpu_addr);
 
-		pvr_gem_object_put_pages(pvr_obj);
+			pvr_gem_object_put_pages_locked(pvr_obj);
+		}
+
+		pvr_obj->vmap_cpu_addr = NULL;
 	}
+
+	mutex_unlock(&pvr_obj->lock);
 }
 
 /**
@@ -588,7 +628,7 @@ pvr_gem_object_zero(struct pvr_gem_object *pvr_obj)
 
 	memset(cpu_ptr, 0, pvr_gem_object_size(pvr_obj));
 
-	pvr_gem_object_vunmap(pvr_obj, cpu_ptr, false);
+	pvr_gem_object_vunmap(pvr_obj, false);
 
 	return 0;
 

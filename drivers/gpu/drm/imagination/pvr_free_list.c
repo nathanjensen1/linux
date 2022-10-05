@@ -240,7 +240,7 @@ pvr_free_list_insert_pages(struct pvr_free_list *free_list,
 	};
 	/* clang-format on */
 
-	pvr_gem_object_vunmap(free_list->obj, page_list, true);
+	pvr_gem_object_vunmap(free_list->obj, true);
 
 	return 0;
 
