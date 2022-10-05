@@ -348,12 +348,12 @@ hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
 
 	hwrt_data_common_fw->rgn_header_size = args->region_header_size;
 
-	pvr_fw_object_vunmap(hwrt->common_fw_obj, hwrt_data_common_fw, false);
+	pvr_fw_object_vunmap(hwrt->common_fw_obj, false);
 
 	return 0;
 
 err_put_fw_obj:
-	pvr_fw_object_vunmap(hwrt->common_fw_obj, hwrt_data_common_fw, false);
+	pvr_fw_object_vunmap(hwrt->common_fw_obj, false);
 
 err_out:
 	return err;
@@ -428,7 +428,7 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 		pvr_gem_get_fw_addr(hwrt_data->raa_obj, &rta_ctl->rta_num_partial_renders_fw_addr);
 	}
 
-	pvr_fw_object_vunmap(hwrt_data->fw_obj, hwrt_data_fw, false);
+	pvr_fw_object_vunmap(hwrt_data->fw_obj, false);
 
 	return 0;
 
@@ -436,7 +436,7 @@ err_put_shadow_rt_cache:
 	pvr_fw_object_release(hwrt_data->srtc_obj);
 
 err_put_fw_obj:
-	pvr_fw_object_vunmap(hwrt_data->fw_obj, hwrt_data_fw, false);
+	pvr_fw_object_vunmap(hwrt_data->fw_obj, false);
 	pvr_fw_object_release(hwrt_data->fw_obj);
 
 err_out:
