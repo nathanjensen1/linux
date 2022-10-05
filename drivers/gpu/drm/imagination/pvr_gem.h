@@ -283,7 +283,7 @@ pvr_fw_object_vmap(struct pvr_fw_object *fw_obj, bool sync_to_cpu)
 }
 
 static __always_inline void
-pvr_fw_object_vunmap(struct pvr_fw_object *fw_obj, void *cpu_ptr, bool sync_to_device)
+pvr_fw_object_vunmap(struct pvr_fw_object *fw_obj, bool sync_to_device)
 {
 	pvr_gem_object_vunmap(from_pvr_fw_object(fw_obj), sync_to_device);
 }

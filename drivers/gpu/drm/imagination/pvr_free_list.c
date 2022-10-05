@@ -185,7 +185,7 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 		  FREE_LIST_ENTRY_SIZE)) &
 		~((u64)ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE - 1);
 
-	pvr_fw_object_vunmap(free_list->fw_obj, free_list_fw, false);
+	pvr_fw_object_vunmap(free_list->fw_obj, false);
 
 	return 0;
 

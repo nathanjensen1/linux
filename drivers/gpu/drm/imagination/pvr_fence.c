@@ -122,7 +122,7 @@ pvr_fence_destroy(struct pvr_fence *pvr_fence)
 
 	pvr_fence_release_dep_fences(pvr_fence);
 
-	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, pvr_fence->sync_checkpoint, false);
+	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, false);
 	pvr_fw_object_release(pvr_fence->sync_checkpoint_fw_obj);
 
 	if (pvr_fence->pvr_ctx)
@@ -396,7 +396,7 @@ pvr_fence_import(struct pvr_fence_context *context, struct dma_fence *imported_f
 	return from_pvr_fence(pvr_fence);
 
 err_fw_obj_release:
-	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, pvr_fence->sync_checkpoint, false);
+	pvr_fw_object_vunmap(pvr_fence->sync_checkpoint_fw_obj, false);
 	pvr_fw_object_release(pvr_fence->sync_checkpoint_fw_obj);
 
 err_free:
