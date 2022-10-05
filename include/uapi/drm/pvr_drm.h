@@ -446,6 +446,9 @@ struct drm_pvr_ioctl_destroy_context_args {
 	 * @handle: [IN] Handle for context to be destroyed.
 	 */
 	__u32 handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
 };
 
 /**
@@ -646,6 +649,9 @@ struct drm_pvr_ioctl_destroy_object_args {
 	 * @handle: [IN] Handle for object to be destroyed.
 	 */
 	__u32 handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
 };
 
 /**
