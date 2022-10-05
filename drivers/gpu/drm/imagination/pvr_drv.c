@@ -650,6 +650,9 @@ pvr_ioctl_get_heap_info(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_get_heap_info_args *args = raw_args;
 
+	if (args->_padding_4 != 0)
+		return -EINVAL;
+
 	return pvr_get_heap_info(to_pvr_device(drm_dev), args);
 }
 
