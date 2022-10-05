@@ -88,7 +88,7 @@ pvr_init_geom_context(struct pvr_file *pvr_file,
 
 	geom_ctx_state_fw->geom_core[0].geom_reg_vdm_call_stack_pointer = args->callstack_addr;
 
-	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, geom_ctx_state_fw, true);
+	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, true);
 
 	return 0;
 
@@ -298,11 +298,11 @@ pvr_init_fw_render_context(struct pvr_context_render *ctx_render,
 				   ctx_render->ctx_frag.ctx_id, ctx_render->ctx_frag.ctx_state_obj,
 				   &ctx_render->ctx_frag.cccb);
 
-	pvr_fw_object_vunmap(ctx_render->fw_obj, fw_render_context, true);
+	pvr_fw_object_vunmap(ctx_render->fw_obj, true);
 	return 0;
 
 err_destroy_gem_object:
-	pvr_fw_object_vunmap(ctx_render->fw_obj, fw_render_context, true);
+	pvr_fw_object_vunmap(ctx_render->fw_obj, true);
 	pvr_fw_object_release(ctx_render->fw_obj);
 
 err_out:
@@ -385,11 +385,11 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 				   ctx_compute->ctx_id, ctx_compute->ctx_state_obj,
 				   &ctx_compute->cccb);
 
-	pvr_fw_object_vunmap(ctx_compute->fw_obj, fw_compute_context, true);
+	pvr_fw_object_vunmap(ctx_compute->fw_obj, true);
 	return 0;
 
 err_destroy_gem_object:
-	pvr_fw_object_vunmap(ctx_compute->fw_obj, fw_compute_context, true);
+	pvr_fw_object_vunmap(ctx_compute->fw_obj, true);
 	pvr_fw_object_release(ctx_compute->fw_obj);
 
 err_destroy_ctx_state_obj:
@@ -462,7 +462,7 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 				   ctx_transfer->ctx_id, ctx_transfer->ctx_state_obj,
 				   &ctx_transfer->cccb);
 
-	pvr_fw_object_vunmap(ctx_transfer->fw_obj, fw_transfer_context, true);
+	pvr_fw_object_vunmap(ctx_transfer->fw_obj, true);
 	return 0;
 
 err_destroy_ctx_state_obj:
