@@ -576,6 +576,9 @@ pvr_ioctl_destroy_context(struct drm_device *drm_dev, void *raw_args,
 	struct drm_pvr_ioctl_destroy_context_args *args = raw_args;
 	struct pvr_file *pvr_file = file->driver_priv;
 
+	if (args->_padding_4)
+		return -EINVAL;
+
 	return pvr_context_destroy(pvr_file, args->handle);
 }
 
@@ -627,6 +630,9 @@ pvr_ioctl_destroy_object(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_destroy_object_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
+
+	if (args->_padding_4)
+		return -EINVAL;
 
 	return pvr_object_destroy(pvr_file, args->handle);
 }
