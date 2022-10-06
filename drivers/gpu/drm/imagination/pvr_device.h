@@ -197,7 +197,7 @@ struct pvr_device {
 	/** @fence_list: List of active fences. */
 	struct list_head fence_list;
 
-	/** @fence_list: List of active imported fences. */
+	/** @imported_fence_list: List of active imported fences. */
 	struct list_head imported_fence_list;
 
 	/** @power_state: Current GPU power state. */

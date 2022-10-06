@@ -23,7 +23,7 @@ struct rogue_fwif_ufo;
 #define PVR_FENCE_FLAGS_IMPORTED BIT(0)
 
 /**
- * &struct pvr_fence_context - PowerVR fence context
+ * struct pvr_fence_context - PowerVR fence context
  */
 struct pvr_fence_context {
 	/** @pvr_dev: Owning PowerVR device. */
@@ -43,13 +43,13 @@ struct pvr_fence_context {
 };
 
 /**
- * &struct pvr_fence - PowerVR fence structure
+ * struct pvr_fence - PowerVR fence structure
  */
 struct pvr_fence {
 	/** @base: Base DMA fence backing this pvr_fence. */
 	struct dma_fence base;
 
-	/** @fence_context: Owning fence context. */
+	/** @context: Owning fence context. */
 	struct pvr_fence_context *context;
 
 	/** @head: List head for this fence. */
