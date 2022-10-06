@@ -686,6 +686,11 @@ enum drm_pvr_heap_id {
 	DRM_PVR_HEAP_VIS_TEST,
 };
 
+/*
+ * DOC: Flags for heaps returned by GET_HEAP_INFO ioctl command.
+ */
+#define DRM_PVR_HEAP_FLAGS_VALID_MASK 0
+
 struct drm_pvr_heap {
 	/** @id: Heap ID. This must be one of the values defined by &enum drm_pvr_heap_id. */
 	__u32 id;
