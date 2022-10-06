@@ -216,6 +216,13 @@ get_bos(struct pvr_file *pvr_file, struct pvr_job *job, u32 num_in_bo_handles, u
 	job->num_bos = num_in_bo_handles;
 
 	for (i = 0; i < job->num_bos; i++) {
+		/* Verify BO flags. A BO must have at least one access flag set. */
+		if ((job->bo_refs[i].flags & ~DRM_PVR_BO_REF_FLAGS_VALID_MASK) ||
+		    !(job->bo_refs[i].flags & (DRM_PVR_BO_REF_READ | DRM_PVR_BO_REF_WRITE))) {
+			err = -EINVAL;
+			goto err_release_fences;
+		}
+
 		job->bos[i] = drm_gem_object_lookup(drm_file, job->bo_refs[i].handle);
 		if (!job->bos[i]) {
 			err = -EINVAL;
