@@ -836,6 +836,8 @@ struct drm_pvr_ioctl_vm_unmap_args {
 #define DRM_PVR_BO_REF_READ _BITUL(0)
 #define DRM_PVR_BO_REF_WRITE _BITUL(1)
 
+#define DRM_PVR_BO_REF_FLAGS_VALID_MASK (DRM_PVR_BO_REF_READ | DRM_PVR_BO_REF_WRITE)
+
 /**
  * struct drm_pvr_bo_ref - structure representing a DRM buffer object
  */
