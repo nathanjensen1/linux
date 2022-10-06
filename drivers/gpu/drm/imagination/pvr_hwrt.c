@@ -235,7 +235,7 @@ hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
 			      struct pvr_hwrt_dataset *hwrt)
 {
-	struct create_hwrt_geom_data_args *geom_data_args = &args->geom_data_args;
+	struct drm_pvr_create_hwrt_geom_data_args *geom_data_args = &args->geom_data_args;
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_hwrtdata_common *hwrt_data_common_fw;
 	struct pvr_rt_mtile_info info;
@@ -363,10 +363,10 @@ static int
 hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 			    struct pvr_hwrt_dataset *hwrt,
 			    struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
-			    struct create_hwrt_rt_data_args *rt_data_args,
+			    struct drm_pvr_create_hwrt_rt_data_args *rt_data_args,
 			    struct pvr_hwrt_data *hwrt_data)
 {
-	struct create_hwrt_geom_data_args *geom_data_args = &args->geom_data_args;
+	struct drm_pvr_create_hwrt_geom_data_args *geom_data_args = &args->geom_data_args;
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_hwrtdata *hwrt_data_fw;
 	struct rogue_fwif_rta_ctl *rta_ctl;

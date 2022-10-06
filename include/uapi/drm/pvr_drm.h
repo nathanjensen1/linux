@@ -526,7 +526,7 @@ struct drm_pvr_ioctl_create_free_list_args {
 	__u32 grow_threshold;
 };
 
-struct create_hwrt_geom_data_args {
+struct drm_pvr_create_hwrt_geom_data_args {
 	/** @tpc_dev_addr: [IN] Tail pointer cache GPU virtual address. */
 	__u64 tpc_dev_addr;
 
@@ -543,7 +543,7 @@ struct create_hwrt_geom_data_args {
 	__u64 rtc_dev_addr;
 };
 
-struct create_hwrt_rt_data_args {
+struct drm_pvr_create_hwrt_rt_data_args {
 	/** @pm_mlist_dev_addr: [IN] PM MLIST GPU virtual address. */
 	__u64 pm_mlist_dev_addr;
 
@@ -556,10 +556,10 @@ struct create_hwrt_rt_data_args {
 
 struct drm_pvr_ioctl_create_hwrt_dataset_args {
 	/** @geom_data_args: [IN] Geometry data arguments. */
-	struct create_hwrt_geom_data_args geom_data_args;
+	struct drm_pvr_create_hwrt_geom_data_args geom_data_args;
 
 	/** @rt_data_args: [IN] Array of render target arguments. */
-	struct create_hwrt_rt_data_args rt_data_args[2];
+	struct drm_pvr_create_hwrt_rt_data_args rt_data_args[2];
 
 	/**
 	 * @free_list_args: [IN] Array of free list handles.
