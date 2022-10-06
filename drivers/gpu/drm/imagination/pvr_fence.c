@@ -172,7 +172,7 @@ const struct dma_fence_ops pvr_fence_ops = {
 
 /**
  * pvr_fence_process_worker() - Process any completed fences
- * @pvr_dev: Target PowerVR device.
+ * @work: Work item.
  */
 static void
 pvr_fence_process_worker(struct work_struct *work)

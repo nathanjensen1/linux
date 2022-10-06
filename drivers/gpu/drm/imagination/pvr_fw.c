@@ -1000,8 +1000,9 @@ pvr_fw_mts_schedule(struct pvr_device *pvr_dev, u32 val)
 
 /**
  * pvr_fw_mem_context_create() - Create firmware memory context
- * @pvr_file: Pointer to pvr_file structure.
- * @fx_mem_ctx_obj_out: Pointer to location to store the address of the firmware memory context
+ * @pvr_dev: Target PowerVR device.
+ * @vm_ctx: VM context to be associated with the firmware memory context.
+ * @fw_mem_ctx_obj_out: Pointer to location to store the address of the firmware memory context
  *                      object.
  *
  * Returns:

@@ -176,7 +176,7 @@ process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *c
 
 /**
  * pvr_fwccb_process_worker() - Process any pending FWCCB commands
- * @pvr_dev: Target PowerVR device.
+ * @work: Work item.
  *
  * For this initial implementation, FWCCB commands will be printed to the console but otherwise not
  * processed.

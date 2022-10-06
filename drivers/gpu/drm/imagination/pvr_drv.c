@@ -664,8 +664,10 @@ pvr_ioctl_get_heap_info(struct drm_device *drm_dev, void *raw_args,
 
 /**
  * pvr_ioctl_vm_map() - IOCTL to map buffer to GPU address space.
- * @pvr_file: PowerVR file private data.
- * @args: The operation-specific part of the calling ioctl args.
+ * @drm_dev: [IN] DRM device.
+ * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
+ *                 &struct drm_pvr_ioctl_vm_map_args.
+ * @file: [IN] DRM file private data.
  *
  * Called from userspace with %DRM_IOCTL_PVR_VM_MAP.
  *
@@ -754,8 +756,10 @@ err_out:
 
 /**
  * pvr_ioctl_vm_unmap() - IOCTL to unmap buffer from GPU address space.
- * @pvr_file: PowerVR file private data.
- * @args: The operation-specific part of the calling ioctl args.
+ * @drm_dev: [IN] DRM device.
+ * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
+ *                 &struct drm_pvr_ioctl_vm_unmap_args.
+ * @file: [IN] DRM file private data.
  *
  * Called from userspace with %DRM_IOCTL_PVR_VM_UNMAP.
  *
