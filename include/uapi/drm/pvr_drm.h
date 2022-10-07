@@ -9,12 +9,6 @@
 #include <linux/const.h>
 #include <linux/types.h>
 
-/**
- * DOC: PowerVR UAPI
- *
- * TODO
- */
-
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -69,12 +63,6 @@ extern "C" {
 #define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x09, DRM_IOW, vm_unmap)
 #define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0a, DRM_IOW, submit_job)
 /* clang-format on */
-
-/**
- * DOC: IOCTL CREATE_BO
- *
- * TODO
- */
 
 /**
  * DOC: Flags for CREATE_BO
@@ -145,12 +133,6 @@ struct drm_pvr_ioctl_create_bo_args {
 };
 
 /**
- * DOC: IOCTL GET_BO_MMAP_OFFSET
- *
- * TODO
- */
-
-/**
  * struct drm_pvr_ioctl_get_bo_mmap_offset_args - Arguments for
  * %DRM_IOCTL_PVR_GET_BO_MMAP_OFFSET
  *
@@ -171,14 +153,19 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
 };
 
 /**
- * DOC: IOCTL GET_PARAM
- *
- * TODO
- */
-
-/**
  * DOC: Quirks returned by %DRM_PVR_PARAM_QUIRKS0 and
  *      %DRM_PVR_PARAM_QUIRKS_MUSTHAVE0
+ *
+ * PowerVR quirks come in two classes. "Must-have" quirks have workarounds that
+ * must be present to guarantee correct GPU function. If the client does not
+ * handle any of the "must-have" quirks then it should fail initialisation.
+ *
+ * Other quirks are "opt-in" - the client does not have to handle them, and they
+ * are disabled by default. The exact opt-in mechanism will vary depending on
+ * the quirk, but generally the client will provide additional data during job
+ * submission via the extension stream.
+ *
+ * Only quirks relevant to the UAPI will be included here.
  */
 #define DRM_PVR_QUIRK_BRN47217 0
 #define DRM_PVR_QUIRK_BRN48545 1
@@ -190,6 +177,13 @@ struct drm_pvr_ioctl_get_bo_mmap_offset_args {
 
 /**
  * DOC: Enhancements returned by %DRM_PVR_PARAM_ENHANCEMENTS0
+ *
+ * PowerVR enhancements are handled similarly to "opt-in" quirks. They are
+ * disabled by default. The exact opt-in mechanism will vary depending on
+ * the enhancement, but generally the client will provide additional data during
+ * job submission via the extension stream.
+ *
+ * Only enhancements relevant to the UAPI will be included here.
  */
 #define DRM_PVR_ENHANCEMENT_ERN35421 0
 #define DRM_PVR_ENHANCEMENT_ERN42064 1
@@ -334,12 +328,6 @@ struct drm_pvr_ioctl_get_param_args {
 };
 
 /**
- * DOC: IOCTL CREATE_CONTEXT
- *
- * TODO
- */
-
-/**
  * enum drm_pvr_ctx_priority - Arguments for
  * &drm_pvr_ioctl_create_context_args.priority
  */
@@ -432,12 +420,6 @@ struct drm_pvr_ioctl_create_context_args {
 };
 
 /**
- * DOC: IOCTL DESTROY_CONTEXT
- *
- * TODO
- */
-
-/**
  * struct drm_pvr_ioctl_destroy_context_args - Arguments for
  * %DRM_IOCTL_PVR_DESTROY_CONTEXT
  */
@@ -450,12 +432,6 @@ struct drm_pvr_ioctl_destroy_context_args {
 	/** @_padding_4: Reserved. This field must be zeroed. */
 	__u32 _padding_4;
 };
-
-/**
- * DOC: IOCTL CREATE_OBJECT
- *
- * TODO
- */
 
 /* clang-format off */
 
@@ -635,12 +611,6 @@ struct drm_pvr_ioctl_create_object_args {
 };
 
 /**
- * DOC: IOCTL DESTROY_OBJECT
- *
- * TODO
- */
-
-/**
  * struct drm_pvr_ioctl_destroy_object_args - Arguments for
  * %DRM_IOCTL_PVR_DESTROY_OBJECT
  */
@@ -655,9 +625,20 @@ struct drm_pvr_ioctl_destroy_object_args {
 };
 
 /**
- * DOC: IOCTL GET_HEAP_INFO
+ * DOC: Heap UAPI
  *
- * TODO
+ * The PowerVR address space is pre-divided into a number of heaps. The exact
+ * number and layout of heaps may vary depending on the exact GPU being used.
+ *
+ * Heaps have the following properties:
+ * - ID: Defines the type of heap. In addition to the general heap, there are a
+ *   number of special purpose heaps.
+ * - Base & size: Defines the heap address range.
+ * - Page size: Defined by the GPU device. This may not be constant across all
+ *   heaps.
+ * - Reserved base & size: Defines the reserved area of the heap address range.
+ *   If the heap does not have a reserved area then base & size will be zero.
+ * - Static data areas: Pre-allocated data areas within the reserved area.
  */
 
 enum drm_pvr_get_heap_info_op {
