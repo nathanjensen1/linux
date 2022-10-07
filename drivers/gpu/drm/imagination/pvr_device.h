@@ -183,7 +183,14 @@ struct pvr_device {
 	 */
 	u32 *kccb_rtn;
 
-	/** @kernel_vm_ctx: TODO */
+	/**
+	 * @kernel_vm_ctx: Virtual memory context used for kernel mappings.
+	 *
+	 * This is used for mappings in the firmware address region when a META firmware processor
+	 * is in use.
+	 *
+	 * When a MIPS firmware processor is in use, this will be %NULL.
+	 */
 	struct pvr_vm_context *kernel_vm_ctx;
 
 	/** @fw_dev: Firmware related data. */
@@ -259,7 +266,11 @@ struct pvr_file {
 	/** @ctx_id: Next ID to be assigned when creating a context. */
 	atomic_t ctx_id;
 
-	/** @user_vm_ctx: TODO */
+	/**
+	 * @user_vm_ctx: Virtual memory context used for userspace mappings.
+	 *
+	 * This represents all GPU mappings that belong to this file.
+	 */
 	struct pvr_vm_context *user_vm_ctx;
 
 	/** @fw_mem_ctx_obj: Firmware object representing firmware memory context. */
