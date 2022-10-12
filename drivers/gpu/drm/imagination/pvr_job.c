@@ -71,40 +71,6 @@ fence_array_add(struct xarray *fence_array, struct dma_fence *fence)
 	return ret;
 }
 
-/**
- * fence_array_add_implicit() - Adds the implicit dependencies tracked in the
- *                              GEM object's reservation object to an array of
- *                              dma_fences for use in scheduling a rendering job.
- * @fence_array: array of dma_fence * for the job to block on.
- * @obj: the gem object to add new dependencies from.
- * @write: whether the job might write the object (so we need to depend on
- *         shared fences in the reservation object).
- *
- * This should be called after drm_gem_lock_reservations() on your array of
- * GEM objects used in the job but before updating the reservations with your
- * own fences.
- *
- * Returns:
- *  * 0 on success, or an error on failing to expand the array.
- */
-static int
-fence_array_add_implicit(struct xarray *fence_array, struct drm_gem_object *obj,
-			 bool write)
-{
-	struct dma_resv_iter cursor;
-	struct dma_fence *fence;
-	int ret = 0;
-
-	dma_resv_for_each_fence(&cursor, obj->resv, write, fence) {
-		dma_fence_get(fence);
-
-		ret = fence_array_add(fence_array, fence);
-		if (ret)
-			break;
-	}
-	return ret;
-}
-
 static u32 *
 get_syncobj_handles(u32 num_in_syncobj_handles, u64 in_syncobj_handles_p)
 {
@@ -189,181 +155,16 @@ static void release_fences(struct xarray *in_fences, bool deactivate_fences)
 }
 
 static int
-get_bos(struct pvr_file *pvr_file, struct pvr_job *job, u32 num_in_bo_handles, u64 in_bo_handles_p)
-{
-	struct drm_file *drm_file = from_pvr_file(pvr_file);
-	int err;
-	int i;
-
-	job->bo_refs = kvmalloc_array(num_in_bo_handles, sizeof(*job->bo_refs), GFP_KERNEL);
-	if (!job->bo_refs) {
-		err = -ENOMEM;
-		goto err_out;
-	}
-
-	if (copy_from_user(job->bo_refs, u64_to_user_ptr(in_bo_handles_p),
-			   num_in_bo_handles * sizeof(*job->bo_refs))) {
-		err = -EFAULT;
-		goto err_free_bo_refs;
-	}
-
-	job->bos = kvmalloc_array(num_in_bo_handles, sizeof(*job->bos), GFP_KERNEL | __GFP_ZERO);
-	if (!job->bos) {
-		err = -ENOMEM;
-		goto err_free_bo_refs;
-	}
-
-	job->num_bos = num_in_bo_handles;
-
-	for (i = 0; i < job->num_bos; i++) {
-		/* Verify BO flags. A BO must have at least one access flag set. */
-		if ((job->bo_refs[i].flags & ~DRM_PVR_BO_REF_FLAGS_VALID_MASK) ||
-		    !(job->bo_refs[i].flags & (DRM_PVR_BO_REF_READ | DRM_PVR_BO_REF_WRITE))) {
-			err = -EINVAL;
-			goto err_release_fences;
-		}
-
-		job->bos[i] = drm_gem_object_lookup(drm_file, job->bo_refs[i].handle);
-		if (!job->bos[i]) {
-			err = -EINVAL;
-			goto err_release_fences;
-		}
-	}
-
-	return 0;
-
-err_release_fences:
-	for (i = 0; i < num_in_bo_handles; i++)
-		drm_gem_object_put(job->bos[i]);
-	kfree(job->bos);
-
-err_free_bo_refs:
-	kfree(job->bo_refs);
-
-err_out:
-	return err;
-}
-
-static void
-release_bos(struct pvr_job *job)
-{
-	int i;
-
-	for (i = 0; i < job->num_bos; i++)
-		drm_gem_object_put(job->bos[i]);
-	kfree(job->bos);
-	kfree(job->bo_refs);
-}
-
-static int
-get_implicit_fences(struct pvr_job *job, struct pvr_fence_context *context,
-		    struct dma_fence *out_fence, struct xarray *imported_implicit_fences,
-		    u32 *num_fences_out)
-{
-	struct ww_acquire_ctx acquire_ctx;
-	struct xarray implicit_fences;
-	struct dma_fence *fence;
-	u32 num_fences = 0;
-	unsigned long id;
-	int err;
-	int i;
-
-	err = drm_gem_lock_reservations(job->bos, job->num_bos, &acquire_ctx);
-	if (err)
-		goto err_out;
-
-	xa_init_flags(&implicit_fences, XA_FLAGS_ALLOC);
-
-	for (i = 0; i < job->num_bos; i++) {
-		err = fence_array_add_implicit(&implicit_fences, job->bos[i],
-					       job->bo_refs[i].flags & DRM_PVR_BO_REF_WRITE);
-		if (err) {
-			drm_gem_unlock_reservations(job->bos, job->num_bos, &acquire_ctx);
-			goto err_release_implicit_fences;
-		}
-	}
-
-	for (i = 0; i < job->num_bos; i++) {
-		err = dma_resv_reserve_fences(job->bos[i]->resv, 1);
-		if (err)
-			goto err_release_fences;
-		dma_resv_add_fence(job->bos[i]->resv, out_fence, DMA_RESV_USAGE_WRITE);
-	}
-
-	drm_gem_unlock_reservations(job->bos, job->num_bos, &acquire_ctx);
-
-	xa_for_each(&implicit_fences, id, fence) {
-		struct dma_fence *pvr_fence;
-
-		/* Take additional reference, which will be transferred to pvr_fence on import. */
-		dma_fence_get(fence);
-
-		pvr_fence = pvr_fence_import(context, fence);
-		if (IS_ERR(pvr_fence)) {
-			err = PTR_ERR(pvr_fence);
-			dma_fence_put(fence);
-			goto err_release_fences;
-		}
-
-		err = fence_array_add(imported_implicit_fences, pvr_fence);
-		if (err)
-			goto err_release_fences;
-
-		num_fences++;
-	}
-
-	*num_fences_out = num_fences;
-
-	xa_for_each(&implicit_fences, id, fence) {
-		dma_fence_put(fence);
-	}
-	xa_destroy(&implicit_fences);
-
-	return 0;
-
-err_release_fences:
-	xa_for_each(imported_implicit_fences, id, fence) {
-		dma_fence_put(fence);
-	}
-	xa_destroy(imported_implicit_fences);
-
-err_release_implicit_fences:
-	xa_for_each(&implicit_fences, id, fence) {
-		dma_fence_put(fence);
-	}
-	xa_destroy(&implicit_fences);
-
-err_out:
-	return err;
-}
-
-static void release_implicit_fences(struct pvr_job *job, struct xarray *in_fences,
-				    bool deactivate_fences)
-{
-	struct dma_fence *fence;
-	unsigned long id;
-
-	xa_for_each(in_fences, id, fence) {
-		if (deactivate_fences)
-			pvr_fence_deactivate_and_put(fence);
-		dma_fence_put(fence);
-	}
-	xa_destroy(in_fences);
-}
-
-static int
 submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct pvr_context_render *ctx_render,
 		    struct drm_pvr_ioctl_submit_job_args *args,
 		    struct drm_pvr_job_render_args *render_args, struct pvr_hwrt_data *hwrt,
 		    struct rogue_fwif_cmd_geom *cmd_geom, u32 *syncobj_handles,
-		    struct xarray *implicit_fences, u32 num_implicit_fences,
 		    struct dma_fence *out_fence)
 {
 	struct rogue_fwif_cmd_geom_frag_shared *cmd_shared = &cmd_geom->cmd_shared;
-	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
-	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
+	u32 num_in_fences = args->num_in_syncobj_handles;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
@@ -395,7 +196,7 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		struct dma_fence *fence;
 		unsigned long id;
 
-		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
+		err = import_fences(pvr_file, syncobj_handles, num_in_fences,
 				    &in_fences, &ctx_geom->cccb.pvr_fence_context);
 		if (err)
 			goto err_put_out_syncobj;
@@ -404,17 +205,6 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		if (!in_ufos) {
 			err = -ENOMEM;
 			goto err_release_fences;
-		}
-
-		if (num_implicit_fences) {
-			xa_for_each(implicit_fences, id, fence) {
-				pvr_fence_add_fence_dependency(out_fence, fence);
-				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
-				if (err)
-					goto err_kfree_in_ufos;
-
-				ufo_nr++;
-			}
 		}
 
 		xa_for_each(&in_fences, id, fence) {
@@ -489,12 +279,10 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct drm_pvr_ioctl_submit_job_args *args,
 		    struct drm_pvr_job_render_args *render_args, struct pvr_hwrt_data *hwrt,
 		    struct rogue_fwif_cmd_frag *cmd_frag, u32 *syncobj_handles,
-		    struct xarray *implicit_fences, u32 num_implicit_fences,
 		    struct dma_fence *geom_in_fence, struct dma_fence *out_fence)
 {
 	struct rogue_fwif_cmd_geom_frag_shared *cmd_shared = &cmd_frag->cmd_shared;
-	u32 num_in_syncobj_handles = render_args->num_in_syncobj_handles_frag;
-	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
+	u32 num_in_fences = render_args->num_in_syncobj_handles_frag;
 	struct pvr_context_frag *ctx_frag = &ctx_render->ctx_frag;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
@@ -536,7 +324,7 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		struct dma_fence *fence;
 		unsigned long id;
 
-		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
+		err = import_fences(pvr_file, syncobj_handles, num_in_fences,
 				    &in_fences, &ctx_frag->cccb.pvr_fence_context);
 		if (err)
 			goto err_put_out_syncobj;
@@ -545,18 +333,6 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		if (!in_ufos) {
 			err = -ENOMEM;
 			goto err_release_fences;
-		}
-
-		if (num_implicit_fences) {
-			xa_for_each(implicit_fences, id, fence) {
-				pvr_fence_add_fence_dependency(out_fence, fence);
-
-				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
-				if (err)
-					goto err_kfree_in_ufos;
-
-				ufo_nr++;
-			}
 		}
 
 		xa_for_each(&in_fences, id, fence) {
@@ -617,7 +393,7 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	release_fences(&in_fences, false);
 
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 	return 0;
@@ -626,7 +402,7 @@ err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_frag->cccb);
 
 err_kfree_in_ufos:
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 err_release_fences:
@@ -646,11 +422,9 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		   struct drm_pvr_ioctl_submit_job_args *args,
 		   struct drm_pvr_job_compute_args *compute_args,
 		   struct rogue_fwif_cmd_compute *cmd_compute, u32 *syncobj_handles,
-		   struct xarray *implicit_fences, u32 num_implicit_fences,
 		   struct dma_fence *out_fence)
 {
-	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
-	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
+	u32 num_in_fences = args->num_in_syncobj_handles;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
@@ -680,7 +454,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		struct dma_fence *fence;
 		unsigned long id;
 
-		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
+		err = import_fences(pvr_file, syncobj_handles, num_in_fences,
 				    &in_fences, &ctx_compute->cccb.pvr_fence_context);
 		if (err)
 			goto err_put_out_syncobj;
@@ -689,18 +463,6 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		if (!in_ufos) {
 			err = -ENOMEM;
 			goto err_release_fences;
-		}
-
-		if (num_implicit_fences) {
-			xa_for_each(implicit_fences, id, fence) {
-				pvr_fence_add_fence_dependency(out_fence, fence);
-
-				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
-				if (err)
-					goto err_kfree_in_ufos;
-
-				ufo_nr++;
-			}
 		}
 
 		xa_for_each(&in_fences, id, fence) {
@@ -747,7 +509,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	release_fences(&in_fences, false);
 
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 	return 0;
@@ -756,7 +518,7 @@ err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_compute->cccb);
 
 err_kfree_in_ufos:
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 err_release_fences:
@@ -776,11 +538,9 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct drm_pvr_ioctl_submit_job_args *args,
 		    struct drm_pvr_job_transfer_args *transfer_args,
 		    struct rogue_fwif_cmd_transfer *cmd_transfer, u32 *syncobj_handles,
-		    struct xarray *implicit_fences, u32 num_implicit_fences,
 		    struct dma_fence *out_fence)
 {
-	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
-	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
+	u32 num_in_fences = args->num_in_syncobj_handles;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
 	struct rogue_fwif_ufo out_ufo;
@@ -810,7 +570,7 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		struct dma_fence *fence;
 		unsigned long id;
 
-		err = import_fences(pvr_file, syncobj_handles, num_in_syncobj_handles,
+		err = import_fences(pvr_file, syncobj_handles, num_in_fences,
 				    &in_fences, &ctx_transfer->cccb.pvr_fence_context);
 		if (err)
 			goto err_put_out_syncobj;
@@ -819,18 +579,6 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		if (!in_ufos) {
 			err = -ENOMEM;
 			goto err_release_fences;
-		}
-
-		if (num_implicit_fences) {
-			xa_for_each(implicit_fences, id, fence) {
-				pvr_fence_add_fence_dependency(out_fence, fence);
-
-				err = pvr_fence_to_ufo(fence, &in_ufos[ufo_nr]);
-				if (err)
-					goto err_kfree_in_ufos;
-
-				ufo_nr++;
-			}
 		}
 
 		xa_for_each(&in_fences, id, fence) {
@@ -878,7 +626,7 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	release_fences(&in_fences, false);
 
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 	return 0;
@@ -887,7 +635,7 @@ err_cccb_unlock_rollback:
 	pvr_cccb_unlock_rollback(&ctx_transfer->cccb);
 
 err_kfree_in_ufos:
-	if (num_in_syncobj_handles)
+	if (num_in_fences)
 		kfree(in_ufos);
 
 err_release_fences:
@@ -961,7 +709,6 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		       struct drm_pvr_job_render_args *render_args,
 		       struct pvr_job *job)
 {
-	struct xarray imported_implicit_fences;
 	struct pvr_context_render *ctx_render;
 	struct rogue_fwif_cmd_geom *cmd_geom;
 	struct rogue_fwif_cmd_frag *cmd_frag;
@@ -970,7 +717,6 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 	u32 *syncobj_handles_geom = NULL;
 	u32 *syncobj_handles_frag = NULL;
 	struct pvr_hwrt_data *hwrt;
-	u32 num_implicit_fences;
 	int err;
 
 	if (render_args->_padding_54) {
@@ -1071,46 +817,23 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		}
 	}
 
-	xa_init_flags(&imported_implicit_fences, XA_FLAGS_ALLOC);
-
-	err = get_bos(pvr_file, job, render_args->num_bo_handles, render_args->bo_handles);
-	if (err)
-		goto err_put_geom_fence;
-
-	err = get_implicit_fences(job, render_args->geom_stream ?
-				  &ctx_render->ctx_geom.cccb.pvr_fence_context :
-				  &ctx_render->ctx_frag.cccb.pvr_fence_context,
-				  out_fence, &imported_implicit_fences, &num_implicit_fences);
-	if (err)
-		goto err_release_bos;
-
 	if (render_args->geom_stream) {
 		err = submit_cmd_geometry(pvr_dev, pvr_file, ctx_render, args, render_args, hwrt,
-					  cmd_geom, syncobj_handles_geom, &imported_implicit_fences,
-					  num_implicit_fences,
+					  cmd_geom, syncobj_handles_geom,
 					  render_args->frag_stream ? geom_fence : out_fence);
 		if (err)
-			goto err_release_implicit_fences;
-
-		/*
-		 * No need to wait on the implicit fences twice if we have both geometry and
-		 * fragment jobs to submit.
-		 */
-		num_implicit_fences = 0;
+			goto err_put_geom_fence;
 	}
 
 	if (render_args->frag_stream) {
 		err = submit_cmd_fragment(pvr_dev, pvr_file, ctx_render, args, render_args, hwrt,
-					  cmd_frag, syncobj_handles_frag, &imported_implicit_fences,
-					  num_implicit_fences, geom_fence, out_fence);
+					  cmd_frag, syncobj_handles_frag, geom_fence, out_fence);
 		if (err)
-			goto err_release_implicit_fences;
+			goto err_put_geom_fence;
 	}
 
 	dma_fence_put(geom_fence);
 	dma_fence_put(out_fence);
-	release_implicit_fences(job, &imported_implicit_fences, false);
-	release_bos(job);
 	pvr_context_put(job->ctx);
 	pvr_hwrt_data_put(hwrt);
 
@@ -1118,12 +841,6 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 	kfree(cmd_geom);
 
 	return 0;
-
-err_release_implicit_fences:
-	release_implicit_fences(job, &imported_implicit_fences, true);
-
-err_release_bos:
-	release_bos(job);
 
 err_put_geom_fence:
 	/* As geom_fence will now never be signaled, we need to drop two references here. */
@@ -1168,10 +885,8 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 {
 	struct rogue_fwif_cmd_compute *cmd_compute;
 	struct pvr_context_compute *ctx_compute;
-	struct xarray imported_implicit_fences;
 	u32 *syncobj_handles = NULL;
 	struct dma_fence *out_fence;
-	u32 num_implicit_fences;
 	int err;
 
 	if (compute_args->flags & ~DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_FLAGS_MASK) {
@@ -1222,37 +937,17 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	xa_init_flags(&imported_implicit_fences, XA_FLAGS_ALLOC);
-
-	err = get_bos(pvr_file, job, compute_args->num_bo_handles, compute_args->bo_handles);
+	err = submit_cmd_compute(pvr_dev, pvr_file, ctx_compute, args, compute_args, cmd_compute,
+				 syncobj_handles, out_fence);
 	if (err)
 		goto err_put_out_fence;
 
-	err = get_implicit_fences(job, &ctx_compute->cccb.pvr_fence_context, out_fence,
-				  &imported_implicit_fences, &num_implicit_fences);
-	if (err)
-		goto err_release_bos;
-
-	err = submit_cmd_compute(pvr_dev, pvr_file, ctx_compute, args, compute_args, cmd_compute,
-				 syncobj_handles, &imported_implicit_fences, num_implicit_fences,
-				 out_fence);
-	if (err)
-		goto err_release_implicit_fences;
-
 	dma_fence_put(out_fence);
-	release_implicit_fences(job, &imported_implicit_fences, false);
-	release_bos(job);
 	pvr_context_put(job->ctx);
 
 	kfree(cmd_compute);
 
 	return 0;
-
-err_release_implicit_fences:
-	release_implicit_fences(job, &imported_implicit_fences, true);
-
-err_release_bos:
-	release_bos(job);
 
 err_put_out_fence:
 	/* As out_fence will now never be signaled, we need to drop two references here. */
@@ -1281,10 +976,8 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 {
 	struct rogue_fwif_cmd_transfer *cmd_transfer;
 	struct pvr_context_transfer *ctx_transfer;
-	struct xarray imported_implicit_fences;
 	u32 *syncobj_handles = NULL;
 	struct dma_fence *out_fence;
-	u32 num_implicit_fences;
 	int err;
 
 	if (transfer_args->flags & ~DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_FLAGS_MASK) {
@@ -1335,37 +1028,17 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	xa_init_flags(&imported_implicit_fences, XA_FLAGS_ALLOC);
-
-	err = get_bos(pvr_file, job, transfer_args->num_bo_handles, transfer_args->bo_handles);
+	err = submit_cmd_transfer(pvr_dev, pvr_file, ctx_transfer, args, transfer_args,
+				  cmd_transfer, syncobj_handles, out_fence);
 	if (err)
 		goto err_put_out_fence;
 
-	err = get_implicit_fences(job, &ctx_transfer->cccb.pvr_fence_context, out_fence,
-				  &imported_implicit_fences, &num_implicit_fences);
-	if (err)
-		goto err_release_bos;
-
-	err = submit_cmd_transfer(pvr_dev, pvr_file, ctx_transfer, args, transfer_args,
-				  cmd_transfer, syncobj_handles, &imported_implicit_fences,
-				  num_implicit_fences, out_fence);
-	if (err)
-		goto err_release_implicit_fences;
-
 	dma_fence_put(out_fence);
-	release_implicit_fences(job, &imported_implicit_fences, false);
-	release_bos(job);
 	pvr_context_put(job->ctx);
 
 	kfree(cmd_transfer);
 
 	return 0;
-
-err_release_implicit_fences:
-	release_implicit_fences(job, &imported_implicit_fences, true);
-
-err_release_bos:
-	release_bos(job);
 
 err_put_out_fence:
 	/* As out_fence will now never be signaled, we need to drop two references here. */
