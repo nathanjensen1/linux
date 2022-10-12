@@ -432,20 +432,19 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (ufo_nr) {
 		err = pvr_cccb_write_command_with_header(&ctx_geom->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 ufo_nr * sizeof(*in_ufos), in_ufos,
-							 args->ext_job_ref, 0);
+							 ufo_nr * sizeof(*in_ufos), in_ufos, 0, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
 	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_geom->cccb, ROGUE_FWIF_CCB_CMD_TYPE_GEOM,
-						 sizeof(*cmd_geom), cmd_geom, args->ext_job_ref, 0);
+						 sizeof(*cmd_geom), cmd_geom, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
 	err = pvr_cccb_write_command_with_header(&ctx_geom->cccb, ROGUE_FWIF_CCB_CMD_TYPE_UPDATE,
-						 sizeof(out_ufo), &out_ufo, args->ext_job_ref, 0);
+						 sizeof(out_ufo), &out_ufo, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
@@ -576,8 +575,7 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (ufo_nr) {
 		err = pvr_cccb_write_command_with_header(&ctx_frag->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 ufo_nr * sizeof(*in_ufos), in_ufos,
-							 args->ext_job_ref, 0);
+							 ufo_nr * sizeof(*in_ufos), in_ufos, 0, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
 	}
@@ -591,20 +589,19 @@ submit_cmd_fragment(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 		err = pvr_cccb_write_command_with_header(&ctx_frag->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 sizeof(geom_in_ufo), &geom_in_ufo,
-							 args->ext_job_ref, 0);
+							 sizeof(geom_in_ufo), &geom_in_ufo, 0, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
 	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_frag->cccb, ROGUE_FWIF_CCB_CMD_TYPE_FRAG,
-						 sizeof(*cmd_frag), cmd_frag, args->ext_job_ref, 0);
+						 sizeof(*cmd_frag), cmd_frag, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
 	err = pvr_cccb_write_command_with_header(&ctx_frag->cccb, ROGUE_FWIF_CCB_CMD_TYPE_UPDATE,
-						 sizeof(out_ufo), &out_ufo, args->ext_job_ref, 0);
+						 sizeof(out_ufo), &out_ufo, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
@@ -722,21 +719,19 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		err = pvr_cccb_write_command_with_header(&ctx_compute->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 ufo_nr * sizeof(*in_ufos),
-							 in_ufos, args->ext_job_ref, 0);
+							 ufo_nr * sizeof(*in_ufos), in_ufos, 0, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
 	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_compute->cccb, ROGUE_FWIF_CCB_CMD_TYPE_CDM,
-						 sizeof(*cmd_compute), cmd_compute,
-						 args->ext_job_ref, 0);
+						 sizeof(*cmd_compute), cmd_compute, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
 	err = pvr_cccb_write_command_with_header(&ctx_compute->cccb, ROGUE_FWIF_CCB_CMD_TYPE_UPDATE,
-						 sizeof(out_ufo), &out_ufo, args->ext_job_ref, 0);
+						 sizeof(out_ufo), &out_ufo, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
@@ -854,22 +849,20 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	if (num_in_fences) {
 		err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb,
 							 ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
-							 ufo_nr * sizeof(*in_ufos),
-							 in_ufos, args->ext_job_ref, 0);
+							 ufo_nr * sizeof(*in_ufos), in_ufos, 0, 0);
 		if (err)
 			goto err_cccb_unlock_rollback;
 	}
 
 	/* Submit job to FW */
 	err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb, ROGUE_FWIF_CCB_CMD_TYPE_TQ_3D,
-						 sizeof(*cmd_transfer), cmd_transfer,
-						 args->ext_job_ref, 0);
+						 sizeof(*cmd_transfer), cmd_transfer, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
 	err = pvr_cccb_write_command_with_header(&ctx_transfer->cccb,
 						 ROGUE_FWIF_CCB_CMD_TYPE_UPDATE,
-						 sizeof(out_ufo), &out_ufo, args->ext_job_ref, 0);
+						 sizeof(out_ufo), &out_ufo, 0, 0);
 	if (err)
 		goto err_cccb_unlock_rollback;
 
@@ -1005,7 +998,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		if (err)
 			goto err_out;
 
-		cmd_geom->cmd_shared.cmn.frame_num = args->frame_num;
+		cmd_geom->cmd_shared.cmn.frame_num = 0;
 		cmd_geom->flags = render_args->geom_flags;
 
 		if (render_args->num_in_syncobj_handles_geom) {
@@ -1026,7 +1019,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		if (err)
 			goto err_free_syncobj_geom;
 
-		cmd_frag->cmd_shared.cmn.frame_num = args->frame_num;
+		cmd_frag->cmd_shared.cmn.frame_num = 0;
 		cmd_frag->flags = render_args->frag_flags;
 
 		if (render_args->num_in_syncobj_handles_frag) {
@@ -1198,7 +1191,7 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 	if (err)
 		goto err_out;
 
-	cmd_compute->common.frame_num = args->frame_num;
+	cmd_compute->common.frame_num = 0;
 	cmd_compute->flags = compute_args->flags;
 
 	if (compute_args->num_in_syncobj_handles) {
@@ -1311,7 +1304,7 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 	if (err)
 		goto err_out;
 
-	cmd_transfer->common.frame_num = args->frame_num;
+	cmd_transfer->common.frame_num = 0;
 	cmd_transfer->flags = transfer_args->flags;
 
 	if (transfer_args->num_in_syncobj_handles) {
