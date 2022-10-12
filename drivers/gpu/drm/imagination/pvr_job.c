@@ -361,7 +361,7 @@ submit_cmd_geometry(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct dma_fence *out_fence)
 {
 	struct rogue_fwif_cmd_geom_frag_shared *cmd_shared = &cmd_geom->cmd_shared;
-	u32 num_in_syncobj_handles = render_args->num_in_syncobj_handles_geom;
+	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
 	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
 	struct drm_syncobj *out_syncobj;
@@ -649,7 +649,7 @@ submit_cmd_compute(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		   struct xarray *implicit_fences, u32 num_implicit_fences,
 		   struct dma_fence *out_fence)
 {
-	u32 num_in_syncobj_handles = compute_args->num_in_syncobj_handles;
+	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
 	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
@@ -779,7 +779,7 @@ submit_cmd_transfer(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		    struct xarray *implicit_fences, u32 num_implicit_fences,
 		    struct dma_fence *out_fence)
 {
-	u32 num_in_syncobj_handles = transfer_args->num_in_syncobj_handles;
+	u32 num_in_syncobj_handles = args->num_in_syncobj_handles;
 	u32 num_in_fences = num_in_syncobj_handles + num_implicit_fences;
 	struct drm_syncobj *out_syncobj;
 	struct rogue_fwif_ufo *in_ufos;
@@ -1001,10 +1001,10 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		cmd_geom->cmd_shared.cmn.frame_num = 0;
 		cmd_geom->flags = render_args->geom_flags;
 
-		if (render_args->num_in_syncobj_handles_geom) {
+		if (args->num_in_syncobj_handles) {
 			syncobj_handles_geom =
-				get_syncobj_handles(render_args->num_in_syncobj_handles_geom,
-						    render_args->in_syncobj_handles_geom);
+				get_syncobj_handles(args->num_in_syncobj_handles,
+						    args->in_syncobj_handles);
 
 			if (IS_ERR(syncobj_handles_geom)) {
 				err = PTR_ERR(syncobj_handles_geom);
@@ -1194,9 +1194,9 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 	cmd_compute->common.frame_num = 0;
 	cmd_compute->flags = compute_args->flags;
 
-	if (compute_args->num_in_syncobj_handles) {
-		syncobj_handles = get_syncobj_handles(compute_args->num_in_syncobj_handles,
-						      compute_args->in_syncobj_handles);
+	if (args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
+						      args->in_syncobj_handles);
 
 		if (IS_ERR(syncobj_handles)) {
 			err = PTR_ERR(syncobj_handles);
@@ -1307,9 +1307,9 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 	cmd_transfer->common.frame_num = 0;
 	cmd_transfer->flags = transfer_args->flags;
 
-	if (transfer_args->num_in_syncobj_handles) {
-		syncobj_handles = get_syncobj_handles(transfer_args->num_in_syncobj_handles,
-						      transfer_args->in_syncobj_handles);
+	if (args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
+						      args->in_syncobj_handles);
 
 		if (IS_ERR(syncobj_handles)) {
 			err = PTR_ERR(syncobj_handles);
@@ -1417,9 +1417,9 @@ pvr_process_job_null(struct pvr_device *pvr_dev,
 		goto err_out;
 	}
 
-	if (null_args->num_in_syncobj_handles) {
-		syncobj_handles = get_syncobj_handles(null_args->num_in_syncobj_handles,
-						      null_args->in_syncobj_handles);
+	if (args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
+						      args->in_syncobj_handles);
 
 		if (IS_ERR(syncobj_handles)) {
 			err = PTR_ERR(syncobj_handles);
@@ -1429,7 +1429,7 @@ pvr_process_job_null(struct pvr_device *pvr_dev,
 
 	xa_init_flags(&in_fences, XA_FLAGS_ALLOC);
 
-	for (i = 0; i < null_args->num_in_syncobj_handles; i++) {
+	for (i = 0; i < args->num_in_syncobj_handles; i++) {
 		err = drm_syncobj_find_fence(from_pvr_file(pvr_file),
 					     syncobj_handles[i], 0, 0, &fence);
 		if (err)
