@@ -1265,16 +1265,6 @@ struct drm_pvr_ioctl_submit_job_args {
 	 */
 	__u32 context_handle;
 
-	/**
-	 * @ext_job_ref: [IN] Job reference.
-	 */
-	__u32 ext_job_ref;
-
-	/**
-	 * @frame_num: [IN] Frame number associated with command.
-	 */
-	__u32 frame_num;
-
 	/** @data: [IN] User pointer to job type specific arguments. */
 	__u64 data;
 };
