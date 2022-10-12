@@ -118,6 +118,7 @@ int pvr_get_heap_info(struct pvr_device *pvr_dev,
 		      struct drm_pvr_ioctl_get_heap_info_args *args);
 const struct pvr_heap *pvr_find_heap_containing(struct pvr_device *pvr_dev,
 						u64 addr, u64 size);
+u32 pvr_get_num_heaps(struct pvr_device *pvr_dev);
 
 struct pvr_gem_object *pvr_vm_find_gem_object(struct pvr_vm_context *vm_ctx,
 					      u64 device_addr,

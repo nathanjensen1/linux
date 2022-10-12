@@ -4025,8 +4025,8 @@ static const struct pvr_heap rgnhdr_heap = {
 	.page_size_log2 = PVR_DEVICE_PAGE_SHIFT,
 };
 
-static __always_inline u32
-pvr_get_nr_heaps(struct pvr_device *pvr_dev)
+u32
+pvr_get_num_heaps(struct pvr_device *pvr_dev)
 {
 	u32 heaps = ARRAY_SIZE(pvr_heaps);
 
@@ -4040,67 +4040,66 @@ pvr_get_nr_heaps(struct pvr_device *pvr_dev)
 int
 pvr_get_heap_info(struct pvr_device *pvr_dev, struct drm_pvr_ioctl_get_heap_info_args *args)
 {
+	const struct pvr_heap *pvr_heap;
 	int err;
 
-	if (args->data) {
-		const struct pvr_heap *pvr_heap;
-
-		if (args->heap_nr < ARRAY_SIZE(pvr_heaps)) {
-			pvr_heap = &pvr_heaps[args->heap_nr];
-		} else if (args->heap_nr == ARRAY_SIZE(pvr_heaps) &&
-			PVR_HAS_QUIRK(pvr_dev, 63142)) {
-			/* Region header heap is only present if BRN63142 is present. */
-			pvr_heap = &rgnhdr_heap;
-		} else  {
-			err = -EINVAL;
-			goto err_out;
-		}
-
-		switch (args->op) {
-		case DRM_PVR_HEAP_OP_GET_HEAP_INFO: {
-			struct drm_pvr_heap heap_out;
-
-			heap_out.id = pvr_heap->id;
-			heap_out.flags = pvr_heap->flags;
-			heap_out.base = pvr_heap->base;
-			heap_out.size = pvr_heap->size;
-			heap_out.reserved_base = pvr_heap->reserved_base;
-			heap_out.reserved_size = pvr_heap->reserved_size;
-			heap_out.page_size_log2 = pvr_heap->page_size_log2;
-			heap_out.nr_static_data_areas = pvr_heap->nr_static_data_areas;
-
-			if (copy_to_user(u64_to_user_ptr(args->data), &heap_out,
-					 sizeof(heap_out))) {
-				err = -EFAULT;
-				goto err_out;
-			}
-			break;
-		}
-
-		case DRM_PVR_HEAP_OP_GET_STATIC_DATA_AREAS: {
-			if (!pvr_heap->nr_static_data_areas) {
-				err = -EINVAL;
-				goto err_out;
-			}
-
-			if (copy_to_user(u64_to_user_ptr(args->data),
-					 pvr_heap->static_data_areas,
-					 pvr_heap->nr_static_data_areas *
-					 sizeof(struct drm_pvr_static_data_area))) {
-				err = -EFAULT;
-				goto err_out;
-			}
-			break;
-		}
-
-		default:
-			err = -EINVAL;
-			goto err_out;
-		}
+	if (!args->data) {
+		err = -EINVAL;
+		goto err_out;
 	}
 
-	/* Always write the number of heaps, regardless of whether a data pointer was provided. */
-	args->nr_heaps = pvr_get_nr_heaps(pvr_dev);
+	if (args->heap_nr < ARRAY_SIZE(pvr_heaps)) {
+		pvr_heap = &pvr_heaps[args->heap_nr];
+	} else if (args->heap_nr == ARRAY_SIZE(pvr_heaps) &&
+		PVR_HAS_QUIRK(pvr_dev, 63142)) {
+		/* Region header heap is only present if BRN63142 is present. */
+		pvr_heap = &rgnhdr_heap;
+	} else  {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	switch (args->op) {
+	case DRM_PVR_HEAP_OP_GET_HEAP_INFO: {
+		struct drm_pvr_heap heap_out;
+
+		heap_out.id = pvr_heap->id;
+		heap_out.flags = pvr_heap->flags;
+		heap_out.base = pvr_heap->base;
+		heap_out.size = pvr_heap->size;
+		heap_out.reserved_base = pvr_heap->reserved_base;
+		heap_out.reserved_size = pvr_heap->reserved_size;
+		heap_out.page_size_log2 = pvr_heap->page_size_log2;
+		heap_out.nr_static_data_areas = pvr_heap->nr_static_data_areas;
+
+		if (copy_to_user(u64_to_user_ptr(args->data), &heap_out,
+				 sizeof(heap_out))) {
+			err = -EFAULT;
+			goto err_out;
+		}
+		break;
+	}
+
+	case DRM_PVR_HEAP_OP_GET_STATIC_DATA_AREAS: {
+		if (!pvr_heap->nr_static_data_areas) {
+			err = -EINVAL;
+			goto err_out;
+		}
+
+		if (copy_to_user(u64_to_user_ptr(args->data),
+				 pvr_heap->static_data_areas,
+				 pvr_heap->nr_static_data_areas *
+				 sizeof(struct drm_pvr_static_data_area))) {
+			err = -EFAULT;
+			goto err_out;
+		}
+		break;
+	}
+
+	default:
+		err = -EINVAL;
+		goto err_out;
+	}
 
 	return 0;
 

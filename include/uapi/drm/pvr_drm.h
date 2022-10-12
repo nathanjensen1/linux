@@ -306,6 +306,12 @@ enum drm_pvr_param {
 	 * memory available to a kernel, in dwords.
 	 */
 	DRM_PVR_PARAM_CDM_MAX_LOCAL_MEM_SIZE_REGS,
+
+	/**
+	 * @DRM_PVR_PARAM_NUM_HEAPS: Number of heaps exposed by %DRM_IOCTL_PVR_GET_HEAP_INFO for
+	 * this device.
+	 */
+	DRM_PVR_PARAM_NUM_HEAPS,
 };
 
 /**
@@ -748,17 +754,11 @@ struct drm_pvr_ioctl_get_heap_info_args {
 	 *             array of &struct drm_pvr_static_data_area, of size
 	 *             %drm_pvr_heap.nr_static_data_areas elements, when &op ==
 	 *             %DRM_PVR_HEAP_OP_GET_STATIC_DATA_AREAS.
-	 *             May be zero, in which case this ioctl will not write any heap information.
 	 */
 	__u64 data;
 
-	/** @heap_nr: [IN] Number of heap to get information for. Not used if @data is 0. */
+	/** @heap_nr: [IN] Number of heap to get information for. */
 	__u32 heap_nr;
-
-	/**
-	 * @nr_heaps: [OUT] Number of heaps provided by the driver.
-	 */
-	__u32 nr_heaps;
 };
 
 /**
