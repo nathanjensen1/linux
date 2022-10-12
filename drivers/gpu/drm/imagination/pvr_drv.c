@@ -484,6 +484,9 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 	case DRM_PVR_PARAM_CDM_MAX_LOCAL_MEM_SIZE_REGS:
 		value = rogue_get_cdm_max_local_mem_size_regs(pvr_dev);
 		break;
+	case DRM_PVR_PARAM_NUM_HEAPS:
+		value = pvr_get_num_heaps(pvr_dev);
+		break;
 	case DRM_PVR_PARAM_INVALID:
 	default:
 		return -EINVAL;
