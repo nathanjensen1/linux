@@ -7,10 +7,19 @@
 /**
  * DOC: Streams
  *
- * Commands are submitted to the kernel driver in the form of streams. Each command has two streams
- * - a main stream and an extension stream.
+ * Commands are submitted to the kernel driver in the form of streams.
  *
- * The main stream has a fixed layout based on the features supported by a given GPU.
+ * A command stream has the following layout :
+ *  - A 64-bit header containing:
+ *    * A u32 containing the length of the main stream inclusive of the length of the header.
+ *    * A u32 for padding.
+ *  - The main stream data.
+ *  - The extension stream (optional), which is composed of:
+ *    * One or more headers.
+ *    * The extension stream data, corresponding to the extension headers.
+ *
+ * The main stream provides the base command data. This has a fixed layout based on the features
+ * supported by a given GPU.
  *
  * The extension stream provides the command parameters that are required for BRNs & ERNs for the
  * current GPU. This stream is comprised of one or more headers, followed by data for each given

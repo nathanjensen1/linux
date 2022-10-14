@@ -951,62 +951,28 @@ struct drm_pvr_ioctl_vm_unmap_args {
  */
 struct drm_pvr_job_render_args {
 	/**
-	 * @geom_stream: [IN] Pointer to main stream for geometry command.
+	 * @geom_cmd_stream: [IN] Pointer to command stream for geometry command.
 	 *
-	 * The main stream must be u64-aligned.
+	 * The geometry command stream must be u64-aligned.
 	 */
-	__u64 geom_stream;
+	__u64 geom_cmd_stream;
 
 	/**
-	 * @geom_ext_stream: [IN] Pointer to extension stream for geometry command.
+	 * @frag_cmd_stream: [IN] Pointer to command stream for fragment command.
 	 *
-	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
-	 * affect fragment commands; if not provided, this must be set to %NULL.
-	 *
-	 * The extension stream must be u64-aligned.
+	 * The fragment command stream must be u64-aligned.
 	 */
-	__u64 geom_ext_stream;
+	__u64 frag_cmd_stream;
 
 	/**
-	 * @geom_stream_len: [IN] Length of geometry command stream, in bytes.
+	 * @geom_cmd_stream_len: [IN] Length of geometry command stream, in bytes.
 	 */
-	__u32 geom_stream_len;
+	__u32 geom_cmd_stream_len;
 
 	/**
-	 * @geom_ext_stream_len: [IN] Length of geometry command extension stream, in bytes.
-	 *
-	 * This must be zero if @geom_ext_stream is %NULL.
+	 * @frag_cmd_stream_len: [IN] Length of fragment command stream, in bytes.
 	 */
-	__u32 geom_ext_stream_len;
-
-	/**
-	 * @frag_stream: [IN] Pointer to main stream for fragment command.
-	 *
-	 * The main stream must be u64-aligned.
-	 */
-	__u64 frag_stream;
-
-	/**
-	 * @frag_ext_stream: [IN] Pointer to extension stream for fragment command.
-	 *
-	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
-	 * affect geometry commands; if not provided, this must be set to %NULL.
-	 *
-	 * The extension stream must be u64-aligned.
-	 */
-	__u64 frag_ext_stream;
-
-	/**
-	 * @frag_stream_len: [IN] Length of fragment command stream, in bytes.
-	 */
-	__u32 frag_stream_len;
-
-	/**
-	 * @frag_ext_stream_len: [IN] Length of fragment command extension stream, in bytes.
-	 *
-	 * This must be zero if @frag_ext_stream is %NULL.
-	 */
-	__u32 frag_ext_stream_len;
+	__u32 frag_cmd_stream_len;
 
 	/**
 	 * @in_syncobj_handles_frag: [IN] Pointer to array of drm_syncobj handles for
@@ -1084,31 +1050,16 @@ struct drm_pvr_job_render_args {
  */
 struct drm_pvr_job_compute_args {
 	/**
-	 * @stream: [IN] Pointer to main stream for compute command.
+	 * @cmd_stream: [IN] Pointer to command stream for compute command.
 	 *
-	 * The main stream must be u64-aligned.
+	 * The command stream must be u64-aligned.
 	 */
-	__u64 stream;
+	__u64 cmd_stream;
 
 	/**
-	 * @ext_stream: [IN] Pointer to extension stream for compute command.
-	 *
-	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
-	 * affect compute commands; if not provided, this must be set to %NULL.
-	 *
-	 * The extension stream must be u64-aligned.
+	 * @cmd_stream_len: [IN] Length of compute command stream, in bytes.
 	 */
-	__u64 ext_stream;
-
-	/**
-	 * @stream_len: [IN] Length of compute command stream, in bytes.
-	 */
-	__u32 stream_len;
-
-	/**
-	 * @ext_stream_len: [IN] Length of compute command extension stream, in bytes.
-	 */
-	__u32 ext_stream_len;
+	__u32 cmd_stream_len;
 
 	/**
 	 * @flags: [IN] Flags for command.
@@ -1140,31 +1091,16 @@ struct drm_pvr_job_compute_args {
  */
 struct drm_pvr_job_transfer_args {
 	/**
-	 * @stream: [IN] Pointer to main stream for transfer command.
+	 * @cmd_stream: [IN] Pointer to command stream for transfer command.
 	 *
-	 * The main stream must be u64-aligned.
+	 * The command stream must be u64-aligned.
 	 */
-	__u64 stream;
+	__u64 cmd_stream;
 
 	/**
-	 * @ext_stream: [IN] Pointer to extension stream for transfer command.
-	 *
-	 * The extension stream is optional if the GPU doesn't have any "must have" BRNs that
-	 * affect transfer commands; if not provided, this must be set to %NULL.
-	 *
-	 * The extension stream must be u64-aligned.
+	 * @cmd_stream_len: [IN] Length of transfer command stream, in bytes.
 	 */
-	__u64 ext_stream;
-
-	/**
-	 * @stream_len: [IN] Length of transfer command stream, in bytes.
-	 */
-	__u32 stream_len;
-
-	/**
-	 * @ext_stream_len: [IN] Length of transfer command extension stream, in bytes.
-	 */
-	__u32 ext_stream_len;
+	__u32 cmd_stream_len;
 
 	/**
 	 * @flags: [IN] Flags for command.

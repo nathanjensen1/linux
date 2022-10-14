@@ -132,10 +132,9 @@ err_out:
 static int
 pvr_stream_process_ext_stream(struct pvr_device *pvr_dev,
 			      const struct pvr_stream_cmd_defs *cmd_defs, void *ext_stream,
-			      u32 ext_stream_size, void *dest)
+			      u32 stream_offset, u32 ext_stream_size, void *dest)
 {
 	u32 musthave_masks[PVR_STREAM_EXTHDR_TYPE_MAX];
-	u32 stream_offset = 0;
 	u32 ext_header;
 	int err = 0;
 	u32 i;
@@ -209,10 +208,8 @@ err_out:
  * pvr_stream_process() - Build FW structure from stream
  * @pvr_dev: Device pointer.
  * @cmd_defs: Stream definition.
- * @stream: Pointer to main stream.
- * @stream_size: Size of main stream, in bytes.
- * @ext_stream: Pointer to extension stream. May be %NULL.
- * @ext_stream_size: Size of extension stream, in bytes. Must be zero if @ext_stream is %NULL.
+ * @stream: Pointer to command stream.
+ * @stream_size: Size of command stream, in bytes.
  * @dest_out: Pointer to location to store address of FW structure.
  *
  * Caller is responsible for freeing the output structure.
@@ -224,14 +221,15 @@ err_out:
  */
 int
 pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
-		   void *stream, u32 stream_size, void *ext_stream, u32 ext_stream_size,
-		   void **dest_out)
+		   void *stream, u32 stream_size, void **dest_out)
 {
+	u32 stream_offset = 0;
+	u32 main_stream_len;
+	u32 padding;
 	void *dest;
 	int err;
 
-	if (!stream || !stream_size || (!ext_stream && ext_stream_size) ||
-	    (ext_stream && !ext_stream_size) || (ext_stream && !cmd_defs->ext_nr_headers)) {
+	if (!stream || !stream_size) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -242,14 +240,34 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 		goto err_out;
 	}
 
-	err = pvr_stream_process_1(pvr_dev, cmd_defs->main_stream, cmd_defs->main_stream_len,
-				   stream, 0, stream_size, dest, cmd_defs->dest_size, NULL);
+	err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u32),
+				  sizeof(u32), &main_stream_len);
 	if (err)
 		goto err_free_dest;
 
-	if (ext_stream) {
-		err = pvr_stream_process_ext_stream(pvr_dev, cmd_defs, ext_stream, ext_stream_size,
-						    dest);
+	/*
+	 * u32 after stream length is padding to ensure u64 alignment, but may be used for expansion
+	 * in the future. Verify it's zero.
+	 */
+	err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u32),
+				  sizeof(u32), &padding);
+	if (err)
+		goto err_free_dest;
+
+	if (main_stream_len < stream_offset || main_stream_len > stream_size || padding) {
+		err = -EINVAL;
+		goto err_free_dest;
+	}
+
+	err = pvr_stream_process_1(pvr_dev, cmd_defs->main_stream, cmd_defs->main_stream_len,
+				   stream, stream_offset, main_stream_len, dest,
+				   cmd_defs->dest_size, &stream_offset);
+	if (err)
+		goto err_free_dest;
+
+	if (stream_offset < stream_size) {
+		err = pvr_stream_process_ext_stream(pvr_dev, cmd_defs, stream, stream_offset,
+						    stream_size, dest);
 		if (err)
 			goto err_free_dest;
 	} else {

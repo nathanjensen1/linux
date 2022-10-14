@@ -650,10 +650,8 @@ err_out:
 }
 
 static int pvr_fw_cmd_init(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *stream_def,
-			   u64 stream_userptr, u32 stream_len, u64 ext_stream_userptr,
-			   u32 ext_stream_len, void **cmd_out)
+			   u64 stream_userptr, u32 stream_len, void **cmd_out)
 {
-	void *ext_stream = NULL;
 	void *stream;
 	int err;
 
@@ -668,32 +666,7 @@ static int pvr_fw_cmd_init(struct pvr_device *pvr_dev, const struct pvr_stream_c
 		goto err_free_stream;
 	}
 
-	if (ext_stream_userptr) {
-		ext_stream = kzalloc(ext_stream_len, GFP_KERNEL);
-		if (!ext_stream) {
-			err = -ENOMEM;
-			goto err_free_stream;
-		}
-
-		if (copy_from_user(ext_stream, u64_to_user_ptr(ext_stream_userptr),
-				   ext_stream_len)) {
-			err = -EFAULT;
-			goto err_free_ext_stream;
-		}
-	}
-
-	err = pvr_stream_process(pvr_dev, stream_def, stream, stream_len, ext_stream,
-				 ext_stream_len, cmd_out);
-	if (err)
-		goto err_free_ext_stream;
-
-	kfree(ext_stream);
-	kfree(stream);
-
-	return 0;
-
-err_free_ext_stream:
-	kfree(ext_stream);
+	err = pvr_stream_process(pvr_dev, stream_def, stream, stream_len, cmd_out);
 
 err_free_stream:
 	kfree(stream);
@@ -759,7 +732,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 	}
 
 	/* Verify that at least one command is provided. */
-	if (!render_args->geom_stream && !render_args->frag_stream) {
+	if (!render_args->geom_cmd_stream && !render_args->frag_cmd_stream) {
 		err = -EINVAL;
 		goto err_out;
 	}
@@ -771,10 +744,9 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 	}
 
 	/* Copy commands from userspace. */
-	if (render_args->geom_stream) {
-		err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_geom_stream, render_args->geom_stream,
-				      render_args->geom_stream_len, render_args->geom_ext_stream,
-				      render_args->geom_ext_stream_len, (void **)&cmd_geom);
+	if (render_args->geom_cmd_stream) {
+		err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_geom_stream, render_args->geom_cmd_stream,
+				      render_args->geom_cmd_stream_len, (void **)&cmd_geom);
 		if (err)
 			goto err_out;
 
@@ -792,10 +764,9 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 			}
 		}
 	}
-	if (render_args->frag_stream) {
-		err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_frag_stream, render_args->frag_stream,
-				      render_args->frag_stream_len, render_args->frag_ext_stream,
-				      render_args->frag_ext_stream_len, (void **)&cmd_frag);
+	if (render_args->frag_cmd_stream) {
+		err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_frag_stream, render_args->frag_cmd_stream,
+				      render_args->frag_cmd_stream_len, (void **)&cmd_frag);
 		if (err)
 			goto err_free_syncobj_geom;
 
@@ -833,7 +804,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	out_fence = pvr_fence_create(render_args->frag_stream ?
+	out_fence = pvr_fence_create(render_args->frag_cmd_stream ?
 					&ctx_render->ctx_frag.cccb.pvr_fence_context :
 					&ctx_render->ctx_geom.cccb.pvr_fence_context,
 				     job->ctx);
@@ -842,7 +813,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	if (render_args->geom_stream && render_args->frag_stream) {
+	if (render_args->geom_cmd_stream && render_args->frag_cmd_stream) {
 		geom_fence = pvr_fence_create(&ctx_render->ctx_geom.cccb.pvr_fence_context,
 					      job->ctx);
 		if (IS_ERR(geom_fence)) {
@@ -851,15 +822,15 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		}
 	}
 
-	if (render_args->geom_stream) {
+	if (render_args->geom_cmd_stream) {
 		err = submit_cmd_geometry(pvr_dev, pvr_file, ctx_render, args, render_args, hwrt,
 					  cmd_geom, syncobj_handles_geom,
-					  render_args->frag_stream ? geom_fence : out_fence);
+					  render_args->frag_cmd_stream ? geom_fence : out_fence);
 		if (err)
 			goto err_put_geom_fence;
 	}
 
-	if (render_args->frag_stream) {
+	if (render_args->frag_cmd_stream) {
 		err = submit_cmd_fragment(pvr_dev, pvr_file, ctx_render, args, render_args, hwrt,
 					  cmd_frag, syncobj_handles_frag, geom_fence, out_fence);
 		if (err)
@@ -896,14 +867,14 @@ err_free_syncobj_frag:
 	kfree(syncobj_handles_frag);
 
 err_free_cmd_frag:
-	if (render_args->frag_stream)
+	if (render_args->frag_cmd_stream)
 		kfree(cmd_frag);
 
 err_free_syncobj_geom:
 	kfree(syncobj_handles_geom);
 
 err_free_cmd_geom:
-	if (render_args->geom_stream)
+	if (render_args->geom_cmd_stream)
 		kfree(cmd_geom);
 
 err_out:
@@ -942,14 +913,13 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 	}
 
 	/* Copy commands from userspace. */
-	if (!compute_args->stream) {
+	if (!compute_args->cmd_stream) {
 		err = -EINVAL;
 		goto err_out;
 	}
 
-	err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_compute_stream, compute_args->stream,
-			      compute_args->stream_len, compute_args->ext_stream,
-			      compute_args->ext_stream_len, (void **)&cmd_compute);
+	err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_compute_stream, compute_args->cmd_stream,
+			      compute_args->cmd_stream_len, (void **)&cmd_compute);
 	if (err)
 		goto err_out;
 
@@ -1044,14 +1014,13 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 	}
 
 	/* Copy commands from userspace. */
-	if (!transfer_args->stream) {
+	if (!transfer_args->cmd_stream) {
 		err = -EINVAL;
 		goto err_out;
 	}
 
-	err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_transfer_stream, transfer_args->stream,
-			      transfer_args->stream_len, transfer_args->ext_stream,
-			      transfer_args->ext_stream_len, (void **)&cmd_transfer);
+	err = pvr_fw_cmd_init(pvr_dev, &pvr_cmd_transfer_stream, transfer_args->cmd_stream,
+			      transfer_args->cmd_stream_len, (void **)&cmd_transfer);
 	if (err)
 		goto err_out;
 

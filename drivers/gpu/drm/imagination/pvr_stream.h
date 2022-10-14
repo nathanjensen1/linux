@@ -64,8 +64,7 @@ struct pvr_stream_cmd_defs {
 
 int
 pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
-		   void *stream, u32 stream_size, void *ext_stream, u32 ext_steam_size,
-		   void **out_p);
+		   void *stream, u32 stream_size, void **out_p);
 
 void
 pvr_stream_create_musthave_masks(struct pvr_device *pvr_dev);
