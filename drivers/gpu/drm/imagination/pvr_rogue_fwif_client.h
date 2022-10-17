@@ -4,10 +4,41 @@
 #ifndef __PVR_ROGUE_FWIF_CLIENT_H__
 #define __PVR_ROGUE_FWIF_CLIENT_H__
 
+#include <linux/bits.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
 
 #include "pvr_rogue_fwif_shared.h"
+
+/*
+ * Flags supported by the geometry DM command i.e. &struct rogue_fwif_cmd_geom.
+ */
+
+#define ROGUE_GEOM_FLAGS_FIRSTKICK BIT_MASK(0)
+#define ROGUE_GEOM_FLAGS_LASTKICK BIT_MASK(1)
+/* Use single core in a multi core setup. */
+#define ROGUE_GEOM_FLAGS_SINGLE_CORE BIT_MASK(3)
+
+/*
+ * Flags supported by the fragment DM command i.e. &struct rogue_fwif_cmd_frag.
+ */
+
+/* Use single core in a multi core setup. */
+#define ROGUE_FRAG_FLAGS_SINGLE_CORE BIT_MASK(3)
+/* Indicates whether a depth buffer is present. */
+#define ROGUE_FRAG_FLAGS_DEPTHBUFFER BIT_MASK(7)
+/* Indicates whether a stencil buffer is present. */
+#define ROGUE_FRAG_FLAGS_STENCILBUFFER BIT_MASK(8)
+/* Disallow compute overlapped with this render. */
+#define ROGUE_FRAG_FLAGS_PREVENT_CDM_OVERLAP BIT_MASK(26)
+
+/*
+ * Flags supported by the compute DM command i.e. &struct rogue_fwif_cmd_compute.
+ */
+
+#define ROGUE_COMPUTE_FLAG_PREVENT_ALL_OVERLAP BIT_MASK(2)
+/*!< Use single core in a multi core setup. */
+#define ROGUE_COMPUTE_FLAG_SINGLE_CORE BIT_MASK(5)
 
 /*
  ************************************************
