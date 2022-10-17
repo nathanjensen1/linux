@@ -702,6 +702,38 @@ err_out:
 	return err;
 }
 
+static u32
+convert_geom_flags(u32 in_flags)
+{
+	u32 out_flags = 0;
+
+	if (in_flags & DRM_PVR_SUBMIT_JOB_GEOM_CMD_FIRST)
+		out_flags |= ROGUE_GEOM_FLAGS_FIRSTKICK;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_GEOM_CMD_LAST)
+		out_flags |= ROGUE_GEOM_FLAGS_LASTKICK;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_GEOM_CMD_SINGLE_CORE)
+		out_flags |= ROGUE_GEOM_FLAGS_SINGLE_CORE;
+
+	return out_flags;
+}
+
+static u32
+convert_frag_flags(u32 in_flags)
+{
+	u32 out_flags = 0;
+
+	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_SINGLE_CORE)
+		out_flags |= ROGUE_FRAG_FLAGS_SINGLE_CORE;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_DEPTHBUFFER)
+		out_flags |= ROGUE_FRAG_FLAGS_DEPTHBUFFER;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_STENCILBUFFER)
+		out_flags |= ROGUE_FRAG_FLAGS_STENCILBUFFER;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP)
+		out_flags |= ROGUE_FRAG_FLAGS_PREVENT_CDM_OVERLAP;
+
+	return out_flags;
+}
+
 static int
 pvr_process_job_render(struct pvr_device *pvr_dev,
 		       struct pvr_file *pvr_file,
@@ -745,7 +777,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 			goto err_out;
 
 		cmd_geom->cmd_shared.cmn.frame_num = 0;
-		cmd_geom->flags = render_args->geom_flags;
+		cmd_geom->flags = convert_geom_flags(render_args->geom_flags);
 
 		if (args->num_in_syncobj_handles) {
 			syncobj_handles_geom =
@@ -766,7 +798,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 			goto err_free_syncobj_geom;
 
 		cmd_frag->cmd_shared.cmn.frame_num = 0;
-		cmd_frag->flags = render_args->frag_flags;
+		cmd_frag->flags = convert_frag_flags(render_args->frag_flags);
 
 		if (render_args->num_in_syncobj_handles_frag) {
 			syncobj_handles_frag =
@@ -876,6 +908,19 @@ err_out:
 	return err;
 }
 
+static u32
+convert_compute_flags(u32 in_flags)
+{
+	u32 out_flags = 0;
+
+	if (in_flags & DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_PREVENT_ALL_OVERLAP)
+		out_flags |= ROGUE_COMPUTE_FLAG_PREVENT_ALL_OVERLAP;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_COMPUTE_CMD_SINGLE_CORE)
+		out_flags |= ROGUE_COMPUTE_FLAG_SINGLE_CORE;
+
+	return out_flags;
+}
+
 static int
 pvr_process_job_compute(struct pvr_device *pvr_dev,
 			struct pvr_file *pvr_file,
@@ -907,7 +952,7 @@ pvr_process_job_compute(struct pvr_device *pvr_dev,
 		goto err_out;
 
 	cmd_compute->common.frame_num = 0;
-	cmd_compute->flags = compute_args->flags;
+	cmd_compute->flags = convert_compute_flags(compute_args->flags);
 
 	if (args->num_in_syncobj_handles) {
 		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
@@ -967,6 +1012,13 @@ err_out:
 	return err;
 }
 
+static u32
+convert_transfer_flags(u32 in_flags)
+{
+	/* Currently no flags supported. */
+	return 0;
+}
+
 static int
 pvr_process_job_transfer(struct pvr_device *pvr_dev,
 			 struct pvr_file *pvr_file,
@@ -998,7 +1050,7 @@ pvr_process_job_transfer(struct pvr_device *pvr_dev,
 		goto err_out;
 
 	cmd_transfer->common.frame_num = 0;
-	cmd_transfer->flags = transfer_args->flags;
+	cmd_transfer->flags = convert_transfer_flags(transfer_args->flags);
 
 	if (args->num_in_syncobj_handles) {
 		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
