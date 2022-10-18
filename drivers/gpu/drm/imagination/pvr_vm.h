@@ -73,16 +73,16 @@ struct pvr_heap {
 	u64 size;
 
 	/**
-	 * @reserved_base: Base address of the reserved area if present, or
+	 * @static_data_carveout_base: Base address of the static data carveout if present, or
 	 * zero otherwise.
 	 */
-	u64 reserved_base;
+	u64 static_data_carveout_base;
 
 	/**
-	 * @reserved_size: Size of the reserved area in bytes if present, or
+	 * @static_data_carveout_size: Size of the static data carveout in bytes if present, or
 	 * zero otherwise.
 	 */
-	u64 reserved_size;
+	u64 static_data_carveout_size;
 
 	/** @page_size_log2: Log2 of page size. */
 	u32 page_size_log2;

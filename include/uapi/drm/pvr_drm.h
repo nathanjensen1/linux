@@ -692,18 +692,18 @@ struct drm_pvr_heap {
 	__u64 size;
 
 	/**
-	 * @reserved_base: Base address of reserved area.
+	 * @static_data_carveout_base: Base address of static data carveout.
 	 *
-	 * The reserved area must be located at the beginning or end of the heap. Any other location
-	 * is invalid and should be rejected by the caller.
+	 * The static data carveout must be located at the beginning or end of the heap. Any other
+	 * location is invalid and should be rejected by the caller.
 	 */
-	__u64 reserved_base;
+	__u64 static_data_carveout_base;
 
 	/**
-	 * @reserved_size: Size of reserved area, in bytes. May be 0 if this
-	 *                 heap has no reserved area.
+	 * @static_data_carveout_size: Size of static data carveout, in bytes. May be 0 if this
+	 *                             heap has no carveout.
 	 */
-	__u64 reserved_size;
+	__u64 static_data_carveout_size;
 
 	/** @page_size_log2: Log2 of page size. */
 	__u32 page_size_log2;
@@ -730,7 +730,7 @@ struct drm_pvr_static_data_area {
 	/** @size: Size of static data area. */
 	__u32 size;
 
-	/** @offset: Offset of static data area from start of reserved area. */
+	/** @offset: Offset of static data area from start of static data carveout. */
 	__u64 offset;
 };
 
