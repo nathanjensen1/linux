@@ -2526,7 +2526,8 @@ pvr_vm_mapping_last(struct pvr_vm_mapping *mapping);
  *            active mapping associated with this context.
  * @lock: Global lock on this entire structure of page tables.
  * @fw_mem_ctx_obj: Firmware object representing firmware memory context.
- * @ref_count: Reference count for context.
+ * @ref_count: Reference count of object.
+ * @enable_warnings: Emit warnings when tearing down memory mappings.
  */
 struct pvr_vm_context {
 	struct pvr_device *pvr_dev;
@@ -2535,6 +2536,7 @@ struct pvr_vm_context {
 	struct mutex lock;
 	struct pvr_fw_object *fw_mem_ctx_obj;
 	struct kref ref_count;
+	bool enable_warnings;
 };
 
 /**
@@ -2551,8 +2553,9 @@ dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx)
  * pvr_vm_context_init() - Initialize a VM context for the specified device.
  * @vm_ctx: Target VM context.
  * @pvr_dev: Target PowerVR device.
- * @create_fw_mem_ctx: %true if this function should create a firmware memory context for this VM
- *                     context.
+ * @is_userspace_context: %true if this context is for userspace. This will
+ *                        create a firmware memory context for the VM context
+ *                        and disable warnings when tearing down mappings.
  *
  * Returns:
  *  * 0 on success,
@@ -2561,7 +2564,7 @@ dma_addr_t pvr_vm_get_page_table_root_addr(struct pvr_vm_context *vm_ctx)
  */
 static int
 pvr_vm_context_init(struct pvr_vm_context *vm_ctx, struct pvr_device *pvr_dev,
-		    bool create_fw_mem_ctx)
+		    bool is_userspace_context)
 {
 	int err;
 
@@ -2573,58 +2576,33 @@ pvr_vm_context_init(struct pvr_vm_context *vm_ctx, struct pvr_device *pvr_dev,
 
 	mutex_init(&vm_ctx->lock);
 
+	kref_init(&vm_ctx->ref_count);
+
 	vm_ctx->pvr_dev = pvr_dev;
 
-	if (create_fw_mem_ctx) {
+	if (is_userspace_context) {
 		err = pvr_fw_mem_context_create(pvr_dev, vm_ctx, &vm_ctx->fw_mem_ctx_obj);
 		if (err)
-			goto err_mutex_destroy;
+			goto err_free;
+	} else {
+		vm_ctx->enable_warnings = true;
 	}
-
-	kref_init(&vm_ctx->ref_count);
 
 	return 0;
 
-err_mutex_destroy:
-	mutex_destroy(&vm_ctx->lock);
-	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
-	pvr_page_table_l2_fini(&vm_ctx->root_table);
+err_free:
+	pvr_vm_context_put(vm_ctx);
 
 err_out:
 	return err;
 }
 
 /**
- * pvr_vm_context_fini() - Teardown a VM context.
- * @vm_ctx: Target VM context.
- * @enable_warnings: Specify whether warnings should be emitted for mappings
- *                   which are cleaned up by this function.
- *
- * This function ensures that no mappings are left dangling by unmapping them
- * all in order of ascending device-virtual address. Set the @enable_warnings
- * flag to emit kernel warnings when this happens.
- */
-static void
-pvr_vm_context_fini(struct pvr_vm_context *vm_ctx, bool enable_warnings)
-{
-	if (vm_ctx->fw_mem_ctx_obj)
-		pvr_fw_mem_context_destroy(vm_ctx->fw_mem_ctx_obj);
-
-	pvr_vm_context_teardown_mappings(vm_ctx, enable_warnings);
-
-	mutex_destroy(&vm_ctx->lock);
-	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
-	pvr_page_table_l2_fini(&vm_ctx->root_table);
-}
-
-/**
  * pvr_vm_context_teardown_mappings() - Teardown any remaining mappings on this VM context
  * @vm_ctx: Target VM context.
- * @enable_warnings: Specify whether warnings should be emitted for mappings
- *                   which are cleaned up by this function.
  */
-void
-pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx, bool enable_warnings)
+static void
+pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx)
 {
 	struct pvr_vm_mapping_tree_node *node;
 
@@ -2634,7 +2612,7 @@ pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx, bool enable_warn
 	while ((node = pvr_vm_mapping_tree_iter_first(&vm_ctx->mappings, 0, U64_MAX)) != NULL) {
 		struct pvr_vm_mapping *mapping = pvr_vm_mapping_from_node(node);
 
-		WARN(enable_warnings, "%s(%p) found [%llx,%llx]@%p", __func__, vm_ctx,
+		WARN(vm_ctx->enable_warnings, "%s(%p) found [%llx,%llx]@%p", __func__, vm_ctx,
 		     pvr_vm_mapping_start(mapping), pvr_vm_mapping_last(mapping), mapping);
 		pvr_vm_mapping_unmap(vm_ctx, mapping);
 		pvr_vm_mapping_fini(mapping);
@@ -3593,8 +3571,9 @@ pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size)
 /**
  * pvr_vm_create_context() - Create a new VM context.
  * @pvr_dev: Target PowerVR device.
- * @create_fw_mem_ctx: %true if this function should create a firmware memory context for this VM
- *                     context.
+ * @is_userspace_context: %true if this context is for userspace. This will
+ *                        create a firmware memory context for the VM context
+ *                        and disable warnings when tearing down mappings.
  *
  * Return:
  *  * A handle to the newly-minted VM context on success,
@@ -3605,7 +3584,7 @@ pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size)
  *  * Any error encountered while setting up internal structures.
  */
 struct pvr_vm_context *
-pvr_vm_create_context(struct pvr_device *pvr_dev, bool create_fw_mem_ctx)
+pvr_vm_create_context(struct pvr_device *pvr_dev, bool is_userspace_context)
 {
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 
@@ -3635,7 +3614,7 @@ pvr_vm_create_context(struct pvr_device *pvr_dev, bool create_fw_mem_ctx)
 		goto err_out;
 	}
 
-	err = pvr_vm_context_init(vm_ctx, pvr_dev, create_fw_mem_ctx);
+	err = pvr_vm_context_init(vm_ctx, pvr_dev, is_userspace_context);
 	if (err)
 		goto err_free_vm_ctx;
 
@@ -3649,35 +3628,50 @@ err_out:
 }
 
 /**
- * pvr_vm_destroy_context() - Destroy an existing VM context.
- * @kref: Pointer to VM context refcount.
+ * pvr_vm_context_fini() - Teardown a VM context.
  *
- * It is an error to call pvr_vm_destroy_context() on a VM context that has
- * already been destroyed.
- *
- * This should never be called directly; call pvr_vm_context_put() instead.
+ * This function ensures that no mappings are left dangling by unmapping them
+ * all in order of ascending device-virtual address.
  */
 static void
-pvr_vm_destroy_context(struct kref *kref)
+pvr_vm_context_fini(struct kref *ref_count)
 {
-	struct pvr_vm_context *vm_ctx = container_of(kref, struct pvr_vm_context, ref_count);
+	struct pvr_vm_context *vm_ctx =
+		container_of(ref_count, struct pvr_vm_context, ref_count);
 
-	pvr_vm_context_fini(vm_ctx, true);
+	if (vm_ctx->fw_mem_ctx_obj)
+		pvr_fw_mem_context_destroy(vm_ctx->fw_mem_ctx_obj);
+
+	pvr_vm_context_teardown_mappings(vm_ctx);
+	mutex_destroy(&vm_ctx->lock);
+	pvr_vm_mapping_tree_fini(&vm_ctx->mappings);
+	pvr_page_table_l2_fini(&vm_ctx->root_table);
+
 	kfree(vm_ctx);
 }
 
 /**
- * pvr_vm_context_get() - Take an additional reference on a VM context
- * @vm_ctx: Target VM context.
+ * pvr_vm_context_lookup() - Look up VM context from handle
+ * @pvr_file: Pointer to pvr_file structure.
+ * @handle: Object handle.
  *
- * Reference must be released with pvr_vm_context_put().
+ * Takes reference on VM context object. Call pvr_vm_context_put() to release.
  *
  * Returns:
- *  * A pointer to the VM context.
+ *  * The requested object on success, or
+ *  * %NULL on failure (object does not exist in list, or is not a VM context)
  */
-struct pvr_vm_context *pvr_vm_context_get(struct pvr_vm_context *vm_ctx)
+struct pvr_vm_context *
+pvr_vm_context_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	kref_get(&vm_ctx->ref_count);
+	struct pvr_vm_context *vm_ctx;
+
+	xa_lock(&pvr_file->vm_ctx_handles);
+	vm_ctx = xa_load(&pvr_file->vm_ctx_handles, handle);
+	if (vm_ctx)
+		kref_get(&vm_ctx->ref_count);
+
+	xa_unlock(&pvr_file->vm_ctx_handles);
 
 	return vm_ctx;
 }
@@ -3690,9 +3684,35 @@ struct pvr_vm_context *pvr_vm_context_get(struct pvr_vm_context *vm_ctx)
  *  * %true if the VM context was destroyed, or
  *  * %false if there are any references still remaining.
  */
-bool pvr_vm_context_put(struct pvr_vm_context *vm_ctx)
+bool
+pvr_vm_context_put(struct pvr_vm_context *vm_ctx)
 {
-	return kref_put(&vm_ctx->ref_count, pvr_vm_destroy_context);
+	WARN_ON(!vm_ctx);
+
+	if (vm_ctx)
+		return kref_put(&vm_ctx->ref_count, pvr_vm_context_fini);
+
+	return true;
+}
+
+/**
+ * pvr_destroy_vm_contexts_for_file: Destroy any VM contexts associated with the
+ * given file.
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Removes all vm_contexts associated with @pvr_file from the device VM context
+ * list and drops initial references. vm_contexts will then be destroyed once
+ * all outstanding references are dropped.
+ */
+void pvr_destroy_vm_contexts_for_file(struct pvr_file *pvr_file)
+{
+	struct pvr_vm_context *vm_ctx;
+	unsigned long handle;
+
+	xa_for_each(&pvr_file->vm_ctx_handles, handle, vm_ctx) {
+		/* vm_ctx is not used here because that would create a race with xa_erase */
+		pvr_vm_context_put(xa_erase(&pvr_file->vm_ctx_handles, handle));
+	}
 }
 
 static int

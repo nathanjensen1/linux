@@ -270,13 +270,6 @@ struct pvr_file {
 	 */
 	struct pvr_device *pvr_dev;
 
-	/**
-	 * @user_vm_ctx: Virtual memory context used for userspace mappings.
-	 *
-	 * This represents all GPU mappings that belong to this file.
-	 */
-	struct pvr_vm_context *user_vm_ctx;
-
 	/** @fw_mem_ctx_obj: Firmware object representing firmware memory context. */
 	struct pvr_fw_object *fw_mem_ctx_obj;
 
@@ -303,6 +296,14 @@ struct pvr_file {
 	 * This array is used to allocate handles returned to userspace.
 	 */
 	struct xarray hwrt_handles;
+
+	/**
+	 * @vm_ctx_handles: Array of VM contexts belonging to this file. Array
+	 * members are of type "struct pvr_vm_context *".
+	 *
+	 * This array is used to allocate handles returned to userspace.
+	 */
+	struct xarray vm_ctx_handles;
 };
 
 /**

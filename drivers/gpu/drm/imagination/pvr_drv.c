@@ -529,7 +529,7 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 	int err;
 	u32 id;
 
-	if (args->flags || args->_padding_1c) {
+	if (args->flags) {
 		/* Context creation flags are currently unused and must be zero. */
 		err = -EINVAL;
 		goto err_out;
@@ -654,9 +654,6 @@ pvr_ioctl_create_free_list(struct drm_device *drm_dev, void *raw_args,
 	struct pvr_file *pvr_file = to_pvr_file(file);
 	struct pvr_free_list *free_list;
 	int err;
-
-	if (args->_padding_1c)
-		return -EINVAL;
 
 	free_list = pvr_free_list_create(pvr_file, args);
 	if (IS_ERR(free_list)) {
@@ -793,6 +790,84 @@ pvr_ioctl_destroy_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
 }
 
 /**
+ * pvr_ioctl_create_vm_context() - IOCTL to create a VM context
+ * @drm_dev: [IN] DRM device.
+ * @raw_args: [IN/OUT] Arguments passed to this IOCTL. This must be of type
+ *                     &struct drm_pvr_ioctl_create_vm_context_args.
+ * @file: [IN] DRM file private data.
+ *
+ * Called from userspace with %DRM_IOCTL_PVR_CREATE_VM_CONTEXT.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * Any error returned by pvr_vm_create_context().
+ */
+int
+pvr_ioctl_create_vm_context(struct drm_device *drm_dev, void *raw_args,
+			    struct drm_file *file)
+{
+	struct drm_pvr_ioctl_create_vm_context_args *args = raw_args;
+	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_vm_context *vm_ctx;
+	int err;
+
+	if (args->_padding_4)
+		return -EINVAL;
+
+	vm_ctx = pvr_vm_create_context(pvr_file->pvr_dev, true);
+	if (IS_ERR(vm_ctx))
+		return PTR_ERR(vm_ctx);
+
+	/* Allocate object handle for userspace. */
+	err = xa_alloc(&pvr_file->vm_ctx_handles,
+		       &args->handle,
+		       vm_ctx,
+		       xa_limit_32b,
+		       GFP_KERNEL);
+	if (err < 0)
+		goto err_cleanup;
+
+	return 0;
+
+err_cleanup:
+	pvr_vm_context_put(vm_ctx);
+
+	return err;
+}
+
+/**
+ * pvr_ioctl_destroy_vm_context() - IOCTL to destroy a VM context
+￼* @drm_dev: [IN] DRM device.
+￼* @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
+￼*                 &struct drm_pvr_ioctl_destroy_vm_context_args.
+￼* @file: [IN] DRM file private data.
+￼*
+￼* Called from userspace with %DRM_IOCTL_PVR_DESTROY_VM_CONTEXT.
+￼*
+￼* Return:
+￼*  * 0 on success, or
+￼*  * -%EINVAL if object not in object list.
+ */
+int
+pvr_ioctl_destroy_vm_context(struct drm_device *drm_dev, void *raw_args,
+			     struct drm_file *file)
+{
+	struct drm_pvr_ioctl_destroy_vm_context_args *args = raw_args;
+	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_vm_context *vm_ctx;
+
+	if (args->_padding_4)
+		return -EINVAL;
+
+	vm_ctx = xa_erase(&pvr_file->vm_ctx_handles, args->handle);
+	if (!vm_ctx)
+		return -EINVAL;
+
+	pvr_vm_context_put(vm_ctx);
+	return 0;
+}
+
+/**
  * pvr_ioctl_get_heap_info() - IOCTL to get information on device heaps
  * @drm_dev: [IN] DRM device.
  * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
@@ -847,7 +922,7 @@ pvr_ioctl_vm_map(struct drm_device *drm_dev, void *raw_args,
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
 	struct drm_pvr_ioctl_vm_map_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
-	struct pvr_vm_context *vm_ctx = pvr_file->user_vm_ctx;
+	struct pvr_vm_context *vm_ctx;
 
 	struct pvr_gem_object *pvr_obj;
 	size_t pvr_obj_size;
@@ -856,17 +931,23 @@ pvr_ioctl_vm_map(struct drm_device *drm_dev, void *raw_args,
 	int err;
 
 	/* Initial validation of args. */
+	if (args->_padding_14)
+		return -EINVAL;
+
 	if (args->flags != 0 ||
 	    check_add_overflow(args->offset, args->size, &offset_plus_size) ||
 	    !pvr_find_heap_containing(pvr_dev, args->device_addr, args->size)) {
-		err = -EINVAL;
-		goto err_out;
+		return -EINVAL;
 	}
+
+	vm_ctx = pvr_vm_context_lookup(pvr_file, args->vm_context_handle);
+	if (!vm_ctx)
+		return -EINVAL;
 
 	pvr_obj = pvr_gem_object_from_handle(pvr_file, args->handle);
 	if (!pvr_obj) {
 		err = -ENOENT;
-		goto err_out;
+		goto err_put_vm_context;
 	}
 
 	pvr_obj_size = pvr_gem_object_size(pvr_obj);
@@ -905,7 +986,9 @@ pvr_ioctl_vm_map(struct drm_device *drm_dev, void *raw_args,
 err_put_pvr_object:
 	pvr_gem_object_put(pvr_obj);
 
-err_out:
+err_put_vm_context:
+	pvr_vm_context_put(vm_ctx);
+
 	return err;
 }
 
@@ -931,8 +1014,22 @@ pvr_ioctl_vm_unmap(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_vm_unmap_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_vm_context *vm_ctx;
+	int err;
 
-	return pvr_vm_unmap(pvr_file->user_vm_ctx, args->device_addr);
+	/* Initial validation of args. */
+	if (args->_padding_4)
+		return -EINVAL;
+
+	vm_ctx = pvr_vm_context_lookup(pvr_file, args->vm_context_handle);
+	if (!vm_ctx)
+		return -EINVAL;
+
+	err = pvr_vm_unmap(vm_ctx, args->device_addr);
+
+	pvr_vm_context_put(vm_ctx);
+
+	return err;
 }
 
 /*
@@ -974,6 +1071,8 @@ static const struct drm_ioctl_desc pvr_drm_driver_ioctls[] = {
 	DRM_PVR_IOCTL(DESTROY_FREE_LIST, destroy_free_list, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(CREATE_HWRT_DATASET, create_hwrt_dataset, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(DESTROY_HWRT_DATASET, destroy_hwrt_dataset, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(CREATE_VM_CONTEXT, create_vm_context, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(DESTROY_VM_CONTEXT, destroy_vm_context, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(GET_HEAP_INFO, get_heap_info, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(VM_MAP, vm_map, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(VM_UNMAP, vm_unmap, DRM_RENDER_ALLOW),
@@ -1024,16 +1123,10 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	 */
 	pvr_file->pvr_dev = pvr_dev;
 
-	/* Initialize the file-scoped memory context. */
-	pvr_file->user_vm_ctx = pvr_vm_create_context(pvr_dev, true);
-	if (IS_ERR(pvr_file->user_vm_ctx)) {
-		err = PTR_ERR(pvr_file->user_vm_ctx);
-		goto err_free_file;
-	}
-
 	xa_init_flags(&pvr_file->ctx_handles, XA_FLAGS_ALLOC1);
 	xa_init_flags(&pvr_file->free_list_handles, XA_FLAGS_ALLOC1);
 	xa_init_flags(&pvr_file->hwrt_handles, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_file->vm_ctx_handles, XA_FLAGS_ALLOC1);
 
 	/*
 	 * Store reference to powervr-specific file private data in DRM file
@@ -1042,9 +1135,6 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	file->driver_priv = pvr_file;
 
 	return 0;
-
-err_free_file:
-	kfree(pvr_file);
 
 err_out:
 	return err;
@@ -1078,13 +1168,10 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 	/* Drop references on any remaining objects. */
 	pvr_destroy_free_lists_for_file(pvr_file);
 	pvr_destroy_hwrt_datasets_for_file(pvr_file);
+	pvr_destroy_vm_contexts_for_file(pvr_file);
 
 	/* Drop references on any remaining contexts. */
 	pvr_destroy_contexts_for_file(pvr_file);
-
-	pvr_vm_context_teardown_mappings(pvr_file->user_vm_ctx, false);
-
-	pvr_vm_context_put(pvr_file->user_vm_ctx);
 
 	kfree(pvr_file);
 	file->driver_priv = NULL;

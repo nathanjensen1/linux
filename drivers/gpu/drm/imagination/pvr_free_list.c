@@ -51,6 +51,7 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 				  struct pvr_free_list *free_list)
 {
 	struct pvr_gem_object *free_list_obj;
+	struct pvr_vm_context *vm_ctx;
 	u64 free_list_size;
 	int err;
 
@@ -70,11 +71,17 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 		goto err_out;
 	}
 
-	free_list_obj = pvr_vm_find_gem_object(pvr_file->user_vm_ctx, args->free_list_gpu_addr,
+	vm_ctx = pvr_vm_context_lookup(pvr_file, args->vm_context_handle);
+	if (!vm_ctx) {
+		err = -EINVAL;
+		goto err_out;
+	}
+
+	free_list_obj = pvr_vm_find_gem_object(vm_ctx, args->free_list_gpu_addr,
 					       NULL, &free_list_size);
 	if (!free_list_obj) {
 		err = -EINVAL;
-		goto err_out;
+		goto err_put_vm_context;
 	}
 
 	if ((free_list_obj->flags & DRM_PVR_BO_CPU_ALLOW_USERSPACE_ACCESS) ||
@@ -95,10 +102,15 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_put_free_list_obj;
 
+	pvr_vm_context_put(vm_ctx);
+
 	return 0;
 
 err_put_free_list_obj:
 	pvr_gem_object_put(free_list_obj);
+
+err_put_vm_context:
+	pvr_vm_context_put(vm_ctx);
 
 err_out:
 	return err;

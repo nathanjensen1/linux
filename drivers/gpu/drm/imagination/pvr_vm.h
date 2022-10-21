@@ -103,7 +103,7 @@ bool pvr_device_addr_is_valid(u64 device_addr);
 bool pvr_device_addr_and_size_are_valid(u64 device_addr, u64 size);
 
 struct pvr_vm_context *pvr_vm_create_context(struct pvr_device *pvr_dev,
-					     bool create_fw_mem_ctx);
+					     bool is_userspace_context);
 
 int pvr_vm_map(struct pvr_vm_context *vm_ctx, struct pvr_gem_object *pvr_obj,
 	       u64 device_addr);
@@ -131,9 +131,8 @@ pvr_vm_mmu_flush(struct pvr_device *pvr_dev);
 struct pvr_fw_object *
 pvr_vm_get_fw_mem_context(struct pvr_vm_context *vm_ctx);
 
-struct pvr_vm_context *
-pvr_vm_context_get(struct pvr_vm_context *vm_ctx);
+struct pvr_vm_context *pvr_vm_context_lookup(struct pvr_file *pvr_file, u32 handle);
 bool pvr_vm_context_put(struct pvr_vm_context *vm_ctx);
-void pvr_vm_context_teardown_mappings(struct pvr_vm_context *vm_ctx, bool enable_warnings);
+void pvr_destroy_vm_contexts_for_file(struct pvr_file *pvr_file);
 
 #endif /* __PVR_VM_H__ */

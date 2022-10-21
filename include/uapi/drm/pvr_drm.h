@@ -60,10 +60,12 @@ extern "C" {
 #define DRM_IOCTL_PVR_DESTROY_FREE_LIST PVR_IOCTL(0x06, DRM_IOW, destroy_free_list)
 #define DRM_IOCTL_PVR_CREATE_HWRT_DATASET PVR_IOCTL(0x07, DRM_IOWR, create_hwrt_dataset)
 #define DRM_IOCTL_PVR_DESTROY_HWRT_DATASET PVR_IOCTL(0x08, DRM_IOW, destroy_hwrt_dataset)
-#define DRM_IOCTL_PVR_GET_HEAP_INFO PVR_IOCTL(0x09, DRM_IOWR, get_heap_info)
-#define DRM_IOCTL_PVR_VM_MAP PVR_IOCTL(0x0a, DRM_IOW, vm_map)
-#define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x0b, DRM_IOW, vm_unmap)
-#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0c, DRM_IOW, submit_job)
+#define DRM_IOCTL_PVR_CREATE_VM_CONTEXT PVR_IOCTL(0x09, DRM_IOWR, create_vm_context)
+#define DRM_IOCTL_PVR_DESTROY_VM_CONTEXT PVR_IOCTL(0x0a, DRM_IOW, destroy_vm_context)
+#define DRM_IOCTL_PVR_GET_HEAP_INFO PVR_IOCTL(0x0b, DRM_IOWR, get_heap_info)
+#define DRM_IOCTL_PVR_VM_MAP PVR_IOCTL(0x0c, DRM_IOW, vm_map)
+#define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x0d, DRM_IOW, vm_unmap)
+#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0e, DRM_IOW, submit_job)
 /* clang-format on */
 
 /**
@@ -422,8 +424,11 @@ struct drm_pvr_ioctl_create_context_args {
 	 */
 	__u32 static_context_state_len;
 
-	/** @_padding_1c: Reserved. This field must be zeroed. */
-	__u32 _padding_1c;
+	/**
+	 * @vm_context_handle: [IN] Handle for VM context that this context is
+	 *                          associated with.
+	 */
+	__u32 vm_context_handle;
 
 	/**
 	 * @callstack_addr: [IN] Address for initial call stack pointer. Only valid
@@ -495,12 +500,15 @@ struct drm_pvr_ioctl_create_free_list_args {
 	__u32 grow_threshold;
 
 	/**
+	 * @vm_context_handle: [IN] Handle for VM context that the free list buffer
+	 *                          object is mapped in.
+	 */
+	__u32 vm_context_handle;
+
+	/**
 	 * @handle: [OUT] Handle for created free list.
 	 */
 	__u32 handle;
-
-	/** @_padding_1c: Reserved. This field must be zeroed. */
-	__u32 _padding_1c;
 };
 
 /**
@@ -617,6 +625,32 @@ struct drm_pvr_ioctl_create_hwrt_dataset_args {
 struct drm_pvr_ioctl_destroy_hwrt_dataset_args {
 	/**
 	 * @handle: [IN] Handle for HWRT dataset to be destroyed.
+	 */
+	__u32 handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
+};
+
+/**
+ * struct drm_pvr_ioctl_create_vm_context_args - Arguments for
+ * %DRM_IOCTL_PVR_CREATE_VM_CONTEXT
+ */
+struct drm_pvr_ioctl_create_vm_context_args {
+	/** @handle: [OUT] Handle for new VM context. */
+	__u32 handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
+};
+
+/**
+ * struct drm_pvr_ioctl_destroy_vm_context_args - Arguments for
+ * %DRM_IOCTL_PVR_DESTROY_VM_CONTEXT
+ */
+struct drm_pvr_ioctl_destroy_vm_context_args {
+	/**
+	 * @handle: [IN] Handle for VM context to be destroyed.
 	 */
 	__u32 handle;
 
@@ -820,6 +854,15 @@ struct drm_pvr_ioctl_get_heap_info_args {
  */
 struct drm_pvr_ioctl_vm_map_args {
 	/**
+	 * @vm_context_handle: [IN] Handle for VM context for this mapping to
+	 *                          exist in.
+	 */
+	__u32 vm_context_handle;
+
+	/** @flags: [IN] Flags which affect this mapping. Currently always 0. */
+	__u32 flags;
+
+	/**
 	 * @device_addr: [IN] Requested device-virtual address for the mapping.
 	 * This must be non-zero and aligned to the device page size for the
 	 * heap containing the requested address. It is an error to specify an
@@ -828,14 +871,14 @@ struct drm_pvr_ioctl_vm_map_args {
 	 */
 	__u64 device_addr;
 
-	/** @flags: [IN] Flags which affect this mapping. Currently always 0. */
-	__u32 flags;
-
 	/**
 	 * @handle: [IN] Handle of the target buffer object. This must be a
 	 * valid handle returned by %DRM_IOCTL_PVR_CREATE_BO.
 	 */
 	__u32 handle;
+
+	/** @_padding_14: Reserved. This field must be zeroed. */
+	__u32 _padding_14;
 
 	/**
 	 * @offset: [IN] Offset into the target bo from which to begin the
@@ -859,6 +902,15 @@ struct drm_pvr_ioctl_vm_map_args {
  * struct drm_pvr_ioctl_vm_unmap_args - Arguments for %DRM_IOCTL_PVR_VM_UNMAP.
  */
 struct drm_pvr_ioctl_vm_unmap_args {
+	/**
+	 * @vm_context_handle: [IN] Handle for VM context that this mapping
+	 *                          exists in.
+	 */
+	__u32 vm_context_handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
+
 	/**
 	 * @device_addr: [IN] Device-virtual address at the start of the target
 	 * mapping. This must be non-zero.
@@ -1173,7 +1225,6 @@ struct drm_pvr_ioctl_submit_job_args {
 	 * @num_in_syncobj_handles: [IN] Number of input syncobj handles.
 	 */
 	__u32 num_in_syncobj_handles;
-
 };
 
 /* Definitions for coredump decoding in userspace. */

@@ -38,7 +38,9 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 {
 	ctx->type = type;
 	ctx->pvr_dev = pvr_dev;
-	ctx->vm_ctx = pvr_vm_context_get(pvr_file->user_vm_ctx);
+	ctx->vm_ctx = pvr_vm_context_lookup(pvr_file, args->vm_context_handle);
+	if (!ctx->vm_ctx)
+		return -EINVAL;
 
 	ctx->flags = args->flags;
 	ctx->priority = priority;

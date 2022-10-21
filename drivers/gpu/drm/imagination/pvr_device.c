@@ -550,9 +550,6 @@ pvr_device_gpu_fini(struct pvr_device *pvr_dev)
 {
 	pvr_fw_fini(pvr_dev);
 	release_firmware(pvr_dev->fw_dev.firmware);
-
-	pvr_vm_context_teardown_mappings(pvr_dev->kernel_vm_ctx, true);
-	/* There should be no other references on the kernel_vm_ctx, so warn if there are. */
 	WARN_ON(!pvr_vm_context_put(pvr_dev->kernel_vm_ctx));
 	pvr_dev->kernel_vm_ctx = NULL;
 }
