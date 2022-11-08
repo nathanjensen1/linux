@@ -642,9 +642,10 @@ struct drm_pvr_ioctl_destroy_object_args {
  * - Base & size: Defines the heap address range.
  * - Page size: Defined by the GPU device. This may not be constant across all
  *   heaps.
- * - Reserved base & size: Defines the reserved area of the heap address range.
- *   If the heap does not have a reserved area then base & size will be zero.
- * - Static data areas: Pre-allocated data areas within the reserved area.
+ * - Static data carveout base & size: Defines the static data carveout region
+ *   of the heap address range. If the heap does not have a carveout region then
+ *   base & size will be zero.
+ * - Static data areas: Pre-allocated data areas within the carveout region.
  */
 
 enum drm_pvr_get_heap_info_op {
