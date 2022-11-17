@@ -1015,8 +1015,12 @@ err_out:
 static u32
 convert_transfer_flags(u32 in_flags)
 {
-	/* Currently no flags supported. */
-	return 0;
+	u32 out_flags = 0;
+
+	if (in_flags & DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_SINGLE_CORE)
+		out_flags |= ROGUE_TRANSFER_FLAGS_SINGLE_CORE;
+
+	return out_flags;
 }
 
 static int
