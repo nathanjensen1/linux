@@ -41,6 +41,13 @@
 #define ROGUE_COMPUTE_FLAG_SINGLE_CORE BIT_MASK(5)
 
 /*
+ * Flags supported by the transfer DM command i.e. &struct rogue_fwif_cmd_transfer.
+ */
+
+/*!< Use single core in a multi core setup. */
+#define ROGUE_TRANSFER_FLAGS_SINGLE_CORE BIT_MASK(1)
+
+/*
  ************************************************
  * Parameter/HWRTData control structures.
  ************************************************
