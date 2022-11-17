@@ -1070,8 +1070,17 @@ struct drm_pvr_job_compute_args {
 
 /**
  * DOC: Flags for SUBMIT_JOB ioctl transfer command.
+ *
+ * Operations
+ * ~~~~~~~~~~
+ * .. c:macro:: DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_SINGLE_CORE
+ *
+ *    Forces job to use a single core in a multi core device.
  */
-#define DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_FLAGS_MASK 0
+#define DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_SINGLE_CORE _BITULL(0)
+
+#define DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_FLAGS_MASK \
+	DRM_PVR_SUBMIT_JOB_TRANSFER_CMD_SINGLE_CORE
 
 /*
  * struct drm_pvr_job_transfer_args - Arguments for %DRM_PVR_JOB_TYPE_TRANSFER_FRAG
