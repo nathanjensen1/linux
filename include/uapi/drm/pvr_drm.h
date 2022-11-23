@@ -278,6 +278,12 @@ enum drm_pvr_param {
 	DRM_PVR_PARAM_FREE_LIST_MIN_PAGES,
 
 	/*
+	 * @DRM_PVR_PARAM_FREE_LIST_MAX_PAGES: Maximum allowed free list size,
+	 * in PM physical pages.
+	 */
+	DRM_PVR_PARAM_FREE_LIST_MAX_PAGES,
+
+	/*
 	 * @DRM_PVR_PARAM_COMMON_STORE_ALLOC_REGION_SIZE: Size of the Allocation
 	 * Region within the Common Store used for coefficient and shared
 	 * registers, in dwords.

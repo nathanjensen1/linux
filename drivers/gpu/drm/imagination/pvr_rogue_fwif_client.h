@@ -6,9 +6,41 @@
 
 #include <linux/bits.h>
 #include <linux/kernel.h>
+#include <linux/sizes.h>
 #include <linux/types.h>
 
 #include "pvr_rogue_fwif_shared.h"
+
+/*
+ * Page size used for Parameter Management.
+ */
+#define ROGUE_PM_PAGE_SIZE SZ_4K
+
+/*
+ * Minimum/Maximum PB size.
+ *
+ * Base page size is dependent on core:
+ *   S6/S6XT/S7               = 50 pages
+ *   S8XE                     = 40 pages
+ *   S8XE with BRN66011 fixed = 25 pages
+ *
+ * Minimum PB = Base Pages + (NUM_TE_PIPES-1)*16K + (NUM_VCE_PIPES-1)*64K +
+ *              IF_PM_PREALLOC(NUM_TE_PIPES*16K + NUM_VCE_PIPES*16K)
+ *
+ * Maximum PB size must ensure that no PM address space can be fully used,
+ * because if the full address space was used it would wrap and corrupt itself.
+ * Since there are two freelists (local is always minimum sized) this can be
+ * described as following three conditions being met:
+ *
+ *   (Minimum PB + Maximum PB)  <  ALIST PM address space size (16GB)
+ *   (Minimum PB + Maximum PB)  <  TE PM address space size (16GB) / NUM_TE_PIPES
+ *   (Minimum PB + Maximum PB)  <  VCE PM address space size (16GB) / NUM_VCE_PIPES
+ *
+ * Since the max of NUM_TE_PIPES and NUM_VCE_PIPES is 4, we have a hard limit
+ * of 4GB minus the Minimum PB. For convenience we take the smaller power-of-2
+ * value of 2GB. This is far more than any current applications use.
+ */
+#define ROGUE_PM_MAX_FREELIST_SIZE SZ_2G
 
 /*
  * Flags supported by the geometry DM command i.e. &struct rogue_fwif_cmd_geom.
