@@ -11,6 +11,7 @@
 #include "pvr_job.h"
 #include "pvr_object.h"
 #include "pvr_power.h"
+#include "pvr_rogue_fwif_client.h"
 #include "pvr_rogue_fwif_shared.h"
 
 #include <uapi/drm/pvr_drm.h>
@@ -468,6 +469,9 @@ pvr_ioctl_get_param(struct drm_device *drm_dev, void *raw_args,
 		break;
 	case DRM_PVR_PARAM_FREE_LIST_MIN_PAGES:
 		value = pvr_get_free_list_min_pages(pvr_dev);
+		break;
+	case DRM_PVR_PARAM_FREE_LIST_MAX_PAGES:
+		value = ROGUE_PM_MAX_FREELIST_SIZE / ROGUE_PM_PAGE_SIZE;
 		break;
 	case DRM_PVR_PARAM_COMMON_STORE_ALLOC_REGION_SIZE:
 		value = rogue_get_common_store_alloc_region_size(pvr_dev);
