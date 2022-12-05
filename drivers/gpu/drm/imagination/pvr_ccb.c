@@ -3,6 +3,7 @@
 
 #include "pvr_ccb.h"
 #include "pvr_device.h"
+#include "pvr_dump.h"
 #include "pvr_fence.h"
 #include "pvr_free_list.h"
 #include "pvr_fw.h"
@@ -189,6 +190,11 @@ process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *c
 		WARN_ON(pvr_kccb_send_cmd(pvr_dev, &resp_cmd, NULL));
 		break;
 	}
+
+	case ROGUE_FWIF_FWCCB_CMD_CONTEXT_RESET_NOTIFICATION:
+		pvr_context_reset_notification(pvr_dev,
+					       &cmd->cmd_data.cmd_context_reset_notification);
+		break;
 
 	default:
 		drm_info(from_pvr_device(pvr_dev), "Received unknown FWCCB command %x\n",
