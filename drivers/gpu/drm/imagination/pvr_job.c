@@ -730,6 +730,8 @@ convert_frag_flags(u32 in_flags)
 		out_flags |= ROGUE_FRAG_FLAGS_STENCILBUFFER;
 	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_PREVENT_CDM_OVERLAP)
 		out_flags |= ROGUE_FRAG_FLAGS_PREVENT_CDM_OVERLAP;
+	if (in_flags & DRM_PVR_SUBMIT_JOB_FRAG_CMD_GET_VIS_RESULTS)
+		out_flags |= ROGUE_FRAG_FLAGS_GET_VIS_RESULTS;
 
 	return out_flags;
 }
