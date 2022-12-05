@@ -57,6 +57,8 @@
 
 /* Use single core in a multi core setup. */
 #define ROGUE_FRAG_FLAGS_SINGLE_CORE BIT_MASK(3)
+/* Indicates whether this render produces visibility results. */
+#define ROGUE_FRAG_FLAGS_GET_VIS_RESULTS BIT_MASK(5)
 /* Indicates whether a depth buffer is present. */
 #define ROGUE_FRAG_FLAGS_DEPTHBUFFER BIT_MASK(7)
 /* Indicates whether a stencil buffer is present. */
