@@ -4,6 +4,7 @@
 #include "pvr_ccb.h"
 #include "pvr_device.h"
 #include "pvr_fence.h"
+#include "pvr_free_list.h"
 #include "pvr_fw.h"
 #include "pvr_gem.h"
 #include "pvr_power.h"
@@ -166,6 +167,28 @@ process_fwccb_command(struct pvr_device *pvr_dev, struct rogue_fwif_fwccb_cmd *c
 
 		pvr_power_unlock(pvr_dev);
 		break;
+
+	case ROGUE_FWIF_FWCCB_CMD_FREELISTS_RECONSTRUCTION: {
+		struct rogue_fwif_fwccb_cmd_freelists_reconstruction_data *data =
+			&cmd->cmd_data.cmd_freelists_reconstruction;
+		struct rogue_fwif_kccb_cmd resp_cmd;
+		struct rogue_fwif_freelists_reconstruction_data *resp_data =
+			&resp_cmd.cmd_data.free_lists_reconstruction_data;
+		u32 i;
+
+		for (i = 0; i < data->freelist_count; i++)
+			pvr_free_list_reconstruct(pvr_dev, data->freelist_ids[i]);
+
+		resp_cmd.cmd_type = ROGUE_FWIF_KCCB_CMD_FREELISTS_RECONSTRUCTION_UPDATE;
+		resp_cmd.kccb_flags = 0;
+		resp_data->freelist_count = data->freelist_count;
+
+		memcpy(resp_data->freelist_ids, data->freelist_ids,
+		       data->freelist_count * sizeof(resp_data->freelist_ids[0]));
+
+		WARN_ON(pvr_kccb_send_cmd(pvr_dev, &resp_cmd, NULL));
+		break;
+	}
 
 	default:
 		drm_info(from_pvr_device(pvr_dev), "Received unknown FWCCB command %x\n",
