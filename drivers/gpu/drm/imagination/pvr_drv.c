@@ -522,8 +522,12 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_create_context_args *args = raw_args;
 	struct pvr_file *pvr_file = file->driver_priv;
+	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
+	struct pvr_context *ctx = NULL;
 	u32 handle;
+	void *old;
 	int err;
+	u32 id;
 
 	if (args->flags || args->_padding_1c) {
 		/* Context creation flags are currently unused and must be zero. */
@@ -531,33 +535,73 @@ pvr_ioctl_create_context(struct drm_device *drm_dev, void *raw_args,
 		goto err_out;
 	}
 
+	/*
+	 * Allocate global ID for firmware. We will update this with the context once it is created.
+	 */
+	err = xa_alloc(&pvr_dev->ctx_ids, &id, NULL, xa_limit_32b,
+		       GFP_KERNEL);
+	if (err < 0)
+		goto err_out;
+
+	/*
+	 * Allocate context handle for userspace. We will update this with the context once it
+	 * is created.
+	 */
+	err = xa_alloc(&pvr_file->ctx_handles, &handle, NULL, xa_limit_32b,
+		       GFP_KERNEL);
+	if (err < 0)
+		goto err_id_xa_erase;
+
 	switch (args->type) {
 	case DRM_PVR_CTX_TYPE_RENDER: {
-		err = pvr_create_render_context(pvr_file, args, &handle);
+		ctx = pvr_create_render_context(pvr_file, args, id);
 		break;
 	}
 
 	case DRM_PVR_CTX_TYPE_COMPUTE: {
-		err = pvr_create_compute_context(pvr_file, args, &handle);
+		ctx = pvr_create_compute_context(pvr_file, args, id);
 		break;
 	}
 
 	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG: {
-		err = pvr_create_transfer_context(pvr_file, args, &handle);
+		ctx = pvr_create_transfer_context(pvr_file, args, id);
 		break;
 	}
 
 	default:
-		err = -EINVAL;
+		ctx = ERR_PTR(-EINVAL);
 		break;
 	}
 
-	if (err < 0)
-		goto err_out;
+	if (IS_ERR(ctx)) {
+		err = PTR_ERR(ctx);
+		goto err_handle_xa_erase;
+	}
+
+	old = xa_store(&pvr_dev->ctx_ids, id, ctx, GFP_KERNEL);
+	if (xa_is_err(old)) {
+		err = xa_err(old);
+		goto err_context_destroy;
+	}
+
+	old = xa_store(&pvr_file->ctx_handles, handle, ctx, GFP_KERNEL);
+	if (xa_is_err(old)) {
+		err = xa_err(old);
+		goto err_context_destroy;
+	}
 
 	args->handle = handle;
 
 	return 0;
+
+err_context_destroy:
+	pvr_context_destroy(pvr_file, handle);
+
+err_handle_xa_erase:
+	xa_erase(&pvr_file->ctx_handles, handle);
+
+err_id_xa_erase:
+	xa_erase(&pvr_dev->ctx_ids, id);
 
 err_out:
 	return err;
@@ -874,15 +918,15 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	 */
 	pvr_file->pvr_dev = pvr_dev;
 
-	xa_init_flags(&pvr_file->contexts, XA_FLAGS_ALLOC);
-	xa_init_flags(&pvr_file->objects, XA_FLAGS_ALLOC);
-
 	/* Initialize the file-scoped memory context. */
 	pvr_file->user_vm_ctx = pvr_vm_create_context(pvr_dev, true);
 	if (IS_ERR(pvr_file->user_vm_ctx)) {
 		err = PTR_ERR(pvr_file->user_vm_ctx);
-		goto err_xa_destroy;
+		goto err_free_file;
 	}
+
+	xa_init_flags(&pvr_file->ctx_handles, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_file->obj_handles, XA_FLAGS_ALLOC1);
 
 	/*
 	 * Store reference to powervr-specific file private data in DRM file
@@ -892,10 +936,7 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 
 	return 0;
 
-err_xa_destroy:
-	xa_destroy(&pvr_file->contexts);
-	xa_destroy(&pvr_file->objects);
-
+err_free_file:
 	kfree(pvr_file);
 
 err_out:
@@ -918,27 +959,20 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 {
 	struct pvr_file *pvr_file = to_pvr_file(file);
 	struct pvr_context *ctx;
-	struct pvr_object *obj;
-	unsigned long id;
+	unsigned long handle;
 
 	/* clang-format off */
-	xa_for_each(&pvr_file->contexts, id, ctx) {
+	xa_for_each(&pvr_file->ctx_handles, handle, ctx) {
 		WARN_ON(pvr_context_wait_idle(ctx, HZ));
 		WARN_ON(pvr_context_fail_fences(ctx, -ENODEV));
 	}
-
-	/* Drop references on any remaining objects. */
-	xa_for_each(&pvr_file->objects, id, obj) {
-		pvr_object_put(obj);
-	}
-
-	/* Drop references on any remaining contexts. */
-	xa_for_each(&pvr_file->contexts, id, ctx) {
-		pvr_context_put(ctx);
-	}
 	/* clang-format on */
 
-	xa_destroy(&pvr_file->contexts);
+	/* Drop references on any remaining objects. */
+	pvr_destroy_objects_for_file(pvr_file);
+
+	/* Drop references on any remaining contexts. */
+	pvr_destroy_contexts_for_file(pvr_file);
 
 	pvr_vm_context_teardown_mappings(pvr_file->user_vm_ctx, false);
 
@@ -1021,6 +1055,9 @@ pvr_probe(struct platform_device *plat_dev)
 	if (err)
 		goto err_device_fini;
 
+	xa_init_flags(&pvr_dev->ctx_ids, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_dev->obj_ids, XA_FLAGS_ALLOC1);
+
 	return 0;
 
 err_device_fini:
@@ -1042,6 +1079,12 @@ pvr_remove(struct platform_device *plat_dev)
 {
 	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
+
+	WARN_ON(!xa_empty(&pvr_dev->obj_ids));
+	WARN_ON(!xa_empty(&pvr_dev->ctx_ids));
+
+	xa_destroy(&pvr_dev->obj_ids);
+	xa_destroy(&pvr_dev->ctx_ids);
 
 	drm_dev_unregister(drm_dev);
 	pvr_device_fini(pvr_dev);

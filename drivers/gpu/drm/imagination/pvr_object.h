@@ -22,6 +22,12 @@ struct pvr_object {
 
 	/** @ref_count: Reference count of object. */
 	struct kref ref_count;
+
+	/** @pvr_device: Pointer to device that owns this object. */
+	struct pvr_device *pvr_dev;
+
+	/** @fw_id: Firmware ID for this object. */
+	u32 fw_id;
 };
 
 int pvr_object_create(struct pvr_file *pvr_file,
@@ -29,7 +35,7 @@ int pvr_object_create(struct pvr_file *pvr_file,
 		      u32 *handle_out);
 
 /**
- * pvr_object_lookup() - Lookup object pointer from handle
+ * pvr_object_lookup() - Lookup object pointer from handle and file
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
  *
@@ -37,17 +43,45 @@ int pvr_object_create(struct pvr_file *pvr_file,
  *
  * Returns:
  *  * The requested object on success, or
- *  * %NULL on failure (object is not in object list)
+ *  * %NULL on failure (object is not in object list, or does not belong to @pvr_file)
  */
 static __always_inline struct pvr_object *
 pvr_object_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = xa_load(&pvr_file->objects, handle);
+	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, handle);
 
-	if (obj)
+	if (obj) {
 		kref_get(&obj->ref_count);
 
-	return obj;
+		return obj;
+	}
+
+	return NULL;
+}
+
+/**
+ * pvr_object_lookup_id() - Lookup object pointer from firmware ID
+ * @pvr_dev: Device pointer.
+ * @id: FW object ID.
+ *
+ * Takes reference on object. Call pvr_object_put() to release.
+ *
+ * Returns:
+ *  * The requested object on success, or
+ *  * %NULL if object is not in object list
+ */
+static __always_inline struct pvr_object *
+pvr_object_lookup_id(struct pvr_device *pvr_dev, u32 id)
+{
+	struct pvr_object *obj = xa_load(&pvr_dev->obj_ids, id);
+
+	if (obj) {
+		kref_get(&obj->ref_count);
+
+		return obj;
+	}
+
+	return NULL;
 }
 
 void pvr_object_put(struct pvr_object *obj);
@@ -56,5 +90,7 @@ int pvr_object_destroy(struct pvr_file *pvr_file, u32 handle);
 
 int
 pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *fw_obj, u32 offset);
+
+void pvr_destroy_objects_for_file(struct pvr_file *pvr_file);
 
 #endif /* __PVR_OBJECT_H__ */

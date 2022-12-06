@@ -90,7 +90,6 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 	free_list->max_pages = args->max_num_pages;
 	free_list->grow_pages = args->grow_num_pages;
 	free_list->grow_threshold = args->grow_threshold;
-	free_list->id = atomic_inc_return(&pvr_file->free_list_id);
 	INIT_LIST_HEAD(&free_list->mem_block_list);
 	free_list->obj = free_list_obj;
 
@@ -146,7 +145,8 @@ calculate_free_list_ready_pages(struct pvr_free_list *free_list, u32 pages)
 static int
 free_list_create_fw_structure(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_free_list_args *args,
-			      struct pvr_free_list *free_list)
+			      struct pvr_free_list *free_list,
+			      u32 id)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_freelist *free_list_fw;
@@ -175,7 +175,7 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	free_list_fw->current_pages = args->initial_num_pages - ready_pages;
 	free_list_fw->grow_pages = free_list->grow_pages;
 	free_list_fw->ready_pages = ready_pages;
-	free_list_fw->freelist_id = free_list->id;
+	free_list_fw->freelist_id = id;
 	free_list_fw->grow_pending = false;
 	free_list_fw->current_stack_top = free_list_fw->current_pages - 1;
 	free_list_fw->freelist_dev_addr = args->free_list_gpu_addr;
@@ -330,6 +330,7 @@ pvr_free_list_free_node(struct pvr_free_list_node *free_list_node)
  * pvr_free_list_create() - Create a new free list and return an object pointer
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
+ * @id: FW object ID.
  *
  * Return:
  *  * Free list pointer on success, or
@@ -337,7 +338,8 @@ pvr_free_list_free_node(struct pvr_free_list_node *free_list_node)
  */
 struct pvr_free_list *
 pvr_free_list_create(struct pvr_file *pvr_file,
-		     struct drm_pvr_ioctl_create_free_list_args *args)
+		     struct drm_pvr_ioctl_create_free_list_args *args,
+		     u32 id)
 {
 	struct pvr_free_list *free_list;
 	int err;
@@ -353,7 +355,7 @@ pvr_free_list_create(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_free;
 
-	err = free_list_create_fw_structure(pvr_file, args, free_list);
+	err = free_list_create_fw_structure(pvr_file, args, free_list, id);
 	if (err < 0)
 		goto err_destroy_kernel_structure;
 

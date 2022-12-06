@@ -75,9 +75,6 @@ struct pvr_free_list {
 	 */
 	u32 ready_pages;
 
-	/** @id: FW-side ID for the free list. */
-	u32 id;
-
 	/** @mem_block_list: List of memory blocks in this free list. */
 	struct list_head mem_block_list;
 };
@@ -96,7 +93,8 @@ to_pvr_free_list(struct pvr_object *obj)
 
 struct pvr_free_list *
 pvr_free_list_create(struct pvr_file *pvr_file,
-		     struct drm_pvr_ioctl_create_free_list_args *args);
+		     struct drm_pvr_ioctl_create_free_list_args *args,
+		     u32 id);
 
 void pvr_free_list_destroy(struct pvr_free_list *free_list);
 
@@ -104,9 +102,36 @@ u32
 pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
 
 /**
- * pvr_free_list_lookup() - Lookup free list pointer from handle
+ * pvr_free_list_lookup() - Lookup free list pointer from handle and file
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Object handle.
+ *
+ * Takes reference on free list object. Call pvr_free_list_put() to release.
+ *
+ * Returns:
+ *  * The requested object on success, or
+ *  * %NULL on failure (object does not exist in list, is not a free list, or
+ *    does not belong to @pvr_file)
+ */
+static __always_inline struct pvr_free_list *
+pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
+{
+	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
+
+	if (obj) {
+		if (obj->type == DRM_PVR_OBJECT_TYPE_FREE_LIST)
+			return to_pvr_free_list(obj);
+
+		pvr_object_put(obj);
+	}
+
+	return NULL;
+}
+
+/**
+ * pvr_free_list_lookup_id() - Lookup free list pointer from FW ID
+ * @pvr_device: Device pointer.
+ * @id: FW object ID.
  *
  * Takes reference on free list object. Call pvr_free_list_put() to release.
  *
@@ -115,9 +140,9 @@ pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
  *  * %NULL on failure (object does not exist in list, or is not a free list)
  */
 static __always_inline struct pvr_free_list *
-pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
+pvr_free_list_lookup_id(struct pvr_device *pvr_dev, u32 id)
 {
-	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
+	struct pvr_object *obj = pvr_object_lookup_id(pvr_dev, id);
 
 	if (obj) {
 		if (obj->type == DRM_PVR_OBJECT_TYPE_FREE_LIST)

@@ -227,6 +227,22 @@ struct pvr_device {
 
 	/** @fence_context: Fence context for fences not associated with a data master. */
 	struct pvr_fence_context fence_context;
+
+	/**
+	 * @ctx_ids: Array of contexts belonging to this device. Array members
+	 *           are of type "struct pvr_context *".
+	 *
+	 * This array is used to allocate IDs used by the firmware.
+	 */
+	struct xarray ctx_ids;
+
+	/**
+	 * @obj_ids: Array of objects belonging to this device. Array members
+	 *           are of type "struct pvr_object *".
+	 *
+	 * This array is used to allocate IDs used by the firmware.
+	 */
+	struct xarray obj_ids;
 };
 
 /**
@@ -249,24 +265,6 @@ struct pvr_file {
 	struct pvr_device *pvr_dev;
 
 	/**
-	 * @contexts: Array of contexts belonging to this file. Array members
-	 *            are of type "struct pvr_context *".
-	 */
-	struct xarray contexts;
-
-	/**
-	 * @objects: Array of objects belonging to this file. Array members
-	 *           are of type "struct pvr_object *".
-	 */
-	struct xarray objects;
-
-	/** @free_list_id: Next ID to be assigned when creating a free list. */
-	atomic_t free_list_id;
-
-	/** @ctx_id: Next ID to be assigned when creating a context. */
-	atomic_t ctx_id;
-
-	/**
 	 * @user_vm_ctx: Virtual memory context used for userspace mappings.
 	 *
 	 * This represents all GPU mappings that belong to this file.
@@ -275,6 +273,22 @@ struct pvr_file {
 
 	/** @fw_mem_ctx_obj: Firmware object representing firmware memory context. */
 	struct pvr_fw_object *fw_mem_ctx_obj;
+
+	/**
+	 * @ctx_handles: Array of contexts belonging to this file. Array members
+	 *               are of type "struct pvr_context *".
+	 *
+	 * This array is used to allocate handles returned to userspace.
+	 */
+	struct xarray ctx_handles;
+
+	/**
+	 * @obj_handles: Array of objects belonging to this file. Array members
+	 *               are of type "struct pvr_object *".
+	 *
+	 * This array is used to allocate handles returned to userspace.
+	 */
+	struct xarray obj_handles;
 };
 
 /**
@@ -725,9 +739,6 @@ pvr_ioctl_union_padding_check(void *instance, size_t union_offset,
 		pvr_ioctl_union_padding_check(__instance, __union_offset,    \
 					      __union_size, __member_size);  \
 	})
-
-/** Reserve handle 0 as invalid for xarrays. */
-#define xa_limit_1_32b XA_LIMIT(1, UINT_MAX)
 
 #define PVR_FW_PROCESSOR_TYPE_META  0
 #define PVR_FW_PROCESSOR_TYPE_MIPS  1

@@ -52,9 +52,28 @@ pvr_object_create(struct pvr_file *pvr_file,
 		  struct drm_pvr_ioctl_create_object_args *args,
 		  u32 *handle_out)
 {
+	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct pvr_object *obj;
 	u32 handle;
+	void *old;
 	int err;
+	u32 id;
+
+	/*
+	 * Allocate global object ID for firmware. We will update this with the object once it is
+	 * created.
+	 */
+	err = xa_alloc(&pvr_dev->obj_ids, &id, NULL, xa_limit_32b, GFP_KERNEL);
+	if (err < 0)
+		goto err_out;
+
+	/*
+	 * Allocate object handle for userspace. We will update this with the object once it
+	 * is created.
+	 */
+	err = xa_alloc(&pvr_file->obj_handles, &handle, NULL, xa_limit_32b, GFP_KERNEL);
+	if (err < 0)
+		goto err_id_xa_free;
 
 	switch (args->type) {
 	case DRM_PVR_OBJECT_TYPE_FREE_LIST: {
@@ -64,13 +83,13 @@ pvr_object_create(struct pvr_file *pvr_file,
 		if (copy_from_user(&free_list_args, u64_to_user_ptr(args->data),
 				   sizeof(free_list_args))) {
 			err = -EFAULT;
-			goto err_out;
+			goto err_handle_xa_free;
 		}
 
-		free_list = pvr_free_list_create(pvr_file, &free_list_args);
+		free_list = pvr_free_list_create(pvr_file, &free_list_args, id);
 		if (IS_ERR(free_list)) {
 			err = PTR_ERR(free_list);
-			goto err_out;
+			goto err_handle_xa_free;
 		}
 		obj = from_pvr_free_list(free_list);
 		break;
@@ -83,13 +102,13 @@ pvr_object_create(struct pvr_file *pvr_file,
 		if (copy_from_user(&hwrt_args, u64_to_user_ptr(args->data),
 				   sizeof(hwrt_args))) {
 			err = -EFAULT;
-			goto err_out;
+			goto err_handle_xa_free;
 		}
 
 		hwrt = pvr_hwrt_dataset_create(pvr_file, &hwrt_args);
 		if (IS_ERR(hwrt)) {
 			err = PTR_ERR(hwrt);
-			goto err_out;
+			goto err_handle_xa_free;
 		}
 		obj = from_pvr_hwrt_dataset(hwrt);
 		break;
@@ -97,26 +116,40 @@ pvr_object_create(struct pvr_file *pvr_file,
 
 	default:
 		err = -EINVAL;
-		goto err_out;
+		goto err_handle_xa_free;
 	}
 	if (IS_ERR(obj)) {
 		err = PTR_ERR(obj);
-		goto err_out;
+		goto err_handle_xa_free;
 	}
 
 	kref_init(&obj->ref_count);
+	obj->pvr_dev = pvr_dev;
+	obj->fw_id = id;
 
-	/* Add to object list, and get handle */
-	err = xa_alloc(&pvr_file->objects, &handle, obj, xa_limit_1_32b,
-		       GFP_KERNEL);
-	if (err < 0)
+	old = xa_store(&pvr_dev->obj_ids, id, obj, GFP_KERNEL);
+	if (xa_is_err(old)) {
+		err = xa_err(old);
 		goto err_destroy_object;
+	}
+
+	old = xa_store(&pvr_file->obj_handles, handle, obj, GFP_KERNEL);
+	if (xa_is_err(old)) {
+		err = xa_err(old);
+		goto err_destroy_object;
+	}
 
 	*handle_out = handle;
 	return 0;
 
 err_destroy_object:
 	destroy_object(obj);
+
+err_handle_xa_free:
+	xa_erase(&pvr_file->obj_handles, handle);
+
+err_id_xa_free:
+	xa_erase(&pvr_dev->obj_ids, id);
 
 err_out:
 	return err;
@@ -127,6 +160,9 @@ pvr_object_release(struct kref *ref_count)
 {
 	struct pvr_object *obj =
 		container_of(ref_count, struct pvr_object, ref_count);
+	struct pvr_device *pvr_dev = obj->pvr_dev;
+
+	xa_erase(&pvr_dev->obj_ids, obj->fw_id);
 
 	destroy_object(obj);
 }
@@ -156,7 +192,7 @@ pvr_object_put(struct pvr_object *obj)
 int
 pvr_object_destroy(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = xa_erase(&pvr_file->objects, handle);
+	struct pvr_object *obj = xa_erase(&pvr_file->obj_handles, handle);
 
 	if (!obj)
 		return -EINVAL;
@@ -164,6 +200,24 @@ pvr_object_destroy(struct pvr_file *pvr_file, u32 handle)
 	pvr_object_put(obj);
 
 	return 0;
+}
+
+/**
+ * pvr_destroy_objects_for_file: Destroy any objects associated with the given file
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Removes all objects associated with @pvr_file from the device object list and drops initial
+ * references. Objects will then be destroyed once all outstanding references are dropped.
+ */
+void pvr_destroy_objects_for_file(struct pvr_file *pvr_file)
+{
+	struct pvr_object *obj;
+	unsigned long handle;
+
+	xa_for_each(&pvr_file->obj_handles, handle, obj) {
+		xa_erase(&pvr_file->obj_handles, handle);
+		pvr_object_put(obj);
+	}
 }
 
 /**
