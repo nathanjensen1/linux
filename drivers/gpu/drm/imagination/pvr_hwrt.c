@@ -344,7 +344,7 @@ hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
 
 
 	hwrt_data_common_fw->tpc_stride = geom_data_args->tpc_stride;
-	hwrt_data_common_fw->tpc_size = geom_data_args->tpc_stride;
+	hwrt_data_common_fw->tpc_size = geom_data_args->tpc_size;
 
 	hwrt_data_common_fw->rgn_header_size = args->region_header_size;
 
