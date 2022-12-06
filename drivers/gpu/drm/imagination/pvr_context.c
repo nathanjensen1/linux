@@ -31,7 +31,8 @@ static int
 pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 			struct pvr_context *ctx, int type,
 			enum pvr_context_priority priority,
-			struct drm_pvr_ioctl_create_context_args *args)
+			struct drm_pvr_ioctl_create_context_args *args,
+			u32 id)
 {
 	ctx->type = type;
 	ctx->pvr_dev = pvr_dev;
@@ -39,6 +40,8 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 
 	ctx->flags = args->flags;
 	ctx->priority = priority;
+
+	ctx->ctx_id = id;
 
 	kref_init(&ctx->ref_count);
 
@@ -70,8 +73,6 @@ pvr_init_geom_context(struct pvr_file *pvr_file,
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
 	struct rogue_fwif_geom_ctx_state *geom_ctx_state_fw;
 	int err;
-
-	ctx_geom->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
 
 	err = pvr_cccb_init(pvr_dev, &ctx_geom->cccb, CTX_GEOM_CCCB_SIZE_LOG2, "geometry");
 	if (err)
@@ -132,8 +133,6 @@ pvr_init_frag_context(struct pvr_file *pvr_file,
 	u32 num_isp_store_registers;
 	size_t frag_ctx_state_size;
 	int err;
-
-	ctx_frag->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
 
 	err = pvr_cccb_init(pvr_dev, &ctx_frag->cccb, CTX_FRAG_CCCB_SIZE_LOG2, "fragment");
 	if (err)
@@ -290,12 +289,12 @@ pvr_init_fw_render_context(struct pvr_context_render *ctx_render,
 
 	pvr_init_fw_common_context(&ctx_render->base, &fw_render_context->geom_context,
 				   PVR_FWIF_DM_GEOM, args->priority, MAX_DEADLINE_MS,
-				   ctx_render->ctx_geom.ctx_id, ctx_render->ctx_geom.ctx_state_obj,
+				   ctx_render->base.ctx_id, ctx_render->ctx_geom.ctx_state_obj,
 				   &ctx_render->ctx_geom.cccb);
 
 	pvr_init_fw_common_context(&ctx_render->base, &fw_render_context->frag_context,
 				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
-				   ctx_render->ctx_frag.ctx_id, ctx_render->ctx_frag.ctx_state_obj,
+				   ctx_render->base.ctx_id, ctx_render->ctx_frag.ctx_state_obj,
 				   &ctx_render->ctx_frag.cccb);
 
 	pvr_fw_object_vunmap(ctx_render->fw_obj, true);
@@ -347,8 +346,6 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 		goto err_out;
 	}
 
-	ctx_compute->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
-
 	err = pvr_cccb_init(pvr_dev, &ctx_compute->cccb, CTX_COMPUTE_CCCB_SIZE_LOG2, "compute");
 	if (err)
 		goto err_out;
@@ -382,7 +379,7 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 
 	pvr_init_fw_common_context(&ctx_compute->base, &fw_compute_context->cdm_context,
 				   PVR_FWIF_DM_CDM, args->priority, MAX_DEADLINE_MS,
-				   ctx_compute->ctx_id, ctx_compute->ctx_state_obj,
+				   ctx_compute->base.ctx_id, ctx_compute->ctx_state_obj,
 				   &ctx_compute->cccb);
 
 	pvr_fw_object_vunmap(ctx_compute->fw_obj, true);
@@ -434,8 +431,6 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 	struct rogue_fwif_fwtransfercontext *fw_transfer_context;
 	int err;
 
-	ctx_transfer->ctx_id = atomic_inc_return(&pvr_file->ctx_id);
-
 	err = pvr_cccb_init(pvr_dev, &ctx_transfer->cccb, CTX_TRANSFER_CCCB_SIZE_LOG2,
 			    "transfer_frag");
 	if (err)
@@ -459,7 +454,7 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 
 	pvr_init_fw_common_context(&ctx_transfer->base, &fw_transfer_context->tq_context,
 				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
-				   ctx_transfer->ctx_id, ctx_transfer->ctx_state_obj,
+				   ctx_transfer->base.ctx_id, ctx_transfer->ctx_state_obj,
 				   &ctx_transfer->cccb);
 
 	pvr_fw_object_vunmap(ctx_transfer->fw_obj, true);
@@ -495,24 +490,23 @@ pvr_fini_transfer_context(struct pvr_context_transfer *ctx_transfer)
  *                               context and return a handle
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @handle_out: Output handle pointer.
+ * @id: FW context ID.
  *
  * The context is initialised with refcount of 1.
  *
  * Return:
- *  * 0 on success, or
+ *  * Context pointer on success, or
  *  * -%ENOMEM on out-of-memory, or
  *  * Any error returned by xa_alloc().
  */
-int
+struct pvr_context *
 pvr_create_render_context(struct pvr_file *pvr_file,
 			  struct drm_pvr_ioctl_create_context_args *args,
-			  u32 *handle_out)
+			  u32 id)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct pvr_context_render *ctx_render;
 	enum pvr_context_priority priority;
-	u32 handle;
 	int err;
 
 	if (!args->static_context_state) {
@@ -532,7 +526,7 @@ pvr_create_render_context(struct pvr_file *pvr_file,
 
 	err = pvr_init_context_common(pvr_dev, pvr_file,
 				      from_pvr_context_render(ctx_render),
-				      DRM_PVR_CTX_TYPE_RENDER, priority, args);
+				      DRM_PVR_CTX_TYPE_RENDER, priority, args, id);
 	if (err < 0)
 		goto err_free;
 
@@ -548,19 +542,7 @@ pvr_create_render_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_destroy_frag_context;
 
-	/* Add to context list, and get handle */
-	err = xa_alloc(&pvr_file->contexts, &handle,
-		       from_pvr_context_render(ctx_render), xa_limit_1_32b,
-		       GFP_KERNEL);
-	if (err < 0)
-		goto err_destroy_fw_render_context;
-
-	*handle_out = handle;
-
-	return 0;
-
-err_destroy_fw_render_context:
-	pvr_fini_fw_render_context(ctx_render);
+	return from_pvr_context_render(ctx_render);
 
 err_destroy_frag_context:
 	pvr_fini_frag_context(ctx_render);
@@ -575,31 +557,30 @@ err_free:
 	kfree(ctx_render);
 
 err_out:
-	return err;
+	return ERR_PTR(err);
 }
 
 /**
  * pvr_create_compute_context() - Create a compute context and return a handle
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @handle_out: Output handle pointer.
+ * @id: FW context ID.
  *
  * The context is initialised with refcount of 1.
  *
  * Return:
- *  * 0 on success, or
+ *  * Context pointer on success, or
  *  * -%ENOMEM on out-of-memory, or
  *  * Any error returned by xa_alloc().
  */
-int
+struct pvr_context *
 pvr_create_compute_context(struct pvr_file *pvr_file,
 			   struct drm_pvr_ioctl_create_context_args *args,
-			   u32 *handle_out)
+			   u32 id)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct pvr_context_compute *ctx_compute;
 	enum pvr_context_priority priority;
-	u32 handle;
 	int err;
 
 	if (!args->static_context_state || args->callstack_addr) {
@@ -619,7 +600,7 @@ pvr_create_compute_context(struct pvr_file *pvr_file,
 
 	err = pvr_init_context_common(pvr_dev, pvr_file,
 				      from_pvr_context_compute(ctx_compute),
-				      DRM_PVR_CTX_TYPE_COMPUTE, priority, args);
+				      DRM_PVR_CTX_TYPE_COMPUTE, priority, args, id);
 	if (err < 0)
 		goto err_free;
 
@@ -627,19 +608,7 @@ pvr_create_compute_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_destroy_common_context;
 
-	/* Add to context list, and get handle */
-	err = xa_alloc(&pvr_file->contexts, &handle,
-		       from_pvr_context_compute(ctx_compute), xa_limit_1_32b,
-		       GFP_KERNEL);
-	if (err < 0)
-		goto err_destroy_compute_context;
-
-	*handle_out = handle;
-
-	return 0;
-
-err_destroy_compute_context:
-	pvr_fini_compute_context(ctx_compute);
+	return from_pvr_context_compute(ctx_compute);
 
 err_destroy_common_context:
 	pvr_fini_context_common(pvr_dev, from_pvr_context_compute(ctx_compute));
@@ -648,31 +617,30 @@ err_free:
 	kfree(ctx_compute);
 
 err_out:
-	return err;
+	return ERR_PTR(err);
 }
 
 /**
  * pvr_create_transfer_context() - Create a transfer context and return a handle
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @handle_out: Output handle pointer.
+ * @id: FW context ID.
  *
  * The context is initialised with refcount of 1.
  *
  * Return:
- *  * 0 on success, or
+ *  * Context pointer on success, or
  *  * -%ENOMEM on out-of-memory, or
  *  * Any error returned by xa_alloc().
  */
-int
+struct pvr_context *
 pvr_create_transfer_context(struct pvr_file *pvr_file,
 			    struct drm_pvr_ioctl_create_context_args *args,
-			    u32 *handle_out)
+			    u32 id)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct pvr_context_transfer *ctx_transfer;
 	enum pvr_context_priority priority;
-	u32 handle;
 	int err;
 
 	if (args->callstack_addr || args->static_context_state) {
@@ -692,7 +660,7 @@ pvr_create_transfer_context(struct pvr_file *pvr_file,
 
 	err = pvr_init_context_common(pvr_dev, pvr_file,
 				      from_pvr_context_transfer(ctx_transfer),
-				      args->type, priority, args);
+				      args->type, priority, args, id);
 	if (err < 0)
 		goto err_free;
 
@@ -700,19 +668,7 @@ pvr_create_transfer_context(struct pvr_file *pvr_file,
 	if (err < 0)
 		goto err_destroy_common_context;
 
-	/* Add to context list, and get handle */
-	err = xa_alloc(&pvr_file->contexts, &handle,
-		       from_pvr_context_transfer(ctx_transfer), xa_limit_1_32b,
-		       GFP_KERNEL);
-	if (err < 0)
-		goto err_destroy_transfer_context;
-
-	*handle_out = handle;
-
-	return 0;
-
-err_destroy_transfer_context:
-	pvr_fini_transfer_context(ctx_transfer);
+	return from_pvr_context_transfer(ctx_transfer);
 
 err_destroy_common_context:
 	pvr_fini_context_common(pvr_dev, from_pvr_context_transfer(ctx_transfer));
@@ -721,7 +677,7 @@ err_free:
 	kfree(ctx_transfer);
 
 err_out:
-	return err;
+	return ERR_PTR(err);
 }
 
 static void
@@ -729,8 +685,11 @@ pvr_release_context(struct kref *ref_count)
 {
 	struct pvr_context *ctx =
 		container_of(ref_count, struct pvr_context, ref_count);
+	struct pvr_device *pvr_dev = ctx->pvr_dev;
 
 	WARN_ON(pvr_context_wait_idle(ctx, 0));
+
+	xa_erase(&pvr_dev->ctx_ids, ctx->ctx_id);
 
 	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
 		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
@@ -768,7 +727,7 @@ pvr_context_put(struct pvr_context *ctx)
 /**
  * pvr_context_destroy() - Destroy context
  * @pvr_file: Pointer to pvr_file structure.
- * @handle: Context handle.
+ * @handle: Userspace context handle.
  *
  * Removes context from context list and drops initial reference. Context will
  * then be destroyed once all outstanding references are dropped.
@@ -780,14 +739,33 @@ pvr_context_put(struct pvr_context *ctx)
 int
 pvr_context_destroy(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_context *ctx = xa_erase(&pvr_file->contexts, handle);
+	struct pvr_context *ctx = xa_load(&pvr_file->ctx_handles, handle);
 
 	if (!ctx)
 		return -EINVAL;
 
+	xa_erase(&pvr_file->ctx_handles, handle);
 	pvr_context_put(ctx);
 
 	return 0;
+}
+
+/**
+ * pvr_destroy_contexts_for_file: Destroy any contexts associated with the given file
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Removes all contexts associated with @pvr_file from the device context list and drops initial
+ * references. Contexts will then be destroyed once all outstanding references are dropped.
+ */
+void pvr_destroy_contexts_for_file(struct pvr_file *pvr_file)
+{
+	struct pvr_context *ctx;
+	unsigned long handle;
+
+	xa_for_each(&pvr_file->ctx_handles, handle, ctx) {
+		xa_erase(&pvr_file->ctx_handles, handle);
+		pvr_context_put(ctx);
+	}
 }
 
 /**
