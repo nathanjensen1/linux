@@ -72,6 +72,8 @@ struct pvr_context {
 
 	/** @ctx_id: FW context ID. */
 	u32 ctx_id;
+
+	char process_name[PVR_COREDUMP_PROCESS_NAME_LEN];
 };
 
 /**
@@ -202,6 +204,31 @@ static __always_inline struct pvr_context *
 pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 {
 	struct pvr_context *ctx = xa_load(&pvr_file->ctx_handles, handle);
+
+	if (ctx) {
+		kref_get(&ctx->ref_count);
+
+		return ctx;
+	}
+
+	return NULL;
+}
+
+/**
+ * pvr_context_lookup_id() - Lookup context pointer from ID.
+ * @pvr_dev: Device pointer.
+ * @id: FW context ID.
+ *
+ * Takes reference on context. Call pvr_context_put() to release.
+ *
+ * Return:
+ *  * The requested context on success, or
+ *  * %NULL on failure (context does not exist).
+ */
+static __always_inline struct pvr_context *
+pvr_context_lookup_id(struct pvr_device *pvr_dev, u32 id)
+{
+	struct pvr_context *ctx = xa_load(&pvr_dev->ctx_ids, id);
 
 	if (ctx) {
 		kref_get(&ctx->ref_count);

@@ -303,6 +303,9 @@ struct pvr_fw_device {
 	/** @power_sync: Pointer to CPU mapping of power sync state. */
 	u32 *power_sync;
 
+	/** @hwrinfobuf: Pointer to CPU mapping of FW HWR info buffer. */
+	struct rogue_fwif_hwrinfobuf *hwrinfobuf;
+
 	/** @fw_trace: Device firmware trace buffer state. */
 	struct pvr_fw_trace fw_trace;
 };

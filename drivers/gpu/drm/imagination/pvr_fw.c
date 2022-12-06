@@ -312,7 +312,6 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	struct drm_device *drm_dev = from_pvr_device(pvr_dev);
 	struct pvr_fw_device *fw_dev = &pvr_dev->fw_dev;
 	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
-	struct rogue_fwif_hwrinfobuf *hwrinfobuf;
 	struct rogue_fwif_osinit *fwif_osinit;
 	int err;
 
@@ -352,14 +351,14 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 		goto err_release_osdata;
 	}
 
-	hwrinfobuf = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*hwrinfobuf),
+	fw_dev->hwrinfobuf = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*fw_dev->hwrinfobuf),
 						      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
 						      DRM_PVR_BO_CREATE_ZEROED,
 						      &fw_mem->hwrinfobuf_obj);
-	if (IS_ERR(hwrinfobuf)) {
+	if (IS_ERR(fw_dev->hwrinfobuf)) {
 		drm_err(drm_dev,
 			"Unable to allocate FW hwrinfobuf structure\n");
-		err = PTR_ERR(hwrinfobuf);
+		err = PTR_ERR(fw_dev->hwrinfobuf);
 		goto err_release_power_sync;
 	}
 
@@ -394,7 +393,6 @@ pvr_fw_create_os_structures(struct pvr_device *pvr_dev)
 	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(fwif_osinit->rogue_comp_checks.hw_bvnc);
 	ROGUE_FWIF_COMPCHECKS_BVNC_INIT(fwif_osinit->rogue_comp_checks.fw_bvnc);
 
-	pvr_fw_object_vunmap(fw_mem->hwrinfobuf_obj, false);
 	return 0;
 
 err_release_hwrinfobuf:
@@ -424,6 +422,7 @@ pvr_fw_destroy_os_structures(struct pvr_device *pvr_dev)
 	struct pvr_fw_mem *fw_mem = &fw_dev->mem;
 
 	pvr_fw_object_release(fw_mem->mmucache_sync_obj);
+	pvr_fw_object_vunmap(fw_mem->hwrinfobuf_obj, false);
 	pvr_fw_object_release(fw_mem->hwrinfobuf_obj);
 	pvr_fw_object_vunmap(fw_mem->power_sync_obj, false);
 	pvr_fw_object_release(fw_mem->power_sync_obj);

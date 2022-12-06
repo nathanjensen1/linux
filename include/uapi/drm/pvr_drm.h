@@ -1250,6 +1250,333 @@ struct drm_pvr_ioctl_submit_job_args {
 
 };
 
+/* Definitions for coredump decoding in userspace. */
+
+#define PVR_COREDUMP_HEADER_MAGIC 0x21525650 /* PVR! */
+#define PVR_COREDUMP_HEADER_VERSION_MAJ 1
+#define PVR_COREDUMP_HEADER_VERSION_MIN 0
+
+/**
+ * struct pvr_coredump_header - Header of PowerVR coredump
+ */
+struct pvr_coredump_header {
+	/** @magic: Will be %PVR_COREDUMP_HEADER_MAGIC. */
+	__u32 magic;
+	/** @major_version: Will be %PVR_COREDUMP_HEADER_VERSION_MAJ. */
+	__u32 major_version;
+	/** @minor_version: Will be %PVR_COREDUMP_HEADER_VERSION_MIN. */
+	__u32 minor_version;
+	/** @flags: Flags for this coredump. Currently no flags are defined, this should be zero. */
+	__u32 flags;
+	/** @size: Size of coredump (including this header) in bytes. */
+	__u32 size;
+	/** @padding: Reserved. This field must be zero. */
+	__u32 padding;
+};
+
+/**
+ * enum pvr_coredump_block_type - Valid coredump block types
+ */
+enum pvr_coredump_block_type {
+	/**
+	 * %PVR_COREDUMP_BLOCK_TYPE_DEVINFO: Device information block.
+	 *
+	 * Block data is &struct pvr_coredump_block_devinfo.
+	 */
+	PVR_COREDUMP_BLOCK_TYPE_DEVINFO = 0,
+
+	/**
+	 * %PVR_COREDUMP_BLOCK_TYPE_REGISTERS: Register block.
+	 *
+	 * Block data is an array of &struct pvr_coredump_block_register. Number of registers is
+	 * determined by block size.
+	 */
+	PVR_COREDUMP_BLOCK_TYPE_REGISTERS,
+
+	/**
+	 * %PVR_COREDUMP_BLOCK_TYPE_CONTEXT_RESET_DATA: Context reset data block.
+	 *
+	 * Block data is &struct pvr_coredump_block_reset_data.
+	 */
+	PVR_COREDUMP_BLOCK_TYPE_CONTEXT_RESET_DATA,
+
+	/**
+	 * %PVR_COREDUMP_BLOCK_TYPE_HWRINFO: Hardware Reset information block.
+	 *
+	 * Block data is &struct pvr_coredump_block_hwrinfo.
+	 */
+	PVR_COREDUMP_BLOCK_TYPE_HWRINFO,
+};
+
+/**
+ * struct pvr_coredump_block_header - Header of PowerVR coredump block
+ *
+ * Block data immediately follows this header. The format is determined by @type.
+ */
+struct pvr_coredump_block_header {
+	/** @type: Block type. One of %PVR_COREDUMP_BLOCK_TYPE_*. */
+	__u32 type;
+	/** @size: Size of block data following this header, in bytes. */
+	__u32 size;
+	/** @flags: Type dependent flags. */
+	__u32 flags;
+	/** @padding: Reserved. This field must be zero. */
+	__u32 padding;
+};
+
+#define PVR_COREDUMP_PROCESS_NAME_LEN 16
+#define PVR_COREDUMP_VERSION_LEN      65
+#define PVR_COREDUMP_DEVINFO_PADDING (8 - ((PVR_COREDUMP_PROCESS_NAME_LEN + \
+					    PVR_COREDUMP_VERSION_LEN) & 7))
+
+/**
+ * struct pvr_coredump_block_devinfo - Device information block
+ */
+struct pvr_coredump_block_devinfo {
+	/** @gpu_id: GPU ID. */
+	__u64 gpu_id;
+	/** @fw_version: Version of PowerVR firmware on system that created the coredump. */
+	struct {
+		/** @major: Major version number. */
+		__u32 major;
+		/** @minor: Minor version number. */
+		__u32 minor;
+	} fw_version;
+	/** @process_name: Name of process that submitted the failed job. */
+	char process_name[PVR_COREDUMP_PROCESS_NAME_LEN];
+	/** @kernel_version: String of kernel version on system that created the coredump. */
+	char kernel_version[PVR_COREDUMP_VERSION_LEN];
+	/** @padding: Reserved. This field must be zero. */
+	__u8 padding[PVR_COREDUMP_DEVINFO_PADDING];
+};
+
+/** %PVR_COREDUMP_REGISTER_FLAG_SIZE_MASK: Mask of register size field. */
+#define PVR_COREDUMP_REGISTER_FLAG_SIZE_MASK 7
+/** %PVR_COREDUMP_REGISTER_FLAG_SIZE_32BIT: Register is 32-bits wide. */
+#define PVR_COREDUMP_REGISTER_FLAG_SIZE_32BIT 2
+/** %PVR_COREDUMP_REGISTER_FLAG_SIZE_64BIT: Register is 64-bits wide. */
+#define PVR_COREDUMP_REGISTER_FLAG_SIZE_64BIT 3
+
+/**
+ * struct pvr_coredump_block_register - PowerVR register dump
+ */
+struct pvr_coredump_block_register {
+	/** @offset: Offset of register. */
+	__u32 offset;
+	/** @flags: Flags for this register. Combination of %PVR_COREDUMP_REGISTER_FLAG_*. */
+	__u32 flags;
+	/** @value: Value of register. */
+	__u64 value;
+};
+
+/** %PVR_COREDUMP_RESET_DATA_FLAG_PF: Set if a page fault happened. */
+#define PVR_COREDUMP_RESET_DATA_FLAG_PF _BITUL(0)
+/** %PVR_COREDUMP_RESET_DATA_FLAG_ALL_CTXS: Set if reset applicable to all contexts. */
+#define PVR_COREDUMP_RESET_DATA_FLAG_ALL_CTXS _BITUL(1)
+
+/** %PVR_COREDUMP_RESET_REASON_NONE: No reset reason recorded. */
+#define PVR_COREDUMP_RESET_REASON_NONE 0
+/** %PVR_COREDUMP_RESET_REASON_GUILTY_LOCKUP: Caused a reset due to locking up. */
+#define PVR_COREDUMP_RESET_REASON_GUILTY_LOCKUP 1
+/** %PVR_COREDUMP_RESET_REASON_INNOCENT_LOCKUP: Affected by another context locking up. */
+#define PVR_COREDUMP_RESET_REASON_INNOCENT_LOCKUP 2
+/** %PVR_COREDUMP_RESET_REASON_GUILTY_OVERRUNING: Overran the global deadline. */
+#define PVR_COREDUMP_RESET_REASON_GUILTY_OVERRUNING 3
+/** %PVR_COREDUMP_RESET_REASON_INNOCENT_OVERRUNING: Affected by another context overrunning. */
+#define PVR_COREDUMP_RESET_REASON_INNOCENT_OVERRUNING 4
+/** %PVR_COREDUMP_RESET_REASON_HARD_CONTEXT_SWITCH: Forced reset to meet scheduling requirements. */
+#define PVR_COREDUMP_RESET_REASON_HARD_CONTEXT_SWITCH 5
+/** %PVR_COREDUMP_RESET_REASON_FW_WATCHDOG: FW Safety watchdog triggered. */
+#define PVR_COREDUMP_RESET_REASON_FW_WATCHDOG 12
+/** %PVR_COREDUMP_RESET_REASON_FW_PAGEFAULT: FW page fault (no HWR). */
+#define PVR_COREDUMP_RESET_REASON_FW_PAGEFAULT 13
+/** %PVR_COREDUMP_RESET_REASON_FW_EXEC_ERR: FW execution error (GPU reset requested). */
+#define PVR_COREDUMP_RESET_REASON_FW_EXEC_ERR 14
+/** %PVR_COREDUMP_RESET_REASON_HOST_WDG_FW_ERR: Host watchdog detected FW error. */
+#define PVR_COREDUMP_RESET_REASON_HOST_WDG_FW_ERR 15
+/** %PVR_COREDUMP_RESET_REASON_GEOM_OOM_DISABLED: Geometry DM OOM event is not allowed. */
+#define PVR_COREDUMP_RESET_REASON_GEOM_OOM_DISABLED 16
+
+/** %PVR_COREDUMP_DM_GP: General purpose Data Master. */
+#define PVR_COREDUMP_DM_GP 0
+/** %PVR_COREDUMP_DM_2D: 2D Data Master. */
+#define PVR_COREDUMP_DM_2D 1
+/** %PVR_COREDUMP_DM_GEOM: Geometry Data Master. */
+#define PVR_COREDUMP_DM_GEOM 2
+/** %PVR_COREDUMP_DM_FRAG: Fragment Data Master. */
+#define PVR_COREDUMP_DM_FRAG 3
+/** %PVR_COREDUMP_DM_CDM: Compute Data Master. */
+#define PVR_COREDUMP_DM_CDM 4
+/** %PVR_COREDUMP_DM_RAY: Ray tracing Data Master. */
+#define PVR_COREDUMP_DM_RAY 5
+/** %PVR_COREDUMP_DM_GEOM2: Geometry 2 Data Master. */
+#define PVR_COREDUMP_DM_GEOM2 6
+/** %PVR_COREDUMP_DM_GEOM3: Geometry 3 Data Master. */
+#define PVR_COREDUMP_DM_GEOM3 7
+/** %PVR_COREDUMP_DM_GEOM4: Geometry 4 Data Master. */
+#define PVR_COREDUMP_DM_GEOM4 8
+
+/**
+ * struct pvr_coredump_block_reset_data - Firmware context reset data
+ */
+struct pvr_coredump_block_reset_data {
+	/** @context_id: FW ID of context affected by the reset */
+	__u32 context_id;
+	/** @reset_reason: Reason for reset. One of %PVR_COREDUMP_RESET_REASON_*. */
+	__u32 reset_reason;
+	/** @dm: Data Master affected by the reset. One of %PVR_COREDUMP_DM_. */
+	__u32 dm;
+	/** @reset_job_ref: Internal job ref running at the time of reset. */
+	__u32 reset_job_ref;
+	/** @flags: Reset data flags. Combination of %PVR_COREDUMP_RESET_DATA_FLAG_*. */
+	__u32 flags;
+	/** @padding: Reserved. This field must be zero. */
+	__u32 padding;
+	/**
+	 * @fault_address: Page fault address. Only valid when %PVR_COREDUMP_RESET_DATA_FLAG_PF is
+	 *                 set in @flags.
+	 */
+	__u64 fault_address;
+};
+
+/** %PVR_COREDUMP_HWRTYPE_UNKNOWNFAILURE: HWR triggered by unknown failure. */
+#define PVR_COREDUMP_HWRTYPE_UNKNOWNFAILURE 0
+/** %PVR_COREDUMP_HWRTYPE_OVERRUN: HWR triggered by overrun. */
+#define PVR_COREDUMP_HWRTYPE_OVERRUN 1
+/** %PVR_COREDUMP_HWRTYPE_POLLFAILURE: HWR triggered by poll timeout. */
+#define PVR_COREDUMP_HWRTYPE_POLLFAILURE 2
+/** %PVR_COREDUMP_HWRTYPE_BIF0FAULT: HWR triggered by fault from Bus Interface 0. */
+#define PVR_COREDUMP_HWRTYPE_BIF0FAULT 3
+/** %PVR_COREDUMP_HWRTYPE_BIF1: HWR triggered by fault from Bus Interface 1. */
+#define PVR_COREDUMP_HWRTYPE_BIF1FAULT 4
+/** %PVR_COREDUMP_HWRTYPE_TEXASBIF0FAULT: HWR triggered by fault from Texas Bus Interface 0. */
+#define PVR_COREDUMP_HWRTYPE_TEXASBIF0FAULT 5
+/** %PVR_COREDUMP_HWRTYPE_MMUFAULT: HWR triggered by MMU fault. */
+#define PVR_COREDUMP_HWRTYPE_MMUFAULT 6
+/** %PVR_COREDUMP_HWRTYPE_MMUMETAFAULT: HWR triggered by MMU fault caused by META FW processor. */
+#define PVR_COREDUMP_HWRTYPE_MMUMETAFAULT 7
+/** %PVR_COREDUMP_HWRTYPE_MIPSTLBFAULT: HWR triggered by TLB fault from MIPS FW processor. */
+#define PVR_COREDUMP_HWRTYPE_MIPSTLBFAULT 8
+/** %PVR_COREDUMP_HWRTYPE_ECCFAULT: HWR triggered by ECC fault. */
+#define PVR_COREDUMP_HWRTYPE_ECCFAULT 9
+/** %PVR_COREDUMP_HWRTYPE_MMURISCVFAULT: HWR triggered by MMU fault from RISC-V FW processor. */
+#define PVR_COREDUMP_HWRTYPE_MMURISCVFAULT 10
+
+/* DM is working if all flags are cleared */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_WORKING 0
+/* DM is idle and ready for HWR */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_READY_FOR_HWR _BITUL(0)
+/* DM need to skip to next cmd before resuming processing */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_NEEDS_SKIP _BITUL(2)
+/* DM need partial render cleanup before resuming processing */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_NEEDS_PR_CLEANUP _BITUL(3)
+/* DM need to increment Recovery Count once fully recovered */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_NEEDS_TRACE_CLEAR _BITUL(4)
+/* DM was identified as locking up and causing HWR */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_GUILTY_LOCKUP _BITUL(5)
+/* DM was innocently affected by another lockup which caused HWR */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_INNOCENT_LOCKUP _BITUL(6)
+/* DM was identified as over-running and causing HWR */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_GUILTY_OVERRUNING _BITUL(7)
+/* DM was innocently affected by another DM over-running which caused HWR */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_INNOCENT_OVERRUNING _BITUL(8)
+/* DM was forced into HWR as it delayed more important workloads */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_HARD_CONTEXT_SWITCH _BITUL(9)
+/* DM was forced into HWR due to an uncorrected GPU ECC error */
+#define PVR_COREDUMP_HWRINFO_DM_STATE_GPU_ECC_HWR _BITUL(10)
+
+struct pvr_coredump_hwrinfo_bifinfo {
+	/** @bif_req_status: Request status for affected BIF. */
+	__u64 bif_req_status;
+	/** @bif_mmu_status: MMU status for affected BIF. */
+	__u64 bif_mmu_status;
+};
+
+struct pvr_coredump_hwrinfo_eccinfo {
+	/** @fault_gpu: GPU fault information. */
+	__u32 fault_gpu;
+};
+
+struct pvr_coredump_hwrinfo_mmuinfo {
+	/** @mmu_status: MMU status. */
+	__u64 mmu_status[2];
+};
+
+struct pvr_coredump_hwrinfo_pollinfo {
+	/** @thread_num: Number of thread which timed out on a poll. */
+	__u32 thread_num;
+	/** @cr_poll_addr: Address of timed out poll. */
+	__u32 cr_poll_addr;
+	/** @cr_poll_mask: Mask of timed out poll. */
+	__u32 cr_poll_mask;
+	/** @cr_poll_last_value: Last value read from polled location. */
+	__u32 cr_poll_last_value;
+};
+
+struct pvr_coredump_hwrinfo_tlbinfo {
+	/** @bad_addr: Virtual address of failed access. */
+	__u32 bad_addr;
+	/** @entry_lo: MIPS TLB EntryLo for failed access. */
+	__u32 entry_lo;
+};
+
+/**
+ * struct pvr_coredump_block_hwrinfo - Firmware hardware reset information
+ */
+struct pvr_coredump_block_hwrinfo {
+	/** @hwr_type: Type of HWR event. One of %PVR_COREDUMP_HWRTYPE_*. */
+	__u32 hwr_type;
+	/** @dm: Data Master affected by the HWR event. One of %PVR_COREDUMP_DM_. */
+	__u32 dm;
+	/** @core_id: ID of GPU core affected by the HWR event. */
+	__u32 core_id;
+	/** @event_status: Event status of Data Master. */
+	__u32 event_status;
+	/** @dm_state: Data Master state. Combination of %PVR_COREDUMP_HWRINFO_DM_STATE_. */
+	__u32 dm_state;
+	/** @active_hwrt_data: FW address of affected HWRT data. */
+	__u32 active_hwrt_data;
+
+	/** @hwr_data: HWR type specific data. Determined by @hwr_type. */
+	union {
+		/**
+		 * @bif_info: Bus Interface specific information.
+		 *
+		 * Used for %PVR_COREDUMP_HWRTYPE_BIF0FAULT, %PVR_COREDUMP_HWRTYPE_BIF1FAULT,
+		 * %PVR_COREDUMP_HWRTYPE_TEXASBIF0FAULT and %PVR_COREDUMP_HWRTYPE_MMURISCVFAULT.
+		 */
+		struct pvr_coredump_hwrinfo_bifinfo bif_info;
+
+		/**
+		 * @mmu_info: MMU specific information.
+		 *
+		 * Used for %PVR_COREDUMP_HWRTYPE_MMUFAULT and %PVR_COREDUMP_HWRTYPE_MMUMETAFAULT.
+		 */
+		struct pvr_coredump_hwrinfo_mmuinfo mmu_info;
+
+		/**
+		 * @poll_info: Poll timeout specific information.
+		 *
+		 * Used for %PVR_COREDUMP_HWRTYPE_POLLFAILURE.
+		 */
+		struct pvr_coredump_hwrinfo_pollinfo poll_info;
+
+		/**
+		 * @tlb_info: MIPS TLB specific information.
+		 *
+		 * Used for %PVR_COREDUMP_HWRTYPE_MIPSTLBFAULT.
+		 */
+		struct pvr_coredump_hwrinfo_tlbinfo tlb_info;
+
+		/**
+		 * @ecc_info: ECC specific information.
+		 *
+		 * Used for %PVR_COREDUMP_HWRTYPE_ECCFAULT.
+		 */
+		struct pvr_coredump_hwrinfo_eccinfo ecc_info;
+	} hwr_data;
+};
+
 #if defined(__cplusplus)
 }
 #endif

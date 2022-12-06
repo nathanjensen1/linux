@@ -13,7 +13,9 @@
 #include <drm/drm_auth.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 
@@ -42,6 +44,8 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	ctx->priority = priority;
 
 	ctx->ctx_id = id;
+
+	strscpy(ctx->process_name, current->comm, sizeof(ctx->process_name));
 
 	kref_init(&ctx->ref_count);
 
