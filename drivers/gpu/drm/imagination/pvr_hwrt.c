@@ -368,41 +368,35 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 {
 	struct drm_pvr_create_hwrt_geom_data_args *geom_data_args = &args->geom_data_args;
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
-	struct rogue_fwif_hwrtdata *hwrt_data_fw;
 	struct rogue_fwif_rta_ctl *rta_ctl;
 	int free_list_i;
 	int err;
 
-	/*
-	 * Create and map the FW structure so we can initialise it. This is not
-	 * accessed on the CPU side post-initialisation so the mapping lifetime
-	 * is only for this function.
-	 */
-	hwrt_data_fw = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*hwrt_data_fw),
-							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-							DRM_PVR_BO_CREATE_ZEROED,
-							&hwrt_data->fw_obj);
-	if (IS_ERR(hwrt_data_fw)) {
-		err = PTR_ERR(hwrt_data_fw);
+	hwrt_data->fw_data = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*hwrt_data->fw_data),
+							      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							      DRM_PVR_BO_CREATE_ZEROED,
+							      &hwrt_data->fw_obj);
+	if (IS_ERR(hwrt_data->fw_data)) {
+		err = PTR_ERR(hwrt_data->fw_data);
 		goto err_out;
 	}
 
-	pvr_gem_get_fw_addr(hwrt->common_fw_obj, &hwrt_data_fw->hwrt_data_common_fw_addr);
+	pvr_gem_get_fw_addr(hwrt->common_fw_obj, &hwrt_data->fw_data->hwrt_data_common_fw_addr);
 
 	for (free_list_i = 0; free_list_i < ARRAY_SIZE(hwrt->free_lists); free_list_i++) {
 		pvr_gem_get_fw_addr(hwrt->free_lists[free_list_i]->fw_obj,
-				    &hwrt_data_fw->freelists_fw_addr[free_list_i]);
+				    &hwrt_data->fw_data->freelists_fw_addr[free_list_i]);
 	}
 
-	hwrt_data_fw->tail_ptrs_dev_addr = geom_data_args->tpc_dev_addr;
-	hwrt_data_fw->vheap_table_dev_addr = geom_data_args->vheap_table_dev_addr;
-	hwrt_data_fw->rtc_dev_addr = geom_data_args->rtc_dev_addr;
+	hwrt_data->fw_data->tail_ptrs_dev_addr = geom_data_args->tpc_dev_addr;
+	hwrt_data->fw_data->vheap_table_dev_addr = geom_data_args->vheap_table_dev_addr;
+	hwrt_data->fw_data->rtc_dev_addr = geom_data_args->rtc_dev_addr;
 
-	hwrt_data_fw->pm_mlist_dev_addr = rt_data_args->pm_mlist_dev_addr;
-	hwrt_data_fw->macrotile_array_dev_addr = rt_data_args->macrotile_array_dev_addr;
-	hwrt_data_fw->rgn_header_dev_addr = rt_data_args->region_header_dev_addr;
+	hwrt_data->fw_data->pm_mlist_dev_addr = rt_data_args->pm_mlist_dev_addr;
+	hwrt_data->fw_data->macrotile_array_dev_addr = rt_data_args->macrotile_array_dev_addr;
+	hwrt_data->fw_data->rgn_header_dev_addr = rt_data_args->region_header_dev_addr;
 
-	rta_ctl = &hwrt_data_fw->rta_ctl;
+	rta_ctl = &hwrt_data->fw_data->rta_ctl;
 
 	rta_ctl->render_target_index = 0;
 	rta_ctl->active_render_targets = 0;
@@ -428,7 +422,7 @@ hwrt_data_init_fw_structure(struct pvr_file *pvr_file,
 		pvr_gem_get_fw_addr(hwrt_data->raa_obj, &rta_ctl->rta_num_partial_renders_fw_addr);
 	}
 
-	pvr_fw_object_vunmap(hwrt_data->fw_obj, false);
+	pvr_free_list_add_hwrt(hwrt->free_lists[0], hwrt_data);
 
 	return 0;
 
@@ -448,11 +442,14 @@ hwrt_data_fini_fw_structure(struct pvr_hwrt_dataset *hwrt, int hwrt_nr)
 {
 	struct pvr_hwrt_data *hwrt_data = &hwrt->data[hwrt_nr];
 
+	pvr_free_list_remove_hwrt(hwrt->free_lists[0], hwrt_data);
+
 	if (hwrt->max_rts > 1) {
 		pvr_fw_object_release(hwrt_data->raa_obj);
 		pvr_fw_object_release(hwrt_data->srtc_obj);
 	}
 
+	pvr_fw_object_vunmap(hwrt_data->fw_obj, false);
 	pvr_fw_object_release(hwrt_data->fw_obj);
 }
 

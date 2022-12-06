@@ -7,6 +7,7 @@
 #include <linux/compiler_attributes.h>
 #include <linux/kref.h>
 #include <linux/list.h>
+#include <linux/mutex.h>
 #include <linux/types.h>
 #include <linux/xarray.h>
 #include <uapi/drm/pvr_drm.h>
@@ -19,6 +20,9 @@ struct pvr_fw_object;
 
 /* Forward declaration from pvr_gem.h. */
 struct pvr_gem_object;
+
+/* Forward declaration from pvr_hwrt.h. */
+struct pvr_hwrt_data;
 
 /**
  * struct pvr_free_list_node - structure representing an allocation in the free
@@ -54,6 +58,15 @@ struct pvr_free_list {
 	/** @fw_obj: FW object representing the FW-side structure. */
 	struct pvr_fw_object *fw_obj;
 
+	/** &fw_data: Pointer to CPU mapping of the FW-side structure. */
+	struct rogue_fwif_freelist *fw_data;
+
+	/**
+	 * @lock: Mutex protecting modification of the free list. Must be held when accessing any
+	 *        of the members below.
+	 */
+	struct mutex lock;
+
 	/** @current_pages: Current number of pages in free list. */
 	u32 current_pages;
 
@@ -77,6 +90,9 @@ struct pvr_free_list {
 
 	/** @mem_block_list: List of memory blocks in this free list. */
 	struct list_head mem_block_list;
+
+	/** @hwrt_list: List of HWRTs using this free list. */
+	struct list_head hwrt_list;
 };
 
 static __always_inline struct pvr_object *
@@ -163,5 +179,13 @@ pvr_free_list_put(struct pvr_free_list *free_list)
 {
 	pvr_object_put(&free_list->base);
 }
+
+void
+pvr_free_list_add_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data);
+void
+pvr_free_list_remove_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data);
+
+void
+pvr_free_list_reconstruct(struct pvr_device *pvr_dev, u32 freelist_id);
 
 #endif /* __PVR_FREE_LIST_H__ */
