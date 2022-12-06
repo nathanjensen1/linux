@@ -20,9 +20,6 @@ struct pvr_fw_object;
  * struct pvr_context_geom - Geometry render context data
  */
 struct pvr_context_geom {
-	/** @ctx_id: FW context ID. */
-	u32 ctx_id;
-
 	/**
 	 * @ctx_state_obj: FW object representing context register state.
 	 */
@@ -36,9 +33,6 @@ struct pvr_context_geom {
  * struct pvr_context_frag - Fragment render context data
  */
 struct pvr_context_frag {
-	/** @ctx_id: FW context ID. */
-	u32 ctx_id;
-
 	/**
 	 * @ctx_state_obj: FW object representing context register state.
 	 */
@@ -75,6 +69,9 @@ struct pvr_context {
 
 	/** @priority: Context priority*/
 	enum pvr_context_priority priority;
+
+	/** @ctx_id: FW context ID. */
+	u32 ctx_id;
 };
 
 /**
@@ -104,9 +101,6 @@ struct pvr_context_compute {
 	/** @fw_obj: FW object representing FW-side context data. */
 	struct pvr_fw_object *fw_obj;
 
-	/** @ctx_id: Compute context ID. */
-	u32 ctx_id;
-
 	/**
 	 * @ctx_state_obj: FW object representing context register state.
 	 */
@@ -126,9 +120,6 @@ struct pvr_context_transfer {
 	/** @fw_obj: FW object representing FW-side context data. */
 	struct pvr_fw_object *fw_obj;
 
-	/** @ctx_id: FW context ID. */
-	u32 ctx_id;
-
 	/**
 	 * @ctx_state_obj: FW object representing context register state.
 	 */
@@ -138,15 +129,18 @@ struct pvr_context_transfer {
 	struct pvr_cccb cccb;
 };
 
-int pvr_create_render_context(struct pvr_file *pvr_file,
-			      struct drm_pvr_ioctl_create_context_args *args,
-			      u32 *handle_out);
-int pvr_create_compute_context(struct pvr_file *pvr_file,
-			       struct drm_pvr_ioctl_create_context_args *args,
-			       u32 *handle_out);
-int pvr_create_transfer_context(struct pvr_file *pvr_file,
-				struct drm_pvr_ioctl_create_context_args *args,
-				u32 *handle_out);
+struct pvr_context *
+pvr_create_render_context(struct pvr_file *pvr_file,
+			  struct drm_pvr_ioctl_create_context_args *args,
+			  u32 handle);
+struct pvr_context *
+pvr_create_compute_context(struct pvr_file *pvr_file,
+			   struct drm_pvr_ioctl_create_context_args *args,
+			   u32 handle);
+struct pvr_context *
+pvr_create_transfer_context(struct pvr_file *pvr_file,
+			    struct drm_pvr_ioctl_create_context_args *args,
+			    u32 handle);
 
 static __always_inline struct pvr_context *
 from_pvr_context_render(struct pvr_context_render *ctx_render)
@@ -194,7 +188,7 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
 }
 
 /**
- * pvr_context_lookup() - Lookup context pointer from handle.
+ * pvr_context_lookup() - Lookup context pointer from handle and file.
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Context handle.
  *
@@ -202,17 +196,20 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
  *
  * Return:
  *  * The requested context on success, or
- *  * %NULL on failure.
+ *  * %NULL on failure (context does not exist, or does not belong to @pvr_file).
  */
 static __always_inline struct pvr_context *
 pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_context *ctx = xa_load(&pvr_file->contexts, handle);
+	struct pvr_context *ctx = xa_load(&pvr_file->ctx_handles, handle);
 
-	if (ctx)
+	if (ctx) {
 		kref_get(&ctx->ref_count);
 
-	return ctx;
+		return ctx;
+	}
+
+	return NULL;
 }
 
 /**
@@ -241,5 +238,7 @@ int pvr_context_destroy(struct pvr_file *pvr_file, u32 handle);
 int pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout);
 
 bool pvr_context_fail_fences(struct pvr_context *ctx, int err);
+
+void pvr_destroy_contexts_for_file(struct pvr_file *pvr_file);
 
 #endif /* __PVR_CONTEXT_H__ */
