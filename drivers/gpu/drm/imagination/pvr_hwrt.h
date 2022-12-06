@@ -28,6 +28,12 @@ struct pvr_hwrt_data {
 	/** @fw_obj: FW object representing the FW-side structure. */
 	struct pvr_fw_object *fw_obj;
 
+	/** @fw_data: Pointer to CPU mappings of the FW-side structure. */
+	struct rogue_fwif_hwrtdata *fw_data;
+
+	/** @freelist_node: List node connecting this HWRT to the local freelist. */
+	struct list_head freelist_node;
+
 	/**
 	 * @srtc_obj: FW object representing shadow render target cache.
 	 *
