@@ -3,6 +3,7 @@
 
 #include "pvr_free_list.h"
 #include "pvr_gem.h"
+#include "pvr_hwrt.h"
 #include "pvr_object.h"
 #include "pvr_rogue_fwif.h"
 #include "pvr_vm.h"
@@ -91,7 +92,9 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 	free_list->grow_pages = args->grow_num_pages;
 	free_list->grow_threshold = args->grow_threshold;
 	INIT_LIST_HEAD(&free_list->mem_block_list);
+	INIT_LIST_HEAD(&free_list->hwrt_list);
 	free_list->obj = free_list_obj;
+	mutex_init(&free_list->lock);
 
 	err = pvr_gem_object_get_pages(free_list->obj);
 	if (err < 0)
@@ -109,27 +112,35 @@ err_out:
 static void
 free_list_destroy_kernel_structure(struct pvr_free_list *free_list)
 {
+	WARN_ON(!list_empty(&free_list->hwrt_list));
+
 	pvr_gem_object_put_pages(free_list->obj);
 	pvr_gem_object_put(free_list->obj);
 }
 
 /**
- * calculate_free_list_ready_pages() - Function to work out the number of free
- *                                     list pages to reserve for growing within
- *                                     the FW without having to wait for the
- *                                     host to progress a grow request
+ * calculate_free_list_ready_pages_locked() - Function to work out the number of free
+ *                                            list pages to reserve for growing within
+ *                                            the FW without having to wait for the
+ *                                            host to progress a grow request
  * @free_list: Pointer to free list.
  * @pages: Total pages currently in free list.
  *
  * If the threshold or grow size means less than the alignment size (4 pages on
  * Rogue), then the feature is not used.
  *
+ * Caller must hold &free_list->lock.
+ *
  * Return: number of pages to reserve.
  */
 static u32
-calculate_free_list_ready_pages(struct pvr_free_list *free_list, u32 pages)
+calculate_free_list_ready_pages_locked(struct pvr_free_list *free_list, u32 pages)
 {
-	u32 ready_pages = ((pages * free_list->grow_threshold) / 100);
+	u32 ready_pages;
+
+	lockdep_assert_held(&free_list->lock);
+
+	ready_pages = ((pages * free_list->grow_threshold) / 100);
 
 	/* The number of pages must be less than the grow size. */
 	ready_pages = min(ready_pages, free_list->grow_pages);
@@ -142,6 +153,20 @@ calculate_free_list_ready_pages(struct pvr_free_list *free_list, u32 pages)
 	return ready_pages;
 }
 
+static u32
+calculate_free_list_ready_pages(struct pvr_free_list *free_list, u32 pages)
+{
+	u32 ret;
+
+	mutex_lock(&free_list->lock);
+
+	ret = calculate_free_list_ready_pages_locked(free_list, pages);
+
+	mutex_unlock(&free_list->lock);
+
+	return ret;
+}
+
 static int
 free_list_create_fw_structure(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_free_list_args *args,
@@ -149,7 +174,7 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 			      u32 id)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
-	struct rogue_fwif_freelist *free_list_fw;
+	struct rogue_fwif_freelist *fw_data;
 	u32 ready_pages;
 	int err;
 
@@ -158,12 +183,12 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	 * accessed on the CPU side post-initialisation so the mapping lifetime
 	 * is only for this function.
 	 */
-	free_list_fw = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*free_list_fw),
-							PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
-							DRM_PVR_BO_CREATE_ZEROED,
-							&free_list->fw_obj);
-	if (IS_ERR(free_list_fw)) {
-		err = PTR_ERR(free_list_fw);
+	free_list->fw_data = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*free_list->fw_data),
+							      PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+							      DRM_PVR_BO_CREATE_ZEROED,
+							      &free_list->fw_obj);
+	if (IS_ERR(free_list->fw_data)) {
+		err = PTR_ERR(free_list->fw_data);
 		goto err_out;
 	}
 
@@ -171,21 +196,20 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	ready_pages = calculate_free_list_ready_pages(free_list,
 						      args->initial_num_pages);
 
-	free_list_fw->max_pages = free_list->max_pages;
-	free_list_fw->current_pages = args->initial_num_pages - ready_pages;
-	free_list_fw->grow_pages = free_list->grow_pages;
-	free_list_fw->ready_pages = ready_pages;
-	free_list_fw->freelist_id = id;
-	free_list_fw->grow_pending = false;
-	free_list_fw->current_stack_top = free_list_fw->current_pages - 1;
-	free_list_fw->freelist_dev_addr = args->free_list_gpu_addr;
-	free_list_fw->current_dev_addr =
-		(free_list_fw->freelist_dev_addr +
-		 ((free_list_fw->max_pages - free_list_fw->current_pages) *
-		  FREE_LIST_ENTRY_SIZE)) &
-		~((u64)ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE - 1);
+	fw_data = free_list->fw_data;
 
-	pvr_fw_object_vunmap(free_list->fw_obj, false);
+	fw_data->max_pages = free_list->max_pages;
+	fw_data->current_pages = args->initial_num_pages - ready_pages;
+	fw_data->grow_pages = free_list->grow_pages;
+	fw_data->ready_pages = ready_pages;
+	fw_data->freelist_id = id;
+	fw_data->grow_pending = false;
+	fw_data->current_stack_top = fw_data->current_pages - 1;
+	fw_data->freelist_dev_addr = args->free_list_gpu_addr;
+	fw_data->current_dev_addr = (fw_data->freelist_dev_addr +
+				     ((fw_data->max_pages - fw_data->current_pages) *
+				      FREE_LIST_ENTRY_SIZE)) &
+				    ~((u64)ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE - 1);
 
 	return 0;
 
@@ -196,16 +220,19 @@ err_out:
 static void
 free_list_destroy_fw_structure(struct pvr_free_list *free_list)
 {
+	pvr_fw_object_vunmap(free_list->fw_obj, false);
 	pvr_fw_object_release(free_list->fw_obj);
 }
 
 static int
-pvr_free_list_insert_pages(struct pvr_free_list *free_list,
-			   struct sg_table *sgt, u32 offset, u32 num_pages)
+pvr_free_list_insert_pages_locked(struct pvr_free_list *free_list,
+				  struct sg_table *sgt, u32 offset, u32 num_pages)
 {
 	struct sg_dma_page_iter dma_iter;
 	u32 *page_list;
 	int err;
+
+	lockdep_assert_held(&free_list->lock);
 
 	page_list = pvr_gem_object_vmap(free_list->obj, false);
 	if (IS_ERR(page_list)) {
@@ -249,23 +276,46 @@ err_out:
 }
 
 static int
-pvr_free_list_grow(struct pvr_free_list *free_list, u32 num_pages)
+pvr_free_list_insert_node_locked(struct pvr_free_list_node *free_list_node)
 {
-	struct pvr_device *pvr_dev = free_list->pvr_dev;
-	struct pvr_free_list_node *free_list_node;
+	struct pvr_free_list *free_list = free_list_node->free_list;
 	u32 start_page;
 	u32 offset;
 	int err;
 
+	lockdep_assert_held(&free_list->lock);
+
+	start_page = free_list->max_pages - free_list->current_pages -
+		     free_list_node->num_pages;
+	offset = (start_page * FREE_LIST_ENTRY_SIZE) &
+		  ~((u64)ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE - 1);
+
+	err = pvr_free_list_insert_pages_locked(free_list, free_list_node->mem_obj->sgt,
+						offset, free_list_node->num_pages);
+	if (!err)
+		free_list->current_pages += free_list_node->num_pages;
+
+	return err;
+}
+
+static int
+pvr_free_list_grow(struct pvr_free_list *free_list, u32 num_pages)
+{
+	struct pvr_device *pvr_dev = free_list->pvr_dev;
+	struct pvr_free_list_node *free_list_node;
+	int err;
+
+	mutex_lock(&free_list->lock);
+
 	if (num_pages & FREE_LIST_ALIGNMENT) {
 		err = -EINVAL;
-		goto err_out;
+		goto err_unlock;
 	}
 
 	free_list_node = kzalloc(sizeof(*free_list_node), GFP_KERNEL);
 	if (!free_list_node) {
 		err = -ENOMEM;
-		goto err_out;
+		goto err_unlock;
 	}
 
 	free_list_node->num_pages = num_pages;
@@ -284,28 +334,27 @@ pvr_free_list_grow(struct pvr_free_list *free_list, u32 num_pages)
 	if (err < 0)
 		goto err_destroy_gem_object;
 
-	start_page = free_list->max_pages - free_list->current_pages -
-		     free_list_node->num_pages;
-	offset = ((start_page * FREE_LIST_ENTRY_SIZE) &
-		  ~((u64)ROGUE_BIF_PM_FREELIST_BASE_ADDR_ALIGNSIZE - 1));
-
-	pvr_free_list_insert_pages(free_list, free_list_node->mem_obj->sgt,
-				   offset, num_pages);
+	err = pvr_free_list_insert_node_locked(free_list_node);
+	if (err)
+		goto err_put_pages;
 
 	list_add_tail(&free_list_node->node, &free_list->mem_block_list);
-
-	free_list->current_pages += num_pages;
 
 	/*
 	 * Reserve a number ready pages to allow the FW to process OOM quickly
 	 * and asynchronously request a grow.
 	 */
 	free_list->ready_pages =
-		calculate_free_list_ready_pages(free_list,
-						free_list->current_pages);
+		calculate_free_list_ready_pages_locked(free_list,
+						       free_list->current_pages);
 	free_list->current_pages -= free_list->ready_pages;
 
+	mutex_unlock(&free_list->lock);
+
 	return 0;
+
+err_put_pages:
+	pvr_gem_object_put_pages(free_list_node->mem_obj);
 
 err_destroy_gem_object:
 	pvr_gem_object_put(free_list_node->mem_obj);
@@ -313,7 +362,9 @@ err_destroy_gem_object:
 err_free:
 	kfree(free_list_node);
 
-err_out:
+err_unlock:
+	mutex_unlock(&free_list->lock);
+
 	return err;
 }
 
@@ -406,4 +457,63 @@ pvr_free_list_destroy(struct pvr_free_list *free_list)
 	free_list_destroy_kernel_structure(free_list);
 	free_list_destroy_fw_structure(free_list);
 	kfree(free_list);
+}
+
+void pvr_free_list_add_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data)
+{
+	mutex_lock(&free_list->lock);
+
+	list_add_tail(&hwrt_data->freelist_node, &free_list->hwrt_list);
+
+	mutex_unlock(&free_list->lock);
+}
+
+void pvr_free_list_remove_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data)
+{
+	mutex_lock(&free_list->lock);
+
+	list_del(&hwrt_data->freelist_node);
+
+	mutex_unlock(&free_list->lock);
+}
+
+void
+pvr_free_list_reconstruct(struct pvr_device *pvr_dev, u32 freelist_id)
+{
+	struct pvr_free_list *free_list = pvr_free_list_lookup_id(pvr_dev, freelist_id);
+	struct rogue_fwif_freelist *fw_data = free_list->fw_data;
+	struct pvr_free_list_node *free_list_node;
+	struct pvr_hwrt_data *hwrt_data;
+
+	if (!free_list)
+		return;
+
+	mutex_lock(&free_list->lock);
+
+	/* Rebuild the free list based on the memory block list. */
+	free_list->current_pages = 0;
+
+	list_for_each_entry(free_list_node, &free_list->mem_block_list, node)
+		WARN_ON(pvr_free_list_insert_node_locked(free_list_node));
+
+	/*
+	 * Remove the ready pages, which are reserved to allow the FW to process OOM quickly and
+	 * asynchronously request a grow.
+	 */
+	free_list->current_pages -= free_list->ready_pages;
+
+	fw_data = free_list->fw_data;
+	fw_data->current_stack_top = fw_data->current_pages - 1;
+	fw_data->allocated_page_count = 0;
+	fw_data->allocated_mmu_page_count = 0;
+
+	/* Reset the state of any associated HWRTs. */
+	list_for_each_entry(hwrt_data, &free_list->hwrt_list, freelist_node) {
+		hwrt_data->fw_data->state = ROGUE_FWIF_RTDATA_STATE_HWR;
+		hwrt_data->fw_data->hwrt_data_flags &= ~HWRTDATA_HAS_LAST_GEOM;
+	}
+
+	mutex_unlock(&free_list->lock);
+
+	pvr_free_list_put(free_list);
 }
