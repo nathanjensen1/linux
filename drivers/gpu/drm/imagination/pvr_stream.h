@@ -10,6 +10,8 @@
 
 struct pvr_device;
 
+struct pvr_job;
+
 enum pvr_stream_type {
 	PVR_STREAM_TYPE_GEOM = 0,
 	PVR_STREAM_TYPE_FRAG,
@@ -64,7 +66,7 @@ struct pvr_stream_cmd_defs {
 
 int
 pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
-		   void *stream, u32 stream_size, void **out_p);
+		   void *stream, u32 stream_size, struct pvr_job *job);
 
 void
 pvr_stream_create_musthave_masks(struct pvr_device *pvr_dev);

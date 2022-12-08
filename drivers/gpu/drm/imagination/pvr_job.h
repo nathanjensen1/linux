@@ -43,6 +43,14 @@ struct pvr_job {
 
 	/** @cmd: Command data. Format depends on @type. */
 	void *cmd;
+
+	/** @cmd_len: Length of command data, in bytes. */
+	u32 cmd_len;
+
+	/**
+	 * @fw_ccb_cmd_type: Firmware CCB command type. Must be one of %ROGUE_FWIF_CCB_CMD_TYPE_*.
+	 */
+	u32 fw_ccb_cmd_type;
 };
 
 /**

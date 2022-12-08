@@ -2,6 +2,7 @@
 /* Copyright (c) 2022 Imagination Technologies Ltd. */
 
 #include "pvr_device.h"
+#include "pvr_job.h"
 #include "pvr_rogue_fwif_stream.h"
 #include "pvr_stream.h"
 
@@ -221,12 +222,11 @@ err_out:
  */
 int
 pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs *cmd_defs,
-		   void *stream, u32 stream_size, void **dest_out)
+		   void *stream, u32 stream_size, struct pvr_job *job)
 {
 	u32 stream_offset = 0;
 	u32 main_stream_len;
 	u32 padding;
-	void *dest;
 	int err;
 
 	if (!stream || !stream_size) {
@@ -234,11 +234,13 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 		goto err_out;
 	}
 
-	dest = kzalloc(cmd_defs->dest_size, GFP_KERNEL);
-	if (!dest) {
+	job->cmd = kzalloc(cmd_defs->dest_size, GFP_KERNEL);
+	if (!job->cmd) {
 		err = -ENOMEM;
 		goto err_out;
 	}
+
+	job->cmd_len = cmd_defs->dest_size;
 
 	err = pvr_stream_get_data(stream, &stream_offset, stream_size, sizeof(u32),
 				  sizeof(u32), &main_stream_len);
@@ -260,14 +262,14 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 	}
 
 	err = pvr_stream_process_1(pvr_dev, cmd_defs->main_stream, cmd_defs->main_stream_len,
-				   stream, stream_offset, main_stream_len, dest,
+				   stream, stream_offset, main_stream_len, job->cmd,
 				   cmd_defs->dest_size, &stream_offset);
 	if (err)
 		goto err_free_dest;
 
 	if (stream_offset < stream_size) {
 		err = pvr_stream_process_ext_stream(pvr_dev, cmd_defs, stream, stream_offset,
-						    stream_size, dest);
+						    stream_size, job->cmd);
 		if (err)
 			goto err_free_dest;
 	} else {
@@ -285,12 +287,10 @@ pvr_stream_process(struct pvr_device *pvr_dev, const struct pvr_stream_cmd_defs 
 		}
 	}
 
-	*dest_out = dest;
-
 	return 0;
 
 err_free_dest:
-	kfree(dest);
+	kfree(job->cmd);
 
 err_out:
 	return err;
