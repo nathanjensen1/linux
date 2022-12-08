@@ -424,6 +424,189 @@ convert_frag_flags(u32 in_flags)
 }
 
 static int
+pvr_process_job_geometry(struct pvr_device *pvr_dev,
+			 struct pvr_file *pvr_file,
+			 struct pvr_hwrt_data *hwrt,
+			 struct pvr_context_render *ctx_render,
+			 struct drm_pvr_ioctl_submit_job_args *args,
+			 struct drm_pvr_job_render_args *render_args,
+			 struct dma_fence **geom_out_fence_p)
+{
+	struct rogue_fwif_cmd_geom *cmd_geom;
+	u32 *syncobj_handles = NULL;
+	struct dma_fence *out_fence;
+	struct pvr_job *job;
+	u32 ctx_fw_addr;
+	int err;
+
+	job = pvr_create_job(pvr_dev, PVR_JOB_TYPE_GEOMETRY);
+	if (IS_ERR(job)) {
+		err = PTR_ERR(job);
+		goto err_out;
+	}
+
+	err = pvr_fw_cmd_init(pvr_dev, job, &pvr_cmd_geom_stream, render_args->geom_cmd_stream,
+			      render_args->geom_cmd_stream_len);
+	if (err)
+		goto err_put_job;
+
+	cmd_geom = job->cmd;
+	cmd_geom->cmd_shared.cmn.frame_num = 0;
+	cmd_geom->flags = convert_geom_flags(render_args->geom_flags);
+
+	if (args->num_in_syncobj_handles) {
+		syncobj_handles = get_syncobj_handles(args->num_in_syncobj_handles,
+						      args->in_syncobj_handles);
+
+		if (IS_ERR(syncobj_handles)) {
+			err = PTR_ERR(syncobj_handles);
+			goto err_put_job;
+		}
+	}
+
+	job->ctx = pvr_context_get(from_pvr_context_render(ctx_render));
+
+	out_fence = pvr_fence_create(&ctx_render->ctx_geom.cccb.pvr_fence_context, job->ctx);
+	if (IS_ERR(out_fence)) {
+		err = PTR_ERR(out_fence);
+		goto err_put_context;
+	}
+
+	err = pvr_fence_attach_job(out_fence, job);
+	if (err)
+		goto err_put_out_fence;
+
+	pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
+
+	err = submit_cmd(pvr_file, job, hwrt, args->num_in_syncobj_handles, syncobj_handles,
+			 &ctx_render->ctx_geom.cccb, ctx_fw_addr, NULL, out_fence,
+			 render_args->out_syncobj_geom);
+	if (err)
+		goto err_fence_remove_job;
+
+	*geom_out_fence_p = out_fence;
+
+	/*
+	 * Job is now owned by the output fence. The remaining reference will be released on
+	 * completion.
+	 */
+	pvr_job_put(job);
+
+	return 0;
+
+err_fence_remove_job:
+	pvr_fence_remove_job(out_fence);
+
+err_put_out_fence:
+	/* As out_fence will now never be signaled, we need to drop two references here. */
+	pvr_fence_deactivate_and_put(out_fence);
+	dma_fence_put(out_fence);
+
+err_put_context:
+	pvr_context_put(job->ctx);
+
+	kfree(syncobj_handles);
+
+err_put_job:
+	pvr_job_put(job);
+
+err_out:
+	return err;
+}
+
+static int
+pvr_process_job_fragment(struct pvr_device *pvr_dev,
+			 struct pvr_file *pvr_file,
+			 struct pvr_hwrt_data *hwrt,
+			 struct pvr_context_render *ctx_render,
+			 struct drm_pvr_ioctl_submit_job_args *args,
+			 struct drm_pvr_job_render_args *render_args,
+			 struct dma_fence *geom_in_fence)
+{
+	struct rogue_fwif_cmd_frag *cmd_frag;
+	u32 *syncobj_handles = NULL;
+	struct dma_fence *out_fence;
+	struct pvr_job *job;
+	u32 ctx_fw_addr;
+	int err;
+
+	job = pvr_create_job(pvr_dev, PVR_JOB_TYPE_FRAGMENT);
+	if (IS_ERR(job)) {
+		err = PTR_ERR(job);
+		goto err_out;
+	}
+
+	err = pvr_fw_cmd_init(pvr_dev, job, &pvr_cmd_frag_stream, render_args->frag_cmd_stream,
+			      render_args->frag_cmd_stream_len);
+	if (err)
+		goto err_put_job;
+
+	cmd_frag = job->cmd;
+	cmd_frag->cmd_shared.cmn.frame_num = 0;
+	cmd_frag->flags = convert_frag_flags(render_args->frag_flags);
+
+	if (render_args->num_in_syncobj_handles_frag) {
+		syncobj_handles = get_syncobj_handles(render_args->num_in_syncobj_handles_frag,
+						      render_args->in_syncobj_handles_frag);
+
+		if (IS_ERR(syncobj_handles)) {
+			err = PTR_ERR(syncobj_handles);
+			goto err_put_job;
+		}
+	}
+
+	job->ctx = pvr_context_get(from_pvr_context_render(ctx_render));
+
+	out_fence = pvr_fence_create(&ctx_render->ctx_frag.cccb.pvr_fence_context, job->ctx);
+	if (IS_ERR(out_fence)) {
+		err = PTR_ERR(out_fence);
+		goto err_put_context;
+	}
+
+	err = pvr_fence_attach_job(out_fence, job);
+	if (err)
+		goto err_put_out_fence;
+
+	pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
+	ctx_fw_addr += offsetof(struct rogue_fwif_fwrendercontext, frag_context);
+
+	err = submit_cmd(pvr_file, job, hwrt, args->num_in_syncobj_handles, syncobj_handles,
+			 &ctx_render->ctx_frag.cccb, ctx_fw_addr, geom_in_fence, out_fence,
+			 render_args->out_syncobj_frag);
+	if (err)
+		goto err_fence_remove_job;
+
+	dma_fence_put(out_fence);
+
+	/*
+	 * Job is now owned by the output fence. The remaining reference will be released on
+	 * completion.
+	 */
+	pvr_job_put(job);
+
+	return 0;
+
+err_fence_remove_job:
+	pvr_fence_remove_job(out_fence);
+
+err_put_out_fence:
+	/* As out_fence will now never be signaled, we need to drop two references here. */
+	pvr_fence_deactivate_and_put(out_fence);
+	dma_fence_put(out_fence);
+
+err_put_context:
+	pvr_context_put(job->ctx);
+
+	kfree(syncobj_handles);
+
+err_put_job:
+	pvr_job_put(job);
+
+err_out:
+	return err;
+}
+
+static int
 pvr_process_job_render(struct pvr_device *pvr_dev,
 		       struct pvr_file *pvr_file,
 		       struct drm_pvr_ioctl_submit_job_args *args,
@@ -431,12 +614,7 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 {
 	struct pvr_context_render *ctx_render;
 	struct dma_fence *geom_fence = NULL;
-	struct dma_fence *out_fence;
-	u32 *syncobj_handles_geom = NULL;
-	u32 *syncobj_handles_frag = NULL;
 	struct pvr_hwrt_data *hwrt;
-	struct pvr_job *job_geom;
-	struct pvr_job *job_frag;
 	struct pvr_context *ctx;
 	int err;
 
@@ -457,72 +635,11 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_out;
 	}
 
-	/* Copy commands from userspace. */
-	if (render_args->geom_cmd_stream) {
-		struct rogue_fwif_cmd_geom *cmd_geom;
-
-		job_geom = pvr_create_job(pvr_dev, PVR_JOB_TYPE_GEOMETRY);
-		if (IS_ERR(job_geom)) {
-			err = PTR_ERR(job_geom);
-			goto err_out;
-		}
-
-		err = pvr_fw_cmd_init(pvr_dev, job_geom, &pvr_cmd_geom_stream,
-				      render_args->geom_cmd_stream, render_args->geom_cmd_stream_len);
-		if (err)
-			goto err_put_job_geom;
-
-		cmd_geom = job_geom->cmd;
-		cmd_geom->cmd_shared.cmn.frame_num = 0;
-		cmd_geom->flags = convert_geom_flags(render_args->geom_flags);
-
-		if (args->num_in_syncobj_handles) {
-			syncobj_handles_geom =
-				get_syncobj_handles(args->num_in_syncobj_handles,
-						    args->in_syncobj_handles);
-
-			if (IS_ERR(syncobj_handles_geom)) {
-				err = PTR_ERR(syncobj_handles_geom);
-				goto err_put_job_geom;
-			}
-		}
-	}
-
-	if (render_args->frag_cmd_stream) {
-		struct rogue_fwif_cmd_frag *cmd_frag;
-
-		job_frag = pvr_create_job(pvr_dev, PVR_JOB_TYPE_FRAGMENT);
-		if (IS_ERR(job_frag)) {
-			err = PTR_ERR(job_frag);
-			goto err_free_syncobj_geom;
-		}
-
-		err = pvr_fw_cmd_init(pvr_dev, job_frag, &pvr_cmd_frag_stream,
-				      render_args->frag_cmd_stream, render_args->frag_cmd_stream_len);
-		if (err)
-			goto err_put_job_frag;
-
-		cmd_frag = job_frag->cmd;
-		cmd_frag->cmd_shared.cmn.frame_num = 0;
-		cmd_frag->flags = convert_frag_flags(render_args->frag_flags);
-
-		if (render_args->num_in_syncobj_handles_frag) {
-			syncobj_handles_frag =
-				get_syncobj_handles(render_args->num_in_syncobj_handles_frag,
-						    render_args->in_syncobj_handles_frag);
-
-			if (IS_ERR(syncobj_handles_frag)) {
-				err = PTR_ERR(syncobj_handles_frag);
-				goto err_put_job_frag;
-			}
-		}
-	}
-
 	hwrt = pvr_hwrt_data_lookup(pvr_file, render_args->hwrt_data_set_handle,
 				    render_args->hwrt_data_index);
 	if (!hwrt) {
 		err = -EINVAL;
-		goto err_free_syncobj_frag;
+		goto err_out;
 	}
 
 	ctx = pvr_context_lookup(pvr_file, args->context_handle);
@@ -537,117 +654,34 @@ pvr_process_job_render(struct pvr_device *pvr_dev,
 		goto err_put_context;
 	}
 
-	out_fence = pvr_fence_create(render_args->frag_cmd_stream ?
-					&ctx_render->ctx_frag.cccb.pvr_fence_context :
-					&ctx_render->ctx_geom.cccb.pvr_fence_context,
-				     ctx);
-	if (IS_ERR(out_fence)) {
-		err = PTR_ERR(out_fence);
-		goto err_put_context;
-	}
-
-	err = pvr_fence_attach_job(out_fence, render_args->frag_cmd_stream ? job_frag : job_geom);
-	if (err)
-		goto err_put_out_fence;
-
-	if (render_args->geom_cmd_stream && render_args->frag_cmd_stream) {
-		geom_fence = pvr_fence_create(&ctx_render->ctx_geom.cccb.pvr_fence_context,
-					      ctx);
-		if (IS_ERR(geom_fence)) {
-			err = PTR_ERR(geom_fence);
-			goto err_out_fence_remove_job;
-		}
-
-		err = pvr_fence_attach_job(geom_fence, job_geom);
-		if (err)
-			goto err_put_geom_fence;
-	}
-
 	if (render_args->geom_cmd_stream) {
-		u32 ctx_fw_addr;
+		err = pvr_process_job_geometry(pvr_dev, pvr_file, hwrt, ctx_render, args,
+					       render_args, &geom_fence);
 
-		job_geom->ctx = pvr_context_get(ctx);
-
-		pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
-
-		err = submit_cmd(pvr_file, job_geom, hwrt, args->num_in_syncobj_handles,
-				 syncobj_handles_geom, &ctx_render->ctx_geom.cccb, ctx_fw_addr,
-				 NULL, render_args->frag_cmd_stream ? geom_fence : out_fence,
-				 render_args->out_syncobj_geom);
 		if (err)
-			goto err_put_job_geom_ctx;
+			goto err_put_context;
 	}
 
 	if (render_args->frag_cmd_stream) {
-		u32 ctx_fw_addr;
+		err = pvr_process_job_fragment(pvr_dev, pvr_file, hwrt, ctx_render, args,
+					       render_args, geom_fence);
 
-		job_frag->ctx = pvr_context_get(ctx);
-
-		pvr_gem_get_fw_addr(ctx_render->fw_obj, &ctx_fw_addr);
-		ctx_fw_addr += offsetof(struct rogue_fwif_fwrendercontext, frag_context);
-
-		err = submit_cmd(pvr_file, job_frag, hwrt, render_args->num_in_syncobj_handles_frag,
-				 syncobj_handles_frag, &ctx_render->ctx_frag.cccb, ctx_fw_addr,
-				 geom_fence, out_fence, render_args->out_syncobj_frag);
 		if (err)
-			goto err_put_job_frag_ctx;
+			goto err_put_context;
 	}
 
-	dma_fence_put(geom_fence);
-	dma_fence_put(out_fence);
+	if (geom_fence)
+		dma_fence_put(geom_fence);
 	pvr_hwrt_data_put(hwrt);
 	pvr_context_put(ctx);
 
-	if (render_args->geom_cmd_stream)
-		pvr_job_put(job_geom);
-
-	if (render_args->frag_cmd_stream)
-		pvr_job_put(job_frag);
-
 	return 0;
-
-err_put_job_frag_ctx:
-	if (render_args->frag_cmd_stream)
-		pvr_context_put(job_frag->ctx);
-
-err_put_job_geom_ctx:
-	if (render_args->geom_cmd_stream)
-		pvr_context_put(job_geom->ctx);
-
-	pvr_fence_remove_job(geom_fence);
-
-err_put_geom_fence:
-	/* As geom_fence will now never be signaled, we need to drop two references here. */
-	pvr_fence_deactivate_and_put(geom_fence);
-	dma_fence_put(geom_fence);
-
-err_out_fence_remove_job:
-	pvr_fence_remove_job(out_fence);
-
-err_put_out_fence:
-	/* As out_fence will now never be signaled, we need to drop two references here. */
-	pvr_fence_deactivate_and_put(out_fence);
-	dma_fence_put(out_fence);
 
 err_put_context:
 	pvr_context_put(ctx);
 
 err_put_hwrt:
 	pvr_hwrt_data_put(hwrt);
-
-err_free_syncobj_frag:
-	kfree(syncobj_handles_frag);
-
-err_put_job_frag:
-	if (render_args->frag_cmd_stream)
-		pvr_job_put(job_frag);
-
-err_free_syncobj_geom:
-	kfree(syncobj_handles_geom);
-
-err_put_job_geom:
-	if (render_args->geom_cmd_stream)
-		pvr_job_put(job_geom);
 
 err_out:
 	return err;
