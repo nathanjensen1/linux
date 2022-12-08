@@ -16,6 +16,9 @@ struct pvr_context;
 /* Forward declaration from pvr_gem.h. */
 struct pvr_fw_object;
 
+/* Forward declaration from pvr_job.h. */
+struct pvr_job;
+
 /* Forward declarations from pvr_rogue_fwif_shared.h. */
 struct rogue_fwif_sync_checkpoint;
 struct rogue_fwif_ufo;
@@ -87,6 +90,12 @@ struct pvr_fence {
 
 	/** @flags: Flags for this fence. Must be a combination of %PVR_FENCE_FLAGS_*. */
 	u32 flags;
+
+	/**
+	 * @job: Job this fence is attached to. Will be released when the fence is signalled or
+	 *       destroyed.
+	 */
+	struct pvr_job *job;
 };
 
 extern const struct dma_fence_ops pvr_fence_ops;
@@ -124,5 +133,10 @@ to_pvr_fence(struct dma_fence *fence)
 
 	return NULL;
 }
+
+int
+pvr_fence_attach_job(struct dma_fence *fence, struct pvr_job *job);
+void
+pvr_fence_remove_job(struct dma_fence *fence);
 
 #endif /* __PVR_FENCE_H__ */

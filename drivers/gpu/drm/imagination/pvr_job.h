@@ -6,6 +6,7 @@
 
 #include <uapi/drm/pvr_drm.h>
 
+#include <linux/kref.h>
 #include <linux/types.h>
 
 #include <drm/drm_gem.h>
@@ -17,16 +18,53 @@ struct pvr_context;
 struct pvr_device;
 struct pvr_file;
 
-struct pvr_job {
-	enum drm_pvr_job_type type;
+enum pvr_job_type {
+	PVR_JOB_TYPE_GEOMETRY,
+	PVR_JOB_TYPE_FRAGMENT,
+	PVR_JOB_TYPE_COMPUTE,
+	PVR_JOB_TYPE_TRANSFER
+};
 
+struct pvr_job {
+	/** @ref_count: Refcount for job. */
+	struct kref ref_count;
+
+	/** @type: Type of job. */
+	enum pvr_job_type type;
+
+	/** @id: Job ID number. */
+	u32 id;
+
+	/** @pvr_dev: Device pointer. */
+	struct pvr_device *pvr_dev;
+
+	/** @ctx: Pointer to owning context. */
 	struct pvr_context *ctx;
 
-	u32 num_bos;
-	struct drm_gem_object **bos;
-
-	struct drm_pvr_bo_ref *bo_refs;
+	/** @cmd: Command data. Format depends on @type. */
+	void *cmd;
 };
+
+/**
+ * pvr_job_get() - Take additional reference on job.
+ * @job: Job pointer.
+ *
+ * Call pvr_job_put() to release.
+ *
+ * Returns:
+ *  * The requested job on success, or
+ *  * %NULL if no job pointer passed.
+ */
+static __always_inline struct pvr_job *
+pvr_job_get(struct pvr_job *job)
+{
+	if (job)
+		kref_get(&job->ref_count);
+
+	return job;
+}
+
+void pvr_job_put(struct pvr_job *job);
 
 int pvr_submit_job(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 		   struct drm_pvr_ioctl_submit_job_args *args);

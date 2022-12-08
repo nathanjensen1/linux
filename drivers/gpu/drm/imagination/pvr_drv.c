@@ -1057,6 +1057,7 @@ pvr_probe(struct platform_device *plat_dev)
 
 	xa_init_flags(&pvr_dev->ctx_ids, XA_FLAGS_ALLOC1);
 	xa_init_flags(&pvr_dev->obj_ids, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_dev->job_ids, XA_FLAGS_ALLOC1);
 
 	return 0;
 
@@ -1080,9 +1081,11 @@ pvr_remove(struct platform_device *plat_dev)
 	struct drm_device *drm_dev = platform_get_drvdata(plat_dev);
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
 
+	WARN_ON(!xa_empty(&pvr_dev->job_ids));
 	WARN_ON(!xa_empty(&pvr_dev->obj_ids));
 	WARN_ON(!xa_empty(&pvr_dev->ctx_ids));
 
+	xa_destroy(&pvr_dev->job_ids);
 	xa_destroy(&pvr_dev->obj_ids);
 	xa_destroy(&pvr_dev->ctx_ids);
 

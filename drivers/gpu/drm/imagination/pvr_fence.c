@@ -6,6 +6,7 @@
 #include "pvr_drv.h"
 #include "pvr_fence.h"
 #include "pvr_gem.h"
+#include "pvr_job.h"
 #include "pvr_power.h"
 #include "pvr_rogue_cr_defs.h"
 #include "pvr_rogue_fwif.h"
@@ -127,6 +128,8 @@ pvr_fence_destroy(struct pvr_fence *pvr_fence)
 
 	if (pvr_fence->pvr_ctx)
 		pvr_context_put(pvr_fence->pvr_ctx);
+
+	pvr_fence_remove_job(from_pvr_fence(pvr_fence));
 
 	BUILD_BUG_ON(offsetof(typeof(*pvr_fence), base));
 	dma_fence_free(&pvr_fence->base);
@@ -543,4 +546,52 @@ pvr_fence_context_fail_fences(struct pvr_fence_context *context, int err)
 	}
 
 	return true;
+}
+
+/**
+ * pvr_fence_attach_job() - Attach a job to a PowerVR fence
+ * @fence: Fence pointer.
+ * @job: Job to attach.
+ *
+ * The job will be released via pvr_job_release() on fence signalling or destruction.
+ *
+ * This function will take an additional reference on the job.
+ *
+ * Returns:
+ *  * 0 on success,
+ *  * -%EINVAL if @fence is not a PowerVR fence, or
+ *  * -%EBUSY if @fence already has a job attached.
+ */
+int
+pvr_fence_attach_job(struct dma_fence *fence, struct pvr_job *job)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	if (!pvr_fence)
+		return -EINVAL;
+
+	if (pvr_fence->job)
+		return -EBUSY;
+
+	pvr_fence->job = pvr_job_get(job);
+
+	return 0;
+}
+
+/**
+ * @pvr_fence_remove_job() - Remove a job from a PowerVR fence
+ * @fence: Fence pointer.
+ *
+ * This function will drop the fence's reference on the job.
+ */
+void
+pvr_fence_remove_job(struct dma_fence *fence)
+{
+	struct pvr_fence *pvr_fence = to_pvr_fence(fence);
+
+	if (pvr_fence && pvr_fence->job) {
+		pvr_job_put(pvr_fence->job);
+
+		pvr_fence->job = NULL;
+	}
 }

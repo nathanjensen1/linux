@@ -243,6 +243,12 @@ struct pvr_device {
 	 * This array is used to allocate IDs used by the firmware.
 	 */
 	struct xarray obj_ids;
+
+	/**
+	 * @jobs_ids: Array of objects belonging to this device. Array members
+	 *            are of type "struct pvr_job *".
+	 */
+	struct xarray job_ids;
 };
 
 /**
