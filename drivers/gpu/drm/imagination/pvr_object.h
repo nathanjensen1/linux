@@ -86,6 +86,8 @@ pvr_object_lookup_id(struct pvr_device *pvr_dev, u32 id)
 
 void pvr_object_put(struct pvr_object *obj);
 
+void pvr_object_common_init(struct pvr_device *pvr_dev, struct pvr_object *obj, u32 fw_id);
+
 int pvr_object_destroy(struct pvr_file *pvr_file, u32 handle);
 
 int
