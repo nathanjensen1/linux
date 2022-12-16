@@ -10,6 +10,20 @@
 #include <linux/xarray.h>
 #include <uapi/drm/pvr_drm.h>
 
+/**
+ * pvr_object_common_init() - Initialise common object structure
+ * @pvr_dev: Device pointer.
+ * @obj: Pointer to target object.
+ * @fw_id: Firmware ID of object.
+ */
+void
+pvr_object_common_init(struct pvr_device *pvr_dev, struct pvr_object *obj, u32 fw_id)
+{
+	kref_init(&obj->ref_count);
+	obj->pvr_dev = pvr_dev;
+	obj->fw_id = fw_id;
+}
+
 static void
 destroy_object(struct pvr_object *obj)
 {
@@ -105,7 +119,7 @@ pvr_object_create(struct pvr_file *pvr_file,
 			goto err_handle_xa_free;
 		}
 
-		hwrt = pvr_hwrt_dataset_create(pvr_file, &hwrt_args);
+		hwrt = pvr_hwrt_dataset_create(pvr_file, &hwrt_args, id);
 		if (IS_ERR(hwrt)) {
 			err = PTR_ERR(hwrt);
 			goto err_handle_xa_free;
@@ -122,10 +136,6 @@ pvr_object_create(struct pvr_file *pvr_file,
 		err = PTR_ERR(obj);
 		goto err_handle_xa_free;
 	}
-
-	kref_init(&obj->ref_count);
-	obj->pvr_dev = pvr_dev;
-	obj->fw_id = id;
 
 	old = xa_store(&pvr_dev->obj_ids, id, obj, GFP_KERNEL);
 	if (xa_is_err(old)) {

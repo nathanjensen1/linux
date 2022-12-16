@@ -457,6 +457,7 @@ hwrt_data_fini_fw_structure(struct pvr_hwrt_dataset *hwrt, int hwrt_nr)
  * pvr_hwrt_dataset_create() - Create a new HWRT dataset
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
+ * @fw_id: FW object ID.
  *
  * Return:
  *  * HWRT pointer on success, or
@@ -464,7 +465,8 @@ hwrt_data_fini_fw_structure(struct pvr_hwrt_dataset *hwrt, int hwrt_nr)
  */
 struct pvr_hwrt_dataset *
 pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
-			struct drm_pvr_ioctl_create_hwrt_dataset_args *args)
+			struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
+			u32 fw_id)
 {
 	struct pvr_hwrt_dataset *hwrt;
 	int err;
@@ -481,6 +483,8 @@ pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
 		err = -ENOMEM;
 		goto err_out;
 	}
+
+	pvr_object_common_init(pvr_file->pvr_dev, &hwrt->base, fw_id);
 
 	err = hwrt_init_kernel_structure(pvr_file, args, hwrt);
 	if (err < 0)

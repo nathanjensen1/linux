@@ -402,6 +402,8 @@ pvr_free_list_create(struct pvr_file *pvr_file,
 		goto err_out;
 	}
 
+	pvr_object_common_init(pvr_file->pvr_dev, &free_list->base, id);
+
 	err = free_list_create_kernel_structure(pvr_file, args, free_list);
 	if (err < 0)
 		goto err_free;
