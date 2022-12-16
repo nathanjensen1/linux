@@ -77,7 +77,8 @@ struct pvr_hwrt_dataset {
 
 struct pvr_hwrt_dataset *
 pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
-			struct drm_pvr_ioctl_create_hwrt_dataset_args *args);
+			struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
+			u32 fw_id);
 
 void pvr_hwrt_dataset_destroy(struct pvr_hwrt_dataset *hwrt);
 
