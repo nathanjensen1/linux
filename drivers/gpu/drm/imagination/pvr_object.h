@@ -14,25 +14,31 @@
 #include "pvr_device.h"
 
 /**
+ * enum pvr_object_type - Valid object types
+ */
+enum pvr_object_type {
+	/** @PVR_OBJECT_TYPE_FREE_LIST: Free list object. */
+	PVR_OBJECT_TYPE_FREE_LIST = 0,
+	/** @PVR_OBJECT_TYPE_HWRT_DATASET: HWRT data set. */
+	PVR_OBJECT_TYPE_HWRT_DATASET,
+};
+
+/**
  * struct pvr_object - Common object structure
  */
 struct pvr_object {
-	/** @type: Type of object. Must be one of &enum drm_pvr_object_type. */
-	enum drm_pvr_object_type type;
+	/** @type: Type of object. */
+	enum pvr_object_type type;
 
 	/** @ref_count: Reference count of object. */
 	struct kref ref_count;
 
-	/** @pvr_device: Pointer to device that owns this object. */
+	/** @pvr_dev: Pointer to device that owns this object. */
 	struct pvr_device *pvr_dev;
 
 	/** @fw_id: Firmware ID for this object. */
 	u32 fw_id;
 };
-
-int pvr_object_create(struct pvr_file *pvr_file,
-		      struct drm_pvr_ioctl_create_object_args *args,
-		      u32 *handle_out);
 
 /**
  * pvr_object_lookup() - Lookup object pointer from handle and file
@@ -86,9 +92,11 @@ pvr_object_lookup_id(struct pvr_device *pvr_dev, u32 id)
 
 void pvr_object_put(struct pvr_object *obj);
 
-void pvr_object_common_init(struct pvr_device *pvr_dev, struct pvr_object *obj, u32 fw_id);
+int pvr_object_common_init(struct pvr_file *pvr_file, struct pvr_object *obj);
 
-int pvr_object_destroy(struct pvr_file *pvr_file, u32 handle);
+void pvr_object_common_fini(struct pvr_object *obj);
+
+int pvr_object_destroy(struct pvr_file *pvr_file, u32 handle, enum pvr_object_type type);
 
 int
 pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *fw_obj, u32 offset);

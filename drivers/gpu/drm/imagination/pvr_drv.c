@@ -8,6 +8,7 @@
 #include "pvr_free_list.h"
 #include "pvr_fw.h"
 #include "pvr_gem.h"
+#include "pvr_hwrt.h"
 #include "pvr_job.h"
 #include "pvr_object.h"
 #include "pvr_power.h"
@@ -634,58 +635,150 @@ pvr_ioctl_destroy_context(struct drm_device *drm_dev, void *raw_args,
 }
 
 /**
- * pvr_ioctl_create_object() - IOCTL to create an object
+ * pvr_ioctl_create_free_list() - IOCTL to create a free list
  * @drm_dev: [IN] DRM device.
  * @raw_args: [IN/OUT] Arguments passed to this IOCTL. This must be of type
- *                     &struct drm_pvr_ioctl_create_object_args.
+ *                     &struct drm_pvr_ioctl_create_free_list_args.
  * @file: [IN] DRM file private data.
  *
- * Called from userspace with %DRM_IOCTL_PVR_CREATE_OBJECT.
+ * Called from userspace with %DRM_IOCTL_PVR_CREATE_FREE_LIST.
  *
  * Return:
  *  * 0 on success, or
- *  * Any error returned by pvr_object_create().
+ *  * Any error returned by pvr_free_list_create().
  */
 int
-pvr_ioctl_create_object(struct drm_device *drm_dev, void *raw_args,
-			struct drm_file *file)
+pvr_ioctl_create_free_list(struct drm_device *drm_dev, void *raw_args,
+			   struct drm_file *file)
 {
-	struct drm_pvr_ioctl_create_object_args *args = raw_args;
+	struct drm_pvr_ioctl_create_free_list_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
-	u32 handle;
+	struct pvr_free_list *free_list;
 	int err;
 
-	err = pvr_object_create(pvr_file, args, &handle);
-	if (!err)
-		args->handle = handle;
+	if (args->_padding_1c)
+		return -EINVAL;
 
+	free_list = pvr_free_list_create(pvr_file, args);
+	if (IS_ERR(free_list)) {
+		err = PTR_ERR(free_list);
+		goto err_out;
+	}
+
+	/* Allocate object handle for userspace. */
+	err = xa_alloc(&pvr_file->obj_handles,
+		       &args->handle,
+		       &free_list->base,
+		       xa_limit_32b,
+		       GFP_KERNEL);
+	if (err < 0)
+		goto err_cleanup;
+
+	return 0;
+
+err_cleanup:
+	pvr_free_list_put(free_list);
+
+err_out:
 	return err;
 }
 
 /**
- * pvr_ioctl_destroy_object() - IOCTL to destroy an object
+ * pvr_ioctl_destroy_free_list() - IOCTL to destroy a free list
  * @drm_dev: [IN] DRM device.
  * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
- *                 &struct drm_pvr_ioctl_destroy_object_args.
+ *                 &struct drm_pvr_ioctl_destroy_free_list_args.
  * @file: [IN] DRM file private data.
  *
- * Called from userspace with %DRM_IOCTL_PVR_DESTROY_OBJECT.
+ * Called from userspace with %DRM_IOCTL_PVR_DESTROY_FREE_LIST.
  *
  * Return:
  *  * 0 on success, or
- *  * -%EINVAL if object not in object list.
+ *  * -%EINVAL if free list not in object list.
  */
 int
-pvr_ioctl_destroy_object(struct drm_device *drm_dev, void *raw_args,
-			 struct drm_file *file)
+pvr_ioctl_destroy_free_list(struct drm_device *drm_dev, void *raw_args,
+			    struct drm_file *file)
 {
-	struct drm_pvr_ioctl_destroy_object_args *args = raw_args;
+	struct drm_pvr_ioctl_destroy_free_list_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
 
 	if (args->_padding_4)
 		return -EINVAL;
 
-	return pvr_object_destroy(pvr_file, args->handle);
+	return pvr_object_destroy(pvr_file, args->handle, PVR_OBJECT_TYPE_FREE_LIST);
+}
+
+/**
+ * pvr_ioctl_create_hwrt_dataset() - IOCTL to create a HWRT dataset
+ * @drm_dev: [IN] DRM device.
+ * @raw_args: [IN/OUT] Arguments passed to this IOCTL. This must be of type
+ *                     &struct drm_pvr_ioctl_create_hwrt_dataset_args.
+ * @file: [IN] DRM file private data.
+ *
+ * Called from userspace with %DRM_IOCTL_PVR_CREATE_HWRT_DATASET.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * Any error returned by pvr_hwrt_dataset_create().
+ */
+int
+pvr_ioctl_create_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
+			      struct drm_file *file)
+{
+	struct drm_pvr_ioctl_create_hwrt_dataset_args *args = raw_args;
+	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_hwrt_dataset *hwrt;
+	int err;
+
+	hwrt = pvr_hwrt_dataset_create(pvr_file, args);
+	if (IS_ERR(hwrt)) {
+		err = PTR_ERR(hwrt);
+		goto err_out;
+	}
+
+	/* Allocate object handle for userspace. */
+	err = xa_alloc(&pvr_file->obj_handles,
+		       &args->handle,
+		       &hwrt->base,
+		       xa_limit_32b,
+		       GFP_KERNEL);
+	if (err < 0)
+		goto err_cleanup;
+
+	return 0;
+
+err_cleanup:
+	pvr_hwrt_dataset_put(hwrt);
+
+err_out:
+	return err;
+}
+
+/**
+ * pvr_ioctl_destroy_hwrt_dataset() - IOCTL to destroy a HWRT dataset
+ * @drm_dev: [IN] DRM device.
+ * @raw_args: [IN] Arguments passed to this IOCTL. This must be of type
+ *                 &struct drm_pvr_ioctl_destroy_hwrt_dataset_args.
+ * @file: [IN] DRM file private data.
+ *
+ * Called from userspace with %DRM_IOCTL_PVR_DESTROY_HWRT_DATASET.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * -%EINVAL if HWRT dataset not in object list.
+ */
+int
+pvr_ioctl_destroy_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
+			       struct drm_file *file)
+{
+	struct drm_pvr_ioctl_destroy_hwrt_dataset_args *args = raw_args;
+	struct pvr_file *pvr_file = to_pvr_file(file);
+
+	if (args->_padding_4)
+		return -EINVAL;
+
+	return pvr_object_destroy(pvr_file, args->handle, PVR_OBJECT_TYPE_HWRT_DATASET);
 }
 
 /**
@@ -866,8 +959,10 @@ static const struct drm_ioctl_desc pvr_drm_driver_ioctls[] = {
 	DRM_PVR_IOCTL(GET_PARAM, get_param, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(CREATE_CONTEXT, create_context, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(DESTROY_CONTEXT, destroy_context, DRM_RENDER_ALLOW),
-	DRM_PVR_IOCTL(CREATE_OBJECT, create_object, DRM_RENDER_ALLOW),
-	DRM_PVR_IOCTL(DESTROY_OBJECT, destroy_object, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(CREATE_FREE_LIST, create_free_list, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(DESTROY_FREE_LIST, destroy_free_list, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(CREATE_HWRT_DATASET, create_hwrt_dataset, DRM_RENDER_ALLOW),
+	DRM_PVR_IOCTL(DESTROY_HWRT_DATASET, destroy_hwrt_dataset, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(GET_HEAP_INFO, get_heap_info, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(VM_MAP, vm_map, DRM_RENDER_ALLOW),
 	DRM_PVR_IOCTL(VM_UNMAP, vm_unmap, DRM_RENDER_ALLOW),

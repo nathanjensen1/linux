@@ -85,7 +85,7 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 		goto err_put_free_list_obj;
 	}
 
-	free_list->base.type = DRM_PVR_OBJECT_TYPE_FREE_LIST;
+	free_list->base.type = PVR_OBJECT_TYPE_FREE_LIST;
 	free_list->pvr_dev = pvr_file->pvr_dev;
 	free_list->current_pages = 0;
 	free_list->max_pages = args->max_num_pages;
@@ -170,8 +170,7 @@ calculate_free_list_ready_pages(struct pvr_free_list *free_list, u32 pages)
 static int
 free_list_create_fw_structure(struct pvr_file *pvr_file,
 			      struct drm_pvr_ioctl_create_free_list_args *args,
-			      struct pvr_free_list *free_list,
-			      u32 id)
+			      struct pvr_free_list *free_list)
 {
 	struct pvr_device *pvr_dev = pvr_file->pvr_dev;
 	struct rogue_fwif_freelist *fw_data;
@@ -202,7 +201,7 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	fw_data->current_pages = args->initial_num_pages - ready_pages;
 	fw_data->grow_pages = free_list->grow_pages;
 	fw_data->ready_pages = ready_pages;
-	fw_data->freelist_id = id;
+	fw_data->freelist_id = free_list->base.fw_id;
 	fw_data->grow_pending = false;
 	fw_data->current_stack_top = fw_data->current_pages - 1;
 	fw_data->freelist_dev_addr = args->free_list_gpu_addr;
@@ -384,31 +383,33 @@ pvr_free_list_free_node(struct pvr_free_list_node *free_list_node)
  * @id: FW object ID.
  *
  * Return:
- *  * Free list pointer on success, or
- *  * -%ENOMEM on out of memory.
+ *  * Pointer to new free_list, or
+ *  * ERR_PTR(-%ENOMEM) on out of memory.
  */
 struct pvr_free_list *
 pvr_free_list_create(struct pvr_file *pvr_file,
-		     struct drm_pvr_ioctl_create_free_list_args *args,
-		     u32 id)
+		     struct drm_pvr_ioctl_create_free_list_args *args)
 {
 	struct pvr_free_list *free_list;
 	int err;
 
 	/* Create and fill out the kernel structure */
 	free_list = kzalloc(sizeof(*free_list), GFP_KERNEL);
+
 	if (!free_list) {
 		err = -ENOMEM;
 		goto err_out;
 	}
 
-	pvr_object_common_init(pvr_file->pvr_dev, &free_list->base, id);
-
-	err = free_list_create_kernel_structure(pvr_file, args, free_list);
+	err = pvr_object_common_init(pvr_file, &free_list->base);
 	if (err < 0)
 		goto err_free;
 
-	err = free_list_create_fw_structure(pvr_file, args, free_list, id);
+	err = free_list_create_kernel_structure(pvr_file, args, free_list);
+	if (err < 0)
+		goto err_common_fini;
+
+	err = free_list_create_fw_structure(pvr_file, args, free_list);
 	if (err < 0)
 		goto err_destroy_kernel_structure;
 
@@ -423,6 +424,9 @@ err_destroy_fw_structure:
 
 err_destroy_kernel_structure:
 	free_list_destroy_kernel_structure(free_list);
+
+err_common_fini:
+	pvr_object_common_fini(&free_list->base);
 
 err_free:
 	kfree(free_list);

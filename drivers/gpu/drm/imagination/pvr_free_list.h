@@ -109,8 +109,7 @@ to_pvr_free_list(struct pvr_object *obj)
 
 struct pvr_free_list *
 pvr_free_list_create(struct pvr_file *pvr_file,
-		     struct drm_pvr_ioctl_create_free_list_args *args,
-		     u32 id);
+		     struct drm_pvr_ioctl_create_free_list_args *args);
 
 void pvr_free_list_destroy(struct pvr_free_list *free_list);
 
@@ -135,7 +134,7 @@ pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
 	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
 
 	if (obj) {
-		if (obj->type == DRM_PVR_OBJECT_TYPE_FREE_LIST)
+		if (obj->type == PVR_OBJECT_TYPE_FREE_LIST)
 			return to_pvr_free_list(obj);
 
 		pvr_object_put(obj);
@@ -161,7 +160,7 @@ pvr_free_list_lookup_id(struct pvr_device *pvr_dev, u32 id)
 	struct pvr_object *obj = pvr_object_lookup_id(pvr_dev, id);
 
 	if (obj) {
-		if (obj->type == DRM_PVR_OBJECT_TYPE_FREE_LIST)
+		if (obj->type == PVR_OBJECT_TYPE_FREE_LIST)
 			return to_pvr_free_list(obj);
 
 		pvr_object_put(obj);

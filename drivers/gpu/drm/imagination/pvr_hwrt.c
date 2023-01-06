@@ -47,7 +47,7 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 	int err;
 	int i;
 
-	hwrt->base.type = DRM_PVR_OBJECT_TYPE_HWRT_DATASET;
+	hwrt->base.type = PVR_OBJECT_TYPE_HWRT_DATASET;
 	hwrt->pvr_dev = pvr_dev;
 
 	/* Get pointers to the free lists */
@@ -342,7 +342,6 @@ hwrt_init_common_fw_structure(struct pvr_file *pvr_file,
 	if (err)
 		goto err_put_fw_obj;
 
-
 	hwrt_data_common_fw->tpc_stride = geom_data_args->tpc_stride;
 	hwrt_data_common_fw->tpc_size = geom_data_args->tpc_size;
 
@@ -457,44 +456,39 @@ hwrt_data_fini_fw_structure(struct pvr_hwrt_dataset *hwrt, int hwrt_nr)
  * pvr_hwrt_dataset_create() - Create a new HWRT dataset
  * @pvr_file: Pointer to pvr_file structure.
  * @args: Creation arguments from userspace.
- * @fw_id: FW object ID.
  *
  * Return:
- *  * HWRT pointer on success, or
- *  * -%ENOMEM on out of memory.
+ *  * Pointer to new HWRT, or
+ *  * ERR_PTR(-%ENOMEM) on out of memory.
  */
 struct pvr_hwrt_dataset *
 pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
-			struct drm_pvr_ioctl_create_hwrt_dataset_args *args,
-			u32 fw_id)
+			struct drm_pvr_ioctl_create_hwrt_dataset_args *args)
 {
 	struct pvr_hwrt_dataset *hwrt;
 	int err;
-	int i;
-
-	if (args->_padding_d4) {
-		err = -EINVAL;
-		goto err_out;
-	}
 
 	/* Create and fill out the kernel structure */
 	hwrt = kzalloc(sizeof(*hwrt), GFP_KERNEL);
+
 	if (!hwrt) {
 		err = -ENOMEM;
 		goto err_out;
 	}
 
-	pvr_object_common_init(pvr_file->pvr_dev, &hwrt->base, fw_id);
+	err = pvr_object_common_init(pvr_file, &hwrt->base);
+	if (err)
+		goto err_free;
 
 	err = hwrt_init_kernel_structure(pvr_file, args, hwrt);
 	if (err < 0)
-		goto err_free_hwrt;
+		goto err_common_fini;
 
 	err = hwrt_init_common_fw_structure(pvr_file, args, hwrt);
 	if (err < 0)
 		goto err_destroy_kernel_structure;
 
-	for (i = 0; i < ARRAY_SIZE(hwrt->data); i++) {
+	for (int i = 0; i < ARRAY_SIZE(hwrt->data); i++) {
 		err = hwrt_data_init_fw_structure(pvr_file, hwrt, args,
 						  &args->rt_data_args[i],
 						  &hwrt->data[i]);
@@ -517,7 +511,10 @@ err_destroy_common_fw_structure:
 err_destroy_kernel_structure:
 	hwrt_fini_kernel_structure(hwrt);
 
-err_free_hwrt:
+err_common_fini:
+	pvr_object_common_fini(&hwrt->base);
+
+err_free:
 	kfree(hwrt);
 
 err_out:

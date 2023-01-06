@@ -56,12 +56,14 @@ extern "C" {
 #define DRM_IOCTL_PVR_GET_PARAM PVR_IOCTL(0x02, DRM_IOWR, get_param)
 #define DRM_IOCTL_PVR_CREATE_CONTEXT PVR_IOCTL(0x03, DRM_IOWR, create_context)
 #define DRM_IOCTL_PVR_DESTROY_CONTEXT PVR_IOCTL(0x04, DRM_IOW, destroy_context)
-#define DRM_IOCTL_PVR_CREATE_OBJECT PVR_IOCTL(0x05, DRM_IOWR, create_object)
-#define DRM_IOCTL_PVR_DESTROY_OBJECT PVR_IOCTL(0x06, DRM_IOW, destroy_object)
-#define DRM_IOCTL_PVR_GET_HEAP_INFO PVR_IOCTL(0x07, DRM_IOWR, get_heap_info)
-#define DRM_IOCTL_PVR_VM_MAP PVR_IOCTL(0x08, DRM_IOW, vm_map)
-#define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x09, DRM_IOW, vm_unmap)
-#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0a, DRM_IOW, submit_job)
+#define DRM_IOCTL_PVR_CREATE_FREE_LIST PVR_IOCTL(0x05, DRM_IOWR, create_free_list)
+#define DRM_IOCTL_PVR_DESTROY_FREE_LIST PVR_IOCTL(0x06, DRM_IOW, destroy_free_list)
+#define DRM_IOCTL_PVR_CREATE_HWRT_DATASET PVR_IOCTL(0x07, DRM_IOWR, create_hwrt_dataset)
+#define DRM_IOCTL_PVR_DESTROY_HWRT_DATASET PVR_IOCTL(0x08, DRM_IOW, destroy_hwrt_dataset)
+#define DRM_IOCTL_PVR_GET_HEAP_INFO PVR_IOCTL(0x09, DRM_IOWR, get_heap_info)
+#define DRM_IOCTL_PVR_VM_MAP PVR_IOCTL(0x0a, DRM_IOW, vm_map)
+#define DRM_IOCTL_PVR_VM_UNMAP PVR_IOCTL(0x0b, DRM_IOW, vm_unmap)
+#define DRM_IOCTL_PVR_SUBMIT_JOB PVR_IOCTL(0x0c, DRM_IOW, submit_job)
 /* clang-format on */
 
 /**
@@ -445,30 +447,9 @@ struct drm_pvr_ioctl_destroy_context_args {
 	__u32 _padding_4;
 };
 
-/* clang-format off */
-
-/**
- * enum drm_pvr_object_type - Arguments for
- * &drm_pvr_ioctl_create_object_args.type
- */
-enum drm_pvr_object_type {
-	/**
-	 * @DRM_PVR_OBJECT_TYPE_FREE_LIST: Free list object. Use &struct
-	 * drm_pvr_ioctl_create_free_list_args for object creation arguments.
-	 */
-	DRM_PVR_OBJECT_TYPE_FREE_LIST = 0,
-	/**
-	 * @DRM_PVR_OBJECT_TYPE_HWRT_DATASET: HWRT data set. Use &struct
-	 * drm_pvr_ioctl_create_hwrt_dataset_args for object creation arguments.
-	 */
-	DRM_PVR_OBJECT_TYPE_HWRT_DATASET,
-};
-
-/* clang-format on */
-
 /**
  * struct drm_pvr_ioctl_create_free_list_args - Arguments for
- * %DRM_PVR_OBJECT_TYPE_FREE_LIST
+ * %DRM_IOCTL_PVR_CREATE_FREE_LIST
  *
  * Free list arguments have the following constraints :
  *
@@ -512,6 +493,28 @@ struct drm_pvr_ioctl_create_free_list_args {
 	 *                       trigger a new grow request.
 	 */
 	__u32 grow_threshold;
+
+	/**
+	 * @handle: [OUT] Handle for created free list.
+	 */
+	__u32 handle;
+
+	/** @_padding_1c: Reserved. This field must be zeroed. */
+	__u32 _padding_1c;
+};
+
+/**
+ * struct drm_pvr_ioctl_destroy_free_list_args - Arguments for
+ * %DRM_IOCTL_PVR_DESTROY_FREE_LIST
+ */
+struct drm_pvr_ioctl_destroy_free_list_args {
+	/**
+	 * @handle: [IN] Handle for free list to be destroyed.
+	 */
+	__u32 handle;
+
+	/** @_padding_4: Reserved. This field must be zeroed. */
+	__u32 _padding_4;
 };
 
 struct drm_pvr_create_hwrt_geom_data_args {
@@ -542,6 +545,10 @@ struct drm_pvr_create_hwrt_rt_data_args {
 	__u64 region_header_dev_addr;
 };
 
+/**
+ * struct drm_pvr_ioctl_create_hwrt_dataset_args - Arguments for
+ * %DRM_IOCTL_PVR_CREATE_HWRT_DATASET
+ */
 struct drm_pvr_ioctl_create_hwrt_dataset_args {
 	/** @geom_data_args: [IN] Geometry data arguments. */
 	struct drm_pvr_create_hwrt_geom_data_args geom_data_args;
@@ -597,38 +604,19 @@ struct drm_pvr_ioctl_create_hwrt_dataset_args {
 	 */
 	__u32 region_header_size;
 
-	/** @_padding_d4: Reserved. This field must be zeroed. */
-	__u32 _padding_d4;
-};
-
-/**
- * struct drm_pvr_ioctl_create_object_args - Arguments for
- * %DRM_IOCTL_PVR_CREATE_OBJECT
- */
-struct drm_pvr_ioctl_create_object_args {
 	/**
-	 * @type: [IN] Type of object to create.
-	 *
-	 * This must be one of the values defined by &enum drm_pvr_object_type.
-	 */
-	__u32 type;
-
-	/**
-	 * @handle: [OUT] Handle for created object.
+	 * @handle: [OUT] Handle for created HWRT dataset.
 	 */
 	__u32 handle;
-
-	/** @data: [IN] User pointer to object type specific arguments. */
-	__u64 data;
 };
 
 /**
- * struct drm_pvr_ioctl_destroy_object_args - Arguments for
- * %DRM_IOCTL_PVR_DESTROY_OBJECT
+ * struct drm_pvr_ioctl_destroy_hwrt_dataset_args - Arguments for
+ * %DRM_IOCTL_PVR_DESTROY_HWRT_DATASET
  */
-struct drm_pvr_ioctl_destroy_object_args {
+struct drm_pvr_ioctl_destroy_hwrt_dataset_args {
 	/**
-	 * @handle: [IN] Handle for object to be destroyed.
+	 * @handle: [IN] Handle for HWRT dataset to be destroyed.
 	 */
 	__u32 handle;
 
