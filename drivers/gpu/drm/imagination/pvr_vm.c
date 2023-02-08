@@ -23,6 +23,7 @@
 #include <linux/kernel.h>
 #include <linux/kref.h>
 #include <linux/limits.h>
+#include <linux/list.h>
 #include <linux/lockdep.h>
 #include <linux/math.h>
 #include <linux/mutex.h>
@@ -758,6 +759,46 @@ struct pvr_page_table_l1;
 struct pvr_page_table_l0;
 
 /**
+ * struct pvr_page_table_ptr - A reference to a single physical page as indexed
+ *                             by the page table structure.
+ * @pvr_dev: The PowerVR device associated with the VM context the
+ *           pointer is traversing.
+ * @l1_free_list: List of level 1 page tables to free when the pointer is destroyed.
+ * @l0_free_list: List of level 0 page tables to free when the pointer is destroyed.
+ * @l2_table: A cached handle to the level 2 page table the pointer is
+ *            currently traversing.
+ * @l1_table: A cached handle to the level 1 page table the pointer is
+ *            currently traversing.
+ * @l0_table: A cached handle to the level 0 page table the pointer is
+ *            currently traversing.
+ * @l2_idx: Index into the level 2 page table the pointer is currently
+ *          referencing.
+ * @l1_idx: Index into the level 1 page table the pointer is currently
+ *          referencing.
+ * @l0_idx: Index into the level 0 page table the pointer is currently
+ *          referencing.
+ * @sync_level_required: The maximum level of the page table tree structure
+ *                       which has (possibly) been modified since it was last
+ *                       flushed to the device.
+ *
+ *                       This field should only be set with
+ *                       pvr_page_table_ptr_require_sync() or indirectly by
+ *                       pvr_page_table_ptr_sync_partial().
+ */
+struct pvr_page_table_ptr {
+	struct pvr_device *pvr_dev;
+	struct pvr_page_table_l1 *l1_free_list;
+	struct pvr_page_table_l0 *l0_free_list;
+	struct pvr_page_table_l2 *l2_table;
+	struct pvr_page_table_l1 *l1_table;
+	struct pvr_page_table_l0 *l0_table;
+	u16 l2_idx;
+	u16 l1_idx;
+	u16 l0_idx;
+	s8 sync_level_required;
+};
+
+/**
  * struct pvr_page_table_l2 - A wrapped level 2 page table.
  *
  * To access the raw part of this table, use pvr_page_table_l2_get_raw().
@@ -926,11 +967,27 @@ struct pvr_page_table_l1 {
 	 */
 	struct pvr_vm_backing_page backing_page;
 
-	/**
-	 * @parent: The parent of this node in the page table tree structure.
-	 * This is also a mirror table.
-	 */
-	struct pvr_page_table_l2 *parent;
+	union {
+		/**
+		 * @parent: The parent of this node in the page table tree structure.
+		 *
+		 * This is also a mirror table.
+		 *
+		 * Only valid when the L1 page table is active. When the L1 page table
+		 * has been removed and queued for destruction, the next_free field
+		 * should be used instead.
+		 */
+		struct pvr_page_table_l2 *parent;
+
+		/**
+		 * @next_free: Pointer to the next L1 page table to free.
+		 *
+		 * Used to form a linked list of L1 page tables queued for destruction.
+		 * Only valid when the page table has been removed and queued for
+		 * destruction.
+		 */
+		struct pvr_page_table_l1 *next_free;
+	};
 
 	/**
 	 * @parent_idx: The index of the entry in the parent table (see
@@ -1085,11 +1142,28 @@ struct pvr_page_table_l0 {
 	 */
 	struct pvr_vm_backing_page backing_page;
 
-	/**
-	 * @parent: The parent of this node in the page table tree structure.
-	 * This is also a mirror table.
-	 */
-	struct pvr_page_table_l1 *parent;
+	union {
+		/**
+		 * @parent: The parent of this node in the page table tree structure.
+		 *
+		 * This is also a mirror table.
+		 *
+		 * Only valid when the L0 page table is active. When the L0 page table
+		 * has been removed and queued for destruction, the next_free field
+		 * should be used instead.
+		 */
+		struct pvr_page_table_l1 *parent;
+
+		/**
+		 * @next_free: Pointer to the next L0 page table to free.
+		 *
+		 * Used to form a linked list of L0 page tables queued for destruction.
+		 *
+		 * Only valid when the page table has been removed and queued for
+		 * destruction.
+		 */
+		struct pvr_page_table_l0 *next_free;
+	};
 
 	/**
 	 * @parent_idx: The index of the entry in the parent table (see
@@ -1263,32 +1337,33 @@ pvr_page_table_l2_insert(struct pvr_page_table_l2 *table, u16 idx,
 /**
  * pvr_page_table_l2_remove() - Remove a level 1 page table from a level 2 page
  *                              table.
- * @table: Target level 2 page table.
- * @idx: Index of the entry to remove.
+ * @ptr: Page table pointer pointing to the L2 entry to remove.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The values of @ptr are not checked here; it is the callers responsibility to
+ * ensure @ptr points to a valid L2 entry before calling this function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * there is a valid entry pointed by @ptr. It is **not** a no-op to call this
  * function twice, and subsequent calls **will** place @table into an invalid
  * state.
  */
 static void
-pvr_page_table_l2_remove(struct pvr_page_table_l2 *table, u16 idx)
+pvr_page_table_l2_remove(struct pvr_page_table_ptr *ptr)
 {
-	struct pvr_page_table_l1 *child_table = table->entries[idx];
 	struct pvr_page_table_l2_entry_raw *entry_raw =
-		pvr_page_table_l2_get_entry_raw(table, idx);
+		pvr_page_table_l2_get_entry_raw(ptr->l2_table, ptr->l1_table->parent_idx);
+
+	WARN_ON(ptr->l1_table->parent != ptr->l2_table);
 
 	pvr_page_table_l2_entry_raw_clear(entry_raw);
 
-	child_table->parent = NULL;
-	child_table->parent_idx = PVR_IDX_INVALID;
+	ptr->l2_table->entries[ptr->l1_table->parent_idx] = NULL;
+	ptr->l1_table->parent_idx = PVR_IDX_INVALID;
+	ptr->l1_table->next_free = ptr->l1_free_list;
+	ptr->l1_free_list = ptr->l1_table;
+	ptr->l1_table = NULL;
 
-	table->entries[idx] = NULL;
-	--table->entry_count;
+	--ptr->l2_table->entry_count;
 }
 
 /**
@@ -1322,42 +1397,44 @@ pvr_page_table_l1_insert(struct pvr_page_table_l1 *table, u16 idx,
 	++table->entry_count;
 }
 
-/* Forward declaration from below. */
-static void __pvr_page_table_l1_destroy(struct pvr_page_table_l1 *table);
-
 /**
  * pvr_page_table_l1_remove() - Remove a level 0 page table from a level 1 page
  *                              table.
- * @table: Target level 1 page table.
- * @idx: Index of the entry to remove.
+ * @ptr: Page table pointer pointing to the L1 entry to remove.
  *
- * If this function results in @table becoming empty, it will be removed from
- * its parent level 2 page table and destroyed.
+ * If this function results in the L1 table becoming empty, it will be removed
+ * from its parent level 2 page table and destroyed.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The values of @ptr are not checked here; it is the callers responsibility to
+ * ensure @ptr points to a valid L1 entry before calling this function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * there is a valid entry pointed by @ptr. It is **not** a no-op to call this
  * function twice, and subsequent calls **will** place @table into an invalid
  * state.
  */
 static void
-pvr_page_table_l1_remove(struct pvr_page_table_l1 *table, u16 idx)
+pvr_page_table_l1_remove(struct pvr_page_table_ptr *ptr)
 {
-	struct pvr_page_table_l0 *child_table = table->entries[idx];
 	struct pvr_page_table_l1_entry_raw *entry_raw =
-		pvr_page_table_l1_get_entry_raw(table, idx);
+		pvr_page_table_l1_get_entry_raw(ptr->l0_table->parent,
+						ptr->l0_table->parent_idx);
+
+	WARN_ON(ptr->l0_table->parent != ptr->l1_table);
 
 	pvr_page_table_l1_entry_raw_clear(entry_raw);
 
-	child_table->parent = NULL;
-	child_table->parent_idx = PVR_IDX_INVALID;
+	ptr->l1_table->entries[ptr->l0_table->parent_idx] = NULL;
+	ptr->l0_table->parent_idx = PVR_IDX_INVALID;
+	ptr->l0_table->next_free = ptr->l0_free_list;
+	ptr->l0_free_list = ptr->l0_table;
+	ptr->l0_table = NULL;
 
-	table->entries[idx] = NULL;
-	if (--table->entry_count == 0)
-		__pvr_page_table_l1_destroy(table);
+	if (--ptr->l1_table->entry_count == 0) {
+		/* Clear the parent L2 page table entry. */
+		if (ptr->l1_table->parent_idx != PVR_IDX_INVALID)
+			pvr_page_table_l2_remove(ptr);
+	}
 }
 
 /**
@@ -1392,32 +1469,27 @@ pvr_page_table_l0_insert(struct pvr_page_table_l0 *table, u16 idx,
 	++table->entry_count;
 }
 
-/* Forward declaration from below. */
-static void __pvr_page_table_l0_destroy(struct pvr_page_table_l0 *table);
-
 /**
  * pvr_page_table_l0_remove() - Remove a physical page from a level 0 page
  *                              table.
- * @table: Target level 0 page table.
- * @idx: Index of the entry to remove.
+ * @ptr: Page table pointer pointing to the L0 entry to remove.
  *
- * If this function results in @table becoming empty, it will be removed from
- * its parent level 1 page table and destroyed.
+ * If this function results in the L0 table becoming empty, it will be removed
+ * from its parent L1 page table and destroyed.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The values of @ptr are not checked here; it is the callers responsibility to
+ * ensure @ptr points to a valid L0 entry before calling this function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is a valid entry at @idx in @table. It is **not** a no-op to call this
+ * there is a valid entry pointed by @ptr. It is **not** a no-op to call this
  * function twice, and subsequent calls **will** place @table into an invalid
  * state.
  */
 static void
-pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
+pvr_page_table_l0_remove(struct pvr_page_table_ptr *ptr)
 {
 	struct pvr_page_table_l0_entry_raw *entry_raw =
-		pvr_page_table_l0_get_entry_raw(table, idx);
+		pvr_page_table_l0_get_entry_raw(ptr->l0_table, ptr->l0_idx);
 
 	pvr_page_table_l0_entry_raw_clear(entry_raw);
 
@@ -1426,8 +1498,11 @@ pvr_page_table_l0_remove(struct pvr_page_table_l0 *table, u16 idx)
 	 * individual pages.
 	 */
 
-	if (--table->entry_count == 0)
-		__pvr_page_table_l0_destroy(table);
+	if (--ptr->l0_table->entry_count == 0) {
+		/* Clear the parent L1 page table entry. */
+		if (ptr->l0_table->parent_idx != PVR_IDX_INVALID)
+			pvr_page_table_l1_remove(ptr);
+	}
 }
 
 /**
@@ -1578,27 +1653,6 @@ err_out:
 }
 
 /**
- * __pvr_page_table_l1_destroy() - Destroy a level 1 page table after removing
- *                                 it from its parent level 2 page table.
- * @table: Target level 1 page table.
- *
- * Although this function is defined in the "High-level page table operations"
- * section for symmetry, it should never be called directly (hence the ``__``
- * prefix). Instead, it's called automatically when pvr_page_table_l1_remove()
- * causes @table to become empty.
- */
-static void
-__pvr_page_table_l1_destroy(struct pvr_page_table_l1 *table)
-{
-	/* Clear the parent L2 page table entry. */
-	if (table->parent_idx != PVR_IDX_INVALID)
-		pvr_page_table_l2_remove(table->parent, table->parent_idx);
-
-	pvr_page_table_l1_fini(table);
-	kfree(table);
-}
-
-/**
  * pvr_page_table_l1_get_or_create() - Retrieves (optionally creating if
  *                                     necessary) a level 1 page table from the
  *                                     specified level 2 page table entry.
@@ -1692,27 +1746,6 @@ err_out:
 }
 
 /**
- * __pvr_page_table_l0_destroy() - Destroy a level 0 page table after removing
- *                                 it from its parent level 1 page table.
- * @table: Target level 0 page table.
- *
- * Although this function is defined in the "High-level page table operations"
- * section for symmetry, it should never be called directly (hence the ``__``
- * prefix). Instead, it's called automatically when pvr_page_table_l0_remove()
- * causes @table to become empty.
- */
-static void
-__pvr_page_table_l0_destroy(struct pvr_page_table_l0 *table)
-{
-	/* Clear the parent L1 page table entry. */
-	if (table->parent_idx != PVR_IDX_INVALID)
-		pvr_page_table_l1_remove(table->parent, table->parent_idx);
-
-	pvr_page_table_l0_fini(table);
-	kfree(table);
-}
-
-/**
  * pvr_page_table_l0_get_or_create() - Retrieves (optionally creating if
  *                                     necessary) a level 0 page table from the
  *                                     specified level 1 page table entry.
@@ -1769,42 +1802,6 @@ pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
 #define PVR_PAGE_TABLE_PTR_IN_SYNC ((s8)(-1))
 
 /**
- * struct pvr_page_table_ptr - A reference to a single physical page as indexed
- *                             by the page table structure.
- * @pvr_dev: The PowerVR device associated with the VM context the
- *           pointer is traversing.
- * @l2_table: A cached handle to the level 2 page table the pointer is
- *            currently traversing.
- * @l1_table: A cached handle to the level 1 page table the pointer is
- *            currently traversing.
- * @l0_table: A cached handle to the level 0 page table the pointer is
- *            currently traversing.
- * @l2_idx: Index into the level 2 page table the pointer is currently
- *          referencing.
- * @l1_idx: Index into the level 1 page table the pointer is currently
- *          referencing.
- * @l0_idx: Index into the level 0 page table the pointer is currently
- *          referencing.
- * @sync_level_required: The maximum level of the page table tree structure
- *                       which has (possibly) been modified since it was last
- *                       flushed to the device.
- *
- *                       This field should only be set with
- *                       pvr_page_table_ptr_require_sync() or indirectly by
- *                       pvr_page_table_ptr_sync_partial().
- */
-struct pvr_page_table_ptr {
-	struct pvr_device *pvr_dev;
-	struct pvr_page_table_l2 *l2_table;
-	struct pvr_page_table_l1 *l1_table;
-	struct pvr_page_table_l0 *l0_table;
-	u16 l2_idx;
-	u16 l1_idx;
-	u16 l0_idx;
-	s8 sync_level_required;
-};
-
-/**
  * pvr_page_table_ptr_require_sync() - Mark a page table pointer as requiring a
  *                                     sync operation for the referenced page
  *                                     tables up to a specified level.
@@ -1841,12 +1838,14 @@ pvr_page_table_ptr_sync_manual(struct pvr_page_table_ptr *ptr, s8 level)
 	if (level < 0)
 		return;
 
-	pvr_page_table_l0_sync(ptr->l0_table);
+	if (ptr->l0_table)
+		pvr_page_table_l0_sync(ptr->l0_table);
 
 	if (level < 1)
 		return;
 
-	pvr_page_table_l1_sync(ptr->l1_table);
+	if (ptr->l1_table)
+		pvr_page_table_l1_sync(ptr->l1_table);
 
 	if (level < 2)
 		return;
@@ -1995,13 +1994,15 @@ pvr_page_table_ptr_load_tables(struct pvr_page_table_ptr *ptr,
 			 * At this point, an L1 page table could have been
 			 * created but is now empty due to the failed attempt
 			 * at creating an L0 page table. In this instance, we
-			 * must destroy the empty L1 page table ourselves as
+			 * must remove the empty L1 page table ourselves as
 			 * pvr_page_table_l1_remove() is never called as part
 			 * of the error path in
 			 * pvr_page_table_l0_get_or_create().
 			 */
-			if (did_create_l1)
-				__pvr_page_table_l1_destroy(ptr->l1_table);
+			if (did_create_l1) {
+				pvr_page_table_l2_remove(ptr);
+				pvr_page_table_ptr_require_sync(ptr, 2);
+			}
 
 			goto err_out;
 		}
@@ -2085,7 +2086,31 @@ pvr_page_table_ptr_init(struct pvr_page_table_ptr *ptr,
 static void
 pvr_page_table_ptr_fini(struct pvr_page_table_ptr *ptr)
 {
+	bool flush_caches = ptr->sync_level_required != PVR_PAGE_TABLE_PTR_IN_SYNC;
+
+	if (WARN_ON(!flush_caches && (ptr->l0_free_list || ptr->l1_free_list)))
+		flush_caches = true;
+
 	pvr_page_table_ptr_sync(ptr);
+
+	if (flush_caches)
+		WARN_ON(pvr_vm_mmu_flush(ptr->pvr_dev));
+
+	while (ptr->l0_free_list) {
+		struct pvr_page_table_l0 *l0 = ptr->l0_free_list;
+
+		ptr->l0_free_list = l0->next_free;
+		pvr_page_table_l0_fini(l0);
+		kfree(l0);
+	}
+
+	while (ptr->l1_free_list) {
+		struct pvr_page_table_l1 *l1 = ptr->l1_free_list;
+
+		ptr->l1_free_list = l1->next_free;
+		pvr_page_table_l1_fini(l1);
+		kfree(l1);
+	}
 }
 
 /**
@@ -2171,6 +2196,10 @@ pvr_page_table_ptr_copy(struct pvr_page_table_ptr *dst,
 	 * original will handle it either when advancing or during teardown.
 	 */
 	dst->sync_level_required = PVR_PAGE_TABLE_PTR_IN_SYNC;
+
+	/* The clone starts with an empty list of L1/L0 tables to free. */
+	dst->l1_free_list = NULL;
+	dst->l0_free_list = NULL;
 }
 
 /**
@@ -2217,7 +2246,7 @@ pvr_page_destroy(struct pvr_page_table_ptr *ptr)
 		return;
 
 	/* Clear the parent L0 page table entry. */
-	pvr_page_table_l0_remove(ptr->l0_table, ptr->l0_idx);
+	pvr_page_table_l0_remove(ptr);
 
 	pvr_page_table_ptr_require_sync(ptr, 0);
 }
@@ -3469,7 +3498,7 @@ pvr_vm_mapping_map(struct pvr_vm_context *vm_ctx,
 						     pvr_vm_mapping_size(mapping),
 						     pvr_vm_mapping_page_flags_raw(mapping));
 	}
-	WARN_ON(pvr_vm_mmu_flush(vm_ctx->pvr_dev));
+
 	if (err)
 		goto err_put_pages;
 
@@ -3504,7 +3533,6 @@ pvr_vm_mapping_unmap(struct pvr_vm_context *vm_ctx,
 
 	err = pvr_vm_context_unmap(vm_ctx, pvr_vm_mapping_start(mapping),
 				   pvr_vm_mapping_size(mapping) >> PVR_DEVICE_PAGE_SHIFT);
-	WARN_ON(pvr_vm_mmu_flush(vm_ctx->pvr_dev));
 	if (err)
 		goto err_out;
 
