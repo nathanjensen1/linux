@@ -702,11 +702,20 @@ pvr_ioctl_destroy_free_list(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_destroy_free_list_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, args->handle);
 
 	if (args->_padding_4)
 		return -EINVAL;
 
-	return pvr_object_destroy(pvr_file, args->handle, PVR_OBJECT_TYPE_FREE_LIST);
+	if (!obj)
+		return -EINVAL;
+
+	if (obj->type != PVR_OBJECT_TYPE_FREE_LIST)
+		return -EINVAL;
+
+	pvr_object_put(obj);
+	xa_erase(&pvr_file->obj_handles, args->handle);
+	return 0;
 }
 
 /**
@@ -774,11 +783,20 @@ pvr_ioctl_destroy_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_destroy_hwrt_dataset_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
+	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, args->handle);
 
 	if (args->_padding_4)
 		return -EINVAL;
 
-	return pvr_object_destroy(pvr_file, args->handle, PVR_OBJECT_TYPE_HWRT_DATASET);
+	if (!obj)
+		return -EINVAL;
+
+	if (obj->type != PVR_OBJECT_TYPE_HWRT_DATASET)
+		return -EINVAL;
+
+	pvr_object_put(obj);
+	xa_erase(&pvr_file->obj_handles, args->handle);
+	return 0;
 }
 
 /**

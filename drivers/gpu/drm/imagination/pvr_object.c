@@ -77,35 +77,6 @@ pvr_object_put(struct pvr_object *obj)
 }
 
 /**
- * pvr_object_destroy() - Destroy object
- * @pvr_file: Pointer to pvr_file structure.
- * @handle: Object handle.
- * @type: Object type.
- *
- * Removes object from list and drops initial reference. Object will then be
- * destroyed once all outstanding references are dropped.
- *
- * Returns:
- *  * 0 on success, or
- *  * -%EINVAL if object not in object list, or does not match the requested type.
- */
-int
-pvr_object_destroy(struct pvr_file *pvr_file, u32 handle, enum pvr_object_type type)
-{
-	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, handle);
-
-	if (!obj)
-		return -EINVAL;
-	if (obj->type != type)
-		return -EINVAL;
-
-	xa_erase(&pvr_file->obj_handles, handle);
-	pvr_object_put(obj);
-
-	return 0;
-}
-
-/**
  * pvr_destroy_objects_for_file: Destroy any objects associated with the given file
  * @pvr_file: Pointer to pvr_file structure.
  *

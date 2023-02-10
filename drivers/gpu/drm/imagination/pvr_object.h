@@ -96,8 +96,6 @@ int pvr_object_common_init(struct pvr_file *pvr_file, struct pvr_object *obj);
 
 void pvr_object_common_fini(struct pvr_object *obj);
 
-int pvr_object_destroy(struct pvr_file *pvr_file, u32 handle, enum pvr_object_type type);
-
 int
 pvr_object_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *fw_obj, u32 offset);
 
