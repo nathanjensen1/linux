@@ -738,7 +738,8 @@ pvr_release_context(struct kref *ref_count)
 void
 pvr_context_put(struct pvr_context *ctx)
 {
-	kref_put(&ctx->ref_count, pvr_release_context);
+	if (ctx)
+		kref_put(&ctx->ref_count, pvr_release_context);
 }
 
 /**

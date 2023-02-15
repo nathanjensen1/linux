@@ -94,7 +94,8 @@ static void pvr_job_release(struct kref *kref)
 void
 pvr_job_put(struct pvr_job *job)
 {
-	kref_put(&job->ref_count, pvr_job_release);
+	if (job)
+		kref_put(&job->ref_count, pvr_job_release);
 }
 
 /**
