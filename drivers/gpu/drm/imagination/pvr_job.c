@@ -1030,8 +1030,7 @@ pvr_process_job_null(struct pvr_device *pvr_dev,
 	}
 
 	fence_array = dma_fence_array_create(array_idx, in_fence_array,
-					     pvr_dev->fence_context.fence_context,
-					     atomic_inc_return(&pvr_dev->fence_context.fence_id),
+					     dma_fence_context_alloc(1), 1,
 					     false);
 	if (!fence_array) {
 		err = -ENOMEM;

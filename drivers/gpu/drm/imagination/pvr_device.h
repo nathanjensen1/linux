@@ -225,9 +225,6 @@ struct pvr_device {
 	/** @stream_musthave_quirks: Bit array of "must-have" quirks for stream commands. */
 	u32 stream_musthave_quirks[PVR_STREAM_TYPE_MAX][PVR_STREAM_EXTHDR_TYPE_MAX];
 
-	/** @fence_context: Fence context for fences not associated with a data master. */
-	struct pvr_fence_context fence_context;
-
 	/**
 	 * @ctx_ids: Array of contexts belonging to this device. Array members
 	 *           are of type "struct pvr_context *".
