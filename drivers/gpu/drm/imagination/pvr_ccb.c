@@ -4,7 +4,6 @@
 #include "pvr_ccb.h"
 #include "pvr_device.h"
 #include "pvr_dump.h"
-#include "pvr_fence.h"
 #include "pvr_free_list.h"
 #include "pvr_fw.h"
 #include "pvr_gem.h"

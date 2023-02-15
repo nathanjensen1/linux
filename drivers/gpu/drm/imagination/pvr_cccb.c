@@ -73,8 +73,6 @@ pvr_cccb_init(struct pvr_device *pvr_dev, struct pvr_cccb *pvr_cccb,
 	pvr_cccb->write_offset = 0;
 	pvr_cccb->wrap_mask = size - 1;
 
-	pvr_fence_context_init(pvr_dev, &pvr_cccb->pvr_fence_context, name);
-
 	return 0;
 
 err_free_ctrl:

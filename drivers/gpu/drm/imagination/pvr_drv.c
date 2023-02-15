@@ -1230,7 +1230,6 @@ pvr_probe(struct platform_device *plat_dev)
 	platform_set_drvdata(plat_dev, drm_dev);
 
 	pvr_context_device_init(pvr_dev);
-	pvr_fence_device_init(pvr_dev);
 
 	pm_runtime_enable(&plat_dev->dev);
 	pvr_power_init(pvr_dev);

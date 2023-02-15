@@ -3,7 +3,6 @@
 
 #include "pvr_context.h"
 #include "pvr_device.h"
-#include "pvr_fence.h"
 #include "pvr_gem.h"
 #include "pvr_hwrt.h"
 #include "pvr_job.h"

@@ -6,7 +6,6 @@
 
 #include "pvr_ccb.h"
 #include "pvr_device_info.h"
-#include "pvr_fence.h"
 #include "pvr_fw.h"
 #include "pvr_params.h"
 #include "pvr_rogue_fwif_stream.h"
@@ -168,9 +167,6 @@ struct pvr_device {
 	/** @fwccb_work: Work item for FWCCB processing. */
 	struct work_struct fwccb_work;
 
-	/** @fence_work: Work item for fence processing. */
-	struct work_struct fence_work;
-
 	/** @delayed_idle_work: Delayed work item for idle checking. */
 	struct delayed_work delayed_idle_work;
 
@@ -195,17 +191,6 @@ struct pvr_device {
 
 	/** @fw_dev: Firmware related data. */
 	struct pvr_fw_device fw_dev;
-
-	/**
-	 * @fence_list_spinlock: Lock protecting accesses to @fence_list and @imported_fence_list.
-	 */
-	spinlock_t fence_list_spinlock;
-
-	/** @fence_list: List of active fences. */
-	struct list_head fence_list;
-
-	/** @imported_fence_list: List of active imported fences. */
-	struct list_head imported_fence_list;
 
 	/** @power_state: Current GPU power state. */
 	enum pvr_power_state power_state;

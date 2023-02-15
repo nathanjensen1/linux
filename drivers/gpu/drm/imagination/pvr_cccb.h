@@ -4,7 +4,6 @@
 #ifndef __PVR_CCCB_H__
 #define __PVR_CCCB_H__
 
-#include "pvr_fence.h"
 #include "pvr_rogue_fwif.h"
 #include "pvr_rogue_fwif_shared.h"
 
@@ -55,9 +54,6 @@ struct pvr_cccb {
 
 	/** @old_write_offset: CCCB write offset, sampled at CCCB lock time. */
 	u32 old_write_offset;
-
-	/** @pvr_fence_context: Fence context for data master represented by this CCCB. */
-	struct pvr_fence_context pvr_fence_context;
 };
 
 int pvr_cccb_init(struct pvr_device *pvr_dev, struct pvr_cccb *cccb,
