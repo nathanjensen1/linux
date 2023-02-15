@@ -246,6 +246,22 @@ struct pvr_device {
 	 *            are of type "struct pvr_job *".
 	 */
 	struct xarray job_ids;
+
+	/**
+	 * @active_contexts: Active context list and the lock protecting it.
+	 *
+	 * Used to iterate over in-flight jobs and signal fences for done jobs.
+	 */
+	struct {
+		/** @list: Active context list. */
+		struct list_head list;
+
+		/** @lock: Lock protecting access to the active context list. */
+		spinlock_t lock;
+	} active_contexts;
+
+	/** @context_work: Work item for context processing. */
+	struct work_struct context_work;
 };
 
 /**

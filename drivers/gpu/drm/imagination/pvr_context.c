@@ -4,6 +4,7 @@
 #include "pvr_cccb.h"
 #include "pvr_context.h"
 #include "pvr_device.h"
+#include "pvr_drv.h"
 #include "pvr_gem.h"
 #include "pvr_job.h"
 #include "pvr_rogue_fwif.h"
@@ -29,6 +30,94 @@
 #define CTX_GEOM_CCCB_SIZE_LOG2 15
 #define CTX_TRANSFER_CCCB_SIZE_LOG2 15
 
+/**
+ * pvr_context_queue_check_pending_jobs() - Check if any pending job can be submitted
+ * @queue: Queue to check.
+ *
+ * Iterates over pending jobs, submitting ready jobs and stopping at the first non-ready one.
+ * A job is ready when:
+ * - all its dependencies are signaled
+ * - the job commands fit in the CCCB
+ */
+static void
+pvr_context_queue_check_pending_jobs(struct pvr_context_queue *queue)
+{
+	while (true) {
+		struct pvr_job *job;
+
+		spin_lock(&queue->jobs.lock);
+		job = list_first_entry_or_null(&queue->jobs.pending,
+					       struct pvr_job, node);
+		pvr_job_get(job);
+		spin_unlock(&queue->jobs.lock);
+
+		if (!job || !pvr_job_non_native_deps_done(job)) {
+			pvr_job_put(job);
+			break;
+		}
+
+		pvr_job_evict_signaled_native_deps(job);
+
+		if (pvr_job_fits_in_cccb(job) &&
+		    !pvr_job_wait_first_non_signaled_native_dep(job)) {
+			pvr_job_put(job);
+			break;
+		}
+
+		WARN_ON(pvr_job_fits_in_cccb(job));
+		pvr_job_submit(job);
+		pvr_job_put(job);
+	}
+}
+
+/**
+ * pvr_context_job_pending_worker() - Worker called when a pending_job event is received
+ * @work: Work struct.
+ *
+ * Check all queues bound to the context embedding the job_pending_work object, and
+ * submit ready jobs if any.
+ */
+static void
+pvr_context_job_pending_worker(struct work_struct *work)
+{
+	struct pvr_context *ctx = container_of(work, struct pvr_context, job_pending_work);
+
+	switch (ctx->type) {
+	case DRM_PVR_CTX_TYPE_RENDER:
+		pvr_context_queue_check_pending_jobs(&to_pvr_context_render(ctx)->ctx_geom.queue);
+		pvr_context_queue_check_pending_jobs(&to_pvr_context_render(ctx)->ctx_frag.queue);
+		break;
+
+	case DRM_PVR_CTX_TYPE_COMPUTE:
+		pvr_context_queue_check_pending_jobs(&to_pvr_context_compute(ctx)->queue);
+		break;
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG:
+		pvr_context_queue_check_pending_jobs(&to_pvr_context_transfer_frag(ctx)->queue);
+		break;
+
+	default:
+		break;
+	}
+
+	/* Release the reference that was taking in pvr_context_pending_job_event(). */
+	pvr_context_put(ctx);
+}
+
+/**
+ * pvr_context_pending_job_event() - Wrapper to queue a job_pending event
+ * @ctx: Context to queue the event on.
+ *
+ * Queues the job_pending_work attached to the context.
+ */
+void pvr_context_pending_job_event(struct pvr_context *ctx)
+{
+	/* Grab a reference, and release it if the work was already queued. */
+	pvr_context_get(ctx);
+	if (!queue_work(ctx->pvr_dev->irq_wq, &ctx->job_pending_work))
+		pvr_context_put(ctx);
+}
+
 static int
 pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 			struct pvr_context *ctx, int type,
@@ -50,6 +139,8 @@ pvr_init_context_common(struct pvr_device *pvr_dev, struct pvr_file *pvr_file,
 	strscpy(ctx->process_name, current->comm, sizeof(ctx->process_name));
 
 	kref_init(&ctx->ref_count);
+	INIT_LIST_HEAD(&ctx->active_node);
+	INIT_WORK(&ctx->job_pending_work, pvr_context_job_pending_worker);
 
 	return 0;
 }
@@ -58,6 +149,205 @@ static void
 pvr_fini_context_common(struct pvr_device *pvr_dev, struct pvr_context *ctx)
 {
 	pvr_vm_context_put(ctx->vm_ctx);
+}
+
+/**
+ * pvr_context_queue_fence_ctx_release() - Release callback for a queue fence context
+ * @kref: The kref object being released.
+ */
+static void
+pvr_context_queue_fence_ctx_release(struct kref *kref)
+{
+	struct pvr_context_queue_fence_ctx *ctx;
+
+	ctx =  container_of(kref, struct pvr_context_queue_fence_ctx, refcount);
+	pvr_fw_object_vunmap(ctx->timeline_ufo.fw_obj, false);
+	pvr_fw_object_release(ctx->timeline_ufo.fw_obj);
+	kfree(ctx);
+	module_put(THIS_MODULE);
+}
+
+/**
+ * pvr_context_queue_fence_ctx_create() - Create a queue fence context
+ * @pvr_dev: The PowerVR device used to create this queue fence context.
+ * @queue: The queue to create the fence context for.
+ * @type: The type of queue being created.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * -ENOMEM if we fail to allocate memory or fail to acquire a module ref.
+ */
+static int
+pvr_context_queue_fence_ctx_create(struct pvr_device *pvr_dev,
+				   struct pvr_context_queue *queue,
+				   enum pvr_context_queue_type type)
+{
+	struct pvr_context_queue_fence_ctx *ctx;
+	void *cpu_map;
+	int err;
+
+	if (WARN_ON(!try_module_get(THIS_MODULE)))
+		return -ENOENT;
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx) {
+		module_put(THIS_MODULE);
+		return -ENOMEM;
+	}
+
+	cpu_map = pvr_gem_create_and_map_fw_object(pvr_dev, sizeof(*ctx->timeline_ufo.value),
+						   PVR_BO_FW_FLAGS_DEVICE_UNCACHED |
+						   DRM_PVR_BO_CREATE_ZEROED,
+						   &ctx->timeline_ufo.fw_obj);
+	if (IS_ERR(cpu_map)) {
+		err = PTR_ERR(cpu_map);
+		goto err_free_ctx;
+	}
+
+	ctx->timeline_ufo.value = cpu_map;
+	ctx->type = type;
+	ctx->id = dma_fence_context_alloc(1);
+	kref_init(&ctx->refcount);
+	spin_lock_init(&ctx->lock);
+	queue->fence_ctx = ctx;
+	return 0;
+
+err_free_ctx:
+	kfree(ctx);
+	return err;
+}
+
+static const char *
+pvr_context_queue_fence_get_driver_name(struct dma_fence *f)
+{
+	return PVR_DRIVER_NAME;
+}
+
+static const char *
+pvr_context_queue_fence_get_timeline_name(struct dma_fence *f)
+{
+	struct pvr_context_queue_fence *fence = to_pvr_context_queue_fence(f);
+
+	switch (fence->ctx->type) {
+	case PVR_CONTEXT_QUEUE_TYPE_GEOMETRY:
+		return "geometry";
+
+	case PVR_CONTEXT_QUEUE_TYPE_FRAGMENT:
+		return "fragment";
+
+	case PVR_CONTEXT_QUEUE_TYPE_COMPUTE:
+		return "compute";
+
+	case PVR_CONTEXT_QUEUE_TYPE_TRANSFER:
+		return "transfer";
+
+	default:
+		return "invalid";
+	}
+}
+
+static void pvr_context_queue_fence_release(struct dma_fence *f)
+{
+	struct pvr_context_queue_fence *fence = to_pvr_context_queue_fence(f);
+
+	kref_put(&fence->ctx->refcount, pvr_context_queue_fence_ctx_release);
+	dma_fence_free(f);
+}
+
+const struct dma_fence_ops pvr_context_queue_fence_ops = {
+	.get_driver_name = pvr_context_queue_fence_get_driver_name,
+	.get_timeline_name = pvr_context_queue_fence_get_timeline_name,
+	.release = pvr_context_queue_fence_release,
+};
+
+struct pvr_context_queue_fence *
+to_pvr_context_queue_fence(struct dma_fence *f)
+{
+	if (f && f->ops == &pvr_context_queue_fence_ops)
+		return container_of(f, struct pvr_context_queue_fence, base);
+
+	return NULL;
+}
+
+struct pvr_context_queue_fence_ctx *
+pvr_context_queue_fence_ctx_from_fence(struct dma_fence *f)
+{
+	static struct pvr_context_queue_fence *fence;
+
+	if (f->ops != &pvr_context_queue_fence_ops)
+		return NULL;
+
+	fence = to_pvr_context_queue_fence(f);
+	return fence->ctx;
+}
+
+/**
+ * pvr_context_queue_fence_create() - Create a queue fence object
+ * @queue: The queue to create the fence on.
+ *
+ * Any job object should have a fence created with
+ * pvr_context_queue_fence_create() attached to it. This fence will be signaled
+ * when the job is done, or when something failed.
+ *
+ * Return:
+ *  * A valid dma_fence pointer on success, or
+ *  * ERR_PTR(-ENOMEM) if we fail to allocate memory.
+ */
+struct dma_fence *
+pvr_context_queue_fence_create(struct pvr_context_queue *queue)
+{
+	struct pvr_context_queue_fence *fence;
+
+	fence = kzalloc(sizeof(*fence), GFP_KERNEL);
+	if (!fence)
+		return ERR_PTR(-ENOMEM);
+
+	kref_get(&queue->fence_ctx->refcount);
+	fence->ctx = queue->fence_ctx;
+	dma_fence_init(&fence->base, &pvr_context_queue_fence_ops, &fence->ctx->lock,
+		       fence->ctx->id, atomic_inc_return(&fence->ctx->seqno));
+
+	return &fence->base;
+}
+
+/**
+ * pvr_context_queue_init() - Initialize a context queue
+ * @pvr_dev: A PowerVR device.
+ * @queue: The queue object to initialize.
+ * @type: The type of jobs taken by this queue.
+ *
+ * Return:
+ *  * 0 on success, or
+ *  * a negative error code when something failed.
+ */
+static int
+pvr_context_queue_init(struct pvr_device *pvr_dev,
+		       struct pvr_context_queue *queue,
+		       enum pvr_context_queue_type type)
+{
+	int err;
+
+	INIT_LIST_HEAD(&queue->jobs.pending);
+	INIT_LIST_HEAD(&queue->jobs.in_flight);
+	spin_lock_init(&queue->jobs.lock);
+
+	err = pvr_context_queue_fence_ctx_create(pvr_dev, queue, type);
+	if (err)
+		return err;
+
+	return 0;
+}
+
+/**
+ * pvr_context_queue_fini() - Cleanup a context queue
+ * @queue: The queue object to cleanup.
+ */
+static void
+pvr_context_queue_fini(struct pvr_context_queue *queue)
+{
+	WARN_ON(!list_empty(&queue->jobs.pending));
+	WARN_ON(!list_empty(&queue->jobs.in_flight));
+	kref_put(&queue->fence_ctx->refcount, pvr_context_queue_fence_ctx_release);
 }
 
 /**
@@ -93,11 +383,19 @@ pvr_init_geom_context(struct pvr_file *pvr_file,
 		goto err_cccb_fini;
 	}
 
+	err = pvr_context_queue_init(pvr_dev, &ctx_geom->queue, PVR_CONTEXT_QUEUE_TYPE_GEOMETRY);
+	if (err)
+		goto err_release_ctx_state;
+
 	geom_ctx_state_fw->geom_core[0].geom_reg_vdm_call_stack_pointer = args->callstack_addr;
 
 	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, true);
 
 	return 0;
+
+err_release_ctx_state:
+	pvr_fw_object_vunmap(ctx_geom->ctx_state_obj, false);
+	pvr_fw_object_release(ctx_geom->ctx_state_obj);
 
 err_cccb_fini:
 	pvr_cccb_fini(&ctx_geom->cccb);
@@ -115,6 +413,7 @@ pvr_fini_geom_context(struct pvr_context_render *ctx_render)
 {
 	struct pvr_context_geom *ctx_geom = &ctx_render->ctx_geom;
 
+	pvr_context_queue_fini(&ctx_geom->queue);
 	pvr_fw_object_release(ctx_geom->ctx_state_obj);
 
 	pvr_cccb_fini(&ctx_geom->cccb);
@@ -167,7 +466,14 @@ pvr_init_frag_context(struct pvr_file *pvr_file,
 	if (err)
 		goto err_cccb_fini;
 
+	err = pvr_context_queue_init(pvr_dev, &ctx_frag->queue, PVR_CONTEXT_QUEUE_TYPE_FRAGMENT);
+	if (err)
+		goto err_release_ctx_state;
+
 	return 0;
+
+err_release_ctx_state:
+	pvr_fw_object_release(ctx_frag->ctx_state_obj);
 
 err_cccb_fini:
 	pvr_cccb_fini(&ctx_frag->cccb);
@@ -185,6 +491,7 @@ pvr_fini_frag_context(struct pvr_context_render *ctx_render)
 {
 	struct pvr_context_frag *ctx_frag = &ctx_render->ctx_frag;
 
+	pvr_context_queue_fini(&ctx_frag->queue);
 	pvr_fw_object_release(ctx_frag->ctx_state_obj);
 
 	pvr_cccb_fini(&ctx_frag->cccb);
@@ -383,6 +690,10 @@ pvr_init_compute_context(struct pvr_file *pvr_file, struct pvr_context_compute *
 		goto err_destroy_gem_object;
 	}
 
+	err = pvr_context_queue_init(pvr_dev, &ctx_compute->queue, PVR_CONTEXT_QUEUE_TYPE_COMPUTE);
+	if (err)
+		goto err_destroy_gem_object;
+
 	pvr_init_fw_common_context(&ctx_compute->base, &fw_compute_context->cdm_context,
 				   PVR_FWIF_DM_CDM, args->priority, MAX_DEADLINE_MS,
 				   ctx_compute->base.ctx_id, ctx_compute->ctx_state_obj,
@@ -415,6 +726,7 @@ pvr_fini_compute_context(struct pvr_context_compute *ctx_compute)
 	struct pvr_context *ctx = from_pvr_context_compute(ctx_compute);
 
 	pvr_fini_fw_common_context(ctx);
+	pvr_context_queue_fini(&ctx_compute->queue);
 	pvr_fw_object_release(ctx_compute->fw_obj);
 	pvr_fw_object_release(ctx_compute->ctx_state_obj);
 	pvr_cccb_fini(&ctx_compute->cccb);
@@ -469,6 +781,11 @@ pvr_init_transfer_context(struct pvr_file *pvr_file, struct pvr_context_transfer
 		goto err_destroy_ctx_state_obj;
 	}
 
+	err = pvr_context_queue_init(pvr_dev, &ctx_transfer->queue,
+				     PVR_CONTEXT_QUEUE_TYPE_TRANSFER);
+	if (err)
+		goto err_destroy_ctx_state_obj;
+
 	pvr_init_fw_common_context(&ctx_transfer->base, &fw_transfer_context->tq_context,
 				   PVR_FWIF_DM_FRAG, args->priority, MAX_DEADLINE_MS,
 				   ctx_transfer->base.ctx_id, ctx_transfer->ctx_state_obj,
@@ -497,6 +814,7 @@ pvr_fini_transfer_context(struct pvr_context_transfer *ctx_transfer)
 	struct pvr_context *ctx = from_pvr_context_transfer(ctx_transfer);
 
 	pvr_fini_fw_common_context(ctx);
+	pvr_context_queue_fini(&ctx_transfer->queue);
 	pvr_fw_object_release(ctx_transfer->fw_obj);
 	pvr_fw_object_release(ctx_transfer->ctx_state_obj);
 	pvr_cccb_fini(&ctx_transfer->cccb);
@@ -864,6 +1182,42 @@ err_out:
 }
 
 /**
+ * pvr_context_queue_fail_jobs() - Fail all outstanding jobs associated with a context queue
+ * @queue: Target PowerVR queue.
+ * @err: Error code.
+ *
+ * Returns:
+ *  * %true if any jobs were failed, or
+ *  * %false if there were no outstanding jobs.
+ */
+static bool
+pvr_context_queue_fail_jobs(struct pvr_context_queue *queue, int err)
+{
+	struct pvr_job *job, *tmp_job;
+	LIST_HEAD(failed_jobs);
+
+	spin_lock(&queue->jobs.lock);
+	list_for_each_entry_safe(job, tmp_job, &queue->jobs.in_flight, node)
+		list_move_tail(&job->node, &failed_jobs);
+
+	list_for_each_entry_safe(job, tmp_job, &queue->jobs.pending, node)
+		list_move_tail(&job->node, &failed_jobs);
+	spin_unlock(&queue->jobs.lock);
+
+	if (list_empty(&failed_jobs))
+		return false;
+
+	list_for_each_entry_safe(job, tmp_job, &failed_jobs, node) {
+		list_del(&job->node);
+		dma_fence_set_error(job->done_fence, err);
+		dma_fence_signal(job->done_fence);
+		pvr_job_put(job);
+	}
+
+	return true;
+}
+
+/**
  * pvr_context_fail_fences() - Fail all outstanding fences associated with a context
  * @ctx: Target PowerVR context.
  * @err: Error code.
@@ -880,19 +1234,151 @@ pvr_context_fail_fences(struct pvr_context *ctx, int err)
 	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
 		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
 
-		ret = pvr_fence_context_fail_fences(&ctx_render->ctx_geom.cccb.pvr_fence_context,
-						    err);
-		ret |= pvr_fence_context_fail_fences(&ctx_render->ctx_frag.cccb.pvr_fence_context,
-						     err);
+		ret = pvr_context_queue_fail_jobs(&ctx_render->ctx_geom.queue, err);
+		ret |= pvr_context_queue_fail_jobs(&ctx_render->ctx_frag.queue, err);
 	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
 		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
 
-		ret = pvr_fence_context_fail_fences(&ctx_compute->cccb.pvr_fence_context, err);
+		ret = pvr_context_queue_fail_jobs(&ctx_compute->queue, err);
 	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
 		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
 
-		ret = pvr_fence_context_fail_fences(&ctx_transfer->cccb.pvr_fence_context, err);
+		ret = pvr_context_queue_fail_jobs(&ctx_transfer->queue, err);
 	}
 
 	return ret;
+}
+
+/**
+ * pvr_context_queue_collect_done_jobs() - Collect all done jobs and add them to the list
+ * @queue: Queue to collect done jobs on.
+ * @done_jobs: List to queue these done jobs to.
+ *
+ * Collect all jobs whose sequence number is below the current timeline UFO sequence.
+ */
+static void
+pvr_context_queue_collect_done_jobs(struct pvr_context_queue *queue, struct list_head *done_jobs)
+{
+	struct pvr_job *job, *tmp_job;
+	u32 cur_seqno;
+
+	spin_lock(&queue->jobs.lock);
+	cur_seqno = *queue->fence_ctx->timeline_ufo.value;
+	list_for_each_entry_safe(job, tmp_job, &queue->jobs.in_flight, node) {
+		if (cur_seqno < job->done_fence->seqno)
+			break;
+
+		list_move_tail(&job->node, done_jobs);
+	}
+	spin_unlock(&queue->jobs.lock);
+}
+
+/**
+ * pvr_context_queue_collect_done_jobs() - Collect all done jobs and add them to the list
+ * @context: Context to collect done jobs on.
+ * @done_jobs: List to queue these done jobs to.
+ *
+ * Collect all jobs on all queues belonging to this context.
+ */
+static void
+pvr_context_collect_done_jobs(struct pvr_context *ctx, struct list_head *done_jobs)
+{
+	switch (ctx->type) {
+	case DRM_PVR_CTX_TYPE_RENDER:
+		pvr_context_queue_collect_done_jobs(&to_pvr_context_render(ctx)->ctx_geom.queue,
+						    done_jobs);
+		pvr_context_queue_collect_done_jobs(&to_pvr_context_render(ctx)->ctx_frag.queue,
+						    done_jobs);
+		break;
+
+	case DRM_PVR_CTX_TYPE_COMPUTE:
+		pvr_context_queue_collect_done_jobs(&to_pvr_context_compute(ctx)->queue,
+						    done_jobs);
+		break;
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG:
+		pvr_context_queue_collect_done_jobs(&to_pvr_context_transfer_frag(ctx)->queue,
+						    done_jobs);
+		break;
+
+	default:
+		break;
+	}
+}
+
+/**
+ * pvr_context_process_worker() - Called to process context updates when a FW interrupt is received
+ * @work: Work struct embedded in the context object.
+ *
+ * Right now, we simply iterate over all active contexts, collect done jobs and signal the
+ * fences attached to them. If more context processing is needed at some point, it can be done
+ * here as well.
+ */
+static void
+pvr_context_process_worker(struct work_struct *work)
+{
+	struct pvr_device *pvr_dev = container_of(work, struct pvr_device, context_work);
+	struct pvr_context *ctx, *tmp_ctx;
+	struct pvr_job *job, *tmp_job;
+	LIST_HEAD(done_jobs);
+
+	spin_lock(&pvr_dev->active_contexts.lock);
+	list_for_each_entry_safe(ctx, tmp_ctx, &pvr_dev->active_contexts.list, active_node) {
+		pvr_context_collect_done_jobs(ctx, &done_jobs);
+		if (!pvr_context_has_in_flight_jobs(ctx))
+			list_del_init(&ctx->active_node);
+	}
+	spin_unlock(&pvr_dev->active_contexts.lock);
+
+	list_for_each_entry_safe(job, tmp_job, &done_jobs, node) {
+		list_del(&job->node);
+		dma_fence_signal(job->done_fence);
+		pvr_job_put(job);
+	}
+}
+
+/**
+ * pvr_context_has_in_flight_jobs() - Check if a context has in-flight jobs
+ * @ctx: Context to check.
+ *
+ * Check if a context has in-flight jobs. Must be called with the
+ * active_contexts.lock held, since any modification to the in_flight list
+ * is protected by this lock.
+ *
+ * Returns:
+ *  * %true if the context has in-flight jobs, or
+ *  * %false otherwise.
+ */
+bool pvr_context_has_in_flight_jobs(struct pvr_context *ctx)
+{
+	lockdep_assert_held(&ctx->pvr_dev->active_contexts.lock);
+
+	switch (ctx->type) {
+	case DRM_PVR_CTX_TYPE_RENDER:
+		return !list_empty(&to_pvr_context_render(ctx)->ctx_geom.queue.jobs.in_flight) ||
+		       !list_empty(&to_pvr_context_render(ctx)->ctx_frag.queue.jobs.in_flight);
+
+	case DRM_PVR_CTX_TYPE_COMPUTE:
+		return !list_empty(&to_pvr_context_compute(ctx)->queue.jobs.in_flight);
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG:
+		return !list_empty(&to_pvr_context_transfer_frag(ctx)->queue.jobs.in_flight);
+
+	default:
+		return false;
+	}
+}
+
+/**
+ * pvr_context_device_init() - Context-related device initialization
+ * @pvr_dev: Device object being initialized.
+ *
+ * Initializes the active_contexts data and the context_work. More context-related
+ * initialization can be added here if needed.
+ */
+void pvr_context_device_init(struct pvr_device *pvr_dev)
+{
+	spin_lock_init(&pvr_dev->active_contexts.lock);
+	INIT_LIST_HEAD(&pvr_dev->active_contexts.list);
+	INIT_WORK(&pvr_dev->context_work, pvr_context_process_worker);
 }
