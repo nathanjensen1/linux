@@ -344,7 +344,7 @@ void pvr_job_submit(struct pvr_job *job)
 	if (qfence) {
 		pvr_gem_get_fw_addr(qfence->ctx->timeline_ufo.fw_obj, &queue_ufo.addr);
 		queue_ufo.value = job->deps.cur->seqno;
-		err = pvr_cccb_write_command_with_header(cccb, ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+		err = pvr_cccb_write_command_with_header(cccb, ROGUE_FWIF_CCB_CMD_TYPE_FENCE_PR,
 							 sizeof(queue_ufo), &queue_ufo, 0, 0);
 		if (WARN_ON(err))
 			goto err_cccb_unlock_rollback;
@@ -357,7 +357,7 @@ void pvr_job_submit(struct pvr_job *job)
 
 		pvr_gem_get_fw_addr(qfence->ctx->timeline_ufo.fw_obj, &queue_ufo.addr);
 		queue_ufo.value = fence->seqno;
-		err = pvr_cccb_write_command_with_header(cccb, ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
+		err = pvr_cccb_write_command_with_header(cccb, ROGUE_FWIF_CCB_CMD_TYPE_FENCE_PR,
 							 sizeof(queue_ufo), &queue_ufo, 0, 0);
 		if (WARN_ON(err))
 			goto err_cccb_unlock_rollback;
