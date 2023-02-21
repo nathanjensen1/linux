@@ -13,7 +13,6 @@
 #include <uapi/drm/pvr_drm.h>
 
 #include "pvr_device.h"
-#include "pvr_object.h"
 
 /* Forward declaration from pvr_gem.h. */
 struct pvr_fw_object;
@@ -46,10 +45,10 @@ struct pvr_free_list_node {
  * struct pvr_free_list - structure representing a free list
  */
 struct pvr_free_list {
-	/** @base: Object base structure. */
-	struct pvr_object base;
+	/** @ref_count: Reference count of object. */
+	struct kref ref_count;
 
-	/** @pvr_dev: Pointer to owning device. */
+	/** @pvr_dev: Pointer to device that owns this object. */
 	struct pvr_device *pvr_dev;
 
 	/** @obj: GEM object representing the free list. */
@@ -66,6 +65,9 @@ struct pvr_free_list {
 	 *        of the members below.
 	 */
 	struct mutex lock;
+
+	/** @fw_id: Firmware ID for this object. */
+	u32 fw_id;
 
 	/** @current_pages: Current number of pages in free list. */
 	u32 current_pages;
@@ -95,26 +97,24 @@ struct pvr_free_list {
 	struct list_head hwrt_list;
 };
 
-static __always_inline struct pvr_object *
-from_pvr_free_list(struct pvr_free_list *free_list)
-{
-	return &free_list->base;
-};
-
-static __always_inline struct pvr_free_list *
-to_pvr_free_list(struct pvr_object *obj)
-{
-	return container_of(obj, struct pvr_free_list, base);
-}
-
 struct pvr_free_list *
 pvr_free_list_create(struct pvr_file *pvr_file,
 		     struct drm_pvr_ioctl_create_free_list_args *args);
 
-void pvr_free_list_destroy(struct pvr_free_list *free_list);
+void
+pvr_destroy_free_lists_for_file(struct pvr_file *pvr_file);
 
 u32
 pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
+
+static __always_inline struct pvr_free_list *
+pvr_free_list_get(struct pvr_free_list *free_list)
+{
+	if (free_list)
+		kref_get(&free_list->ref_count);
+
+	return free_list;
+}
 
 /**
  * pvr_free_list_lookup() - Lookup free list pointer from handle and file
@@ -131,16 +131,13 @@ pvr_get_free_list_min_pages(struct pvr_device *pvr_dev);
 static __always_inline struct pvr_free_list *
 pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
+	struct pvr_free_list *free_list;
 
-	if (obj) {
-		if (obj->type == PVR_OBJECT_TYPE_FREE_LIST)
-			return to_pvr_free_list(obj);
+	xa_lock(&pvr_file->free_list_handles);
+	free_list = pvr_free_list_get(xa_load(&pvr_file->free_list_handles, handle));
+	xa_unlock(&pvr_file->free_list_handles);
 
-		pvr_object_put(obj);
-	}
-
-	return NULL;
+	return free_list;
 }
 
 /**
@@ -157,27 +154,17 @@ pvr_free_list_lookup(struct pvr_file *pvr_file, u32 handle)
 static __always_inline struct pvr_free_list *
 pvr_free_list_lookup_id(struct pvr_device *pvr_dev, u32 id)
 {
-	struct pvr_object *obj = pvr_object_lookup_id(pvr_dev, id);
+	struct pvr_free_list *free_list;
 
-	if (obj) {
-		if (obj->type == PVR_OBJECT_TYPE_FREE_LIST)
-			return to_pvr_free_list(obj);
+	xa_lock(&pvr_dev->free_list_ids);
+	free_list = pvr_free_list_get(xa_load(&pvr_dev->free_list_ids, id));
+	xa_unlock(&pvr_dev->free_list_ids);
 
-		pvr_object_put(obj);
-	}
-
-	return NULL;
+	return free_list;
 }
 
-/**
- * pvr_free_list_put() - Release reference on free list
- * @free_list: Pointer to list to release reference on
- */
-static __always_inline void
-pvr_free_list_put(struct pvr_free_list *free_list)
-{
-	pvr_object_put(&free_list->base);
-}
+void
+pvr_free_list_put(struct pvr_free_list *free_list);
 
 void
 pvr_free_list_add_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data);

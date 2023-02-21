@@ -237,12 +237,12 @@ struct pvr_device {
 	struct xarray ctx_ids;
 
 	/**
-	 * @obj_ids: Array of objects belonging to this device. Array members
-	 *           are of type "struct pvr_object *".
+	 * @free_list_ids: Array of free lists belonging to this device. Array members
+	 *                 are of type "struct pvr_free_list *".
 	 *
 	 * This array is used to allocate IDs used by the firmware.
 	 */
-	struct xarray obj_ids;
+	struct xarray free_list_ids;
 
 	/**
 	 * @jobs_ids: Array of objects belonging to this device. Array members
@@ -289,12 +289,20 @@ struct pvr_file {
 	struct xarray ctx_handles;
 
 	/**
-	 * @obj_handles: Array of objects belonging to this file. Array members
-	 *               are of type "struct pvr_object *".
+	 * @free_list_handles: Array of free lists belonging to this file. Array
+	 * members are of type "struct pvr_free_list *".
 	 *
 	 * This array is used to allocate handles returned to userspace.
 	 */
-	struct xarray obj_handles;
+	struct xarray free_list_handles;
+
+	/**
+	 * @hwrt_handles: Array of HWRT datasets belonging to this file. Array
+	 * members are of type "struct pvr_hwrt_dataset *".
+	 *
+	 * This array is used to allocate handles returned to userspace.
+	 */
+	struct xarray hwrt_handles;
 };
 
 /**

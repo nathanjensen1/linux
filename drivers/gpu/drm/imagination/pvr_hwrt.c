@@ -47,7 +47,6 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 	int err;
 	int i;
 
-	hwrt->base.type = PVR_OBJECT_TYPE_HWRT_DATASET;
 	hwrt->pvr_dev = pvr_dev;
 
 	/* Get pointers to the free lists */
@@ -69,10 +68,8 @@ hwrt_init_kernel_structure(struct pvr_file *pvr_file,
 
 err_put_free_lists:
 	for (i = 0; i < ARRAY_SIZE(hwrt->free_lists); i++) {
-		if (hwrt->free_lists[i]) {
-			pvr_free_list_put(hwrt->free_lists[i]);
-			hwrt->free_lists[i] = NULL;
-		}
+		pvr_free_list_put(hwrt->free_lists[i]);
+		hwrt->free_lists[i] = NULL;
 	}
 
 	return err;
@@ -84,10 +81,8 @@ hwrt_fini_kernel_structure(struct pvr_hwrt_dataset *hwrt)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(hwrt->free_lists); i++) {
-		if (hwrt->free_lists[i]) {
-			pvr_free_list_put(hwrt->free_lists[i]);
-			hwrt->free_lists[i] = NULL;
-		}
+		pvr_free_list_put(hwrt->free_lists[i]);
+		hwrt->free_lists[i] = NULL;
 	}
 }
 
@@ -471,22 +466,18 @@ pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
 	/* Create and fill out the kernel structure */
 	hwrt = kzalloc(sizeof(*hwrt), GFP_KERNEL);
 
-	if (!hwrt) {
-		err = -ENOMEM;
-		goto err_out;
-	}
+	if (!hwrt)
+		return ERR_PTR(-ENOMEM);
 
-	err = pvr_object_common_init(pvr_file, &hwrt->base);
-	if (err)
-		goto err_free;
+	kref_init(&hwrt->ref_count);
 
 	err = hwrt_init_kernel_structure(pvr_file, args, hwrt);
 	if (err < 0)
-		goto err_common_fini;
+		goto err_free;
 
 	err = hwrt_init_common_fw_structure(pvr_file, args, hwrt);
 	if (err < 0)
-		goto err_destroy_kernel_structure;
+		goto err_free;
 
 	for (int i = 0; i < ARRAY_SIZE(hwrt->data); i++) {
 		err = hwrt_data_init_fw_structure(pvr_file, hwrt, args,
@@ -497,7 +488,7 @@ pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
 			/* Destroy already created structures. */
 			for (; i >= 0; i--)
 				hwrt_data_fini_fw_structure(hwrt, i);
-			goto err_destroy_common_fw_structure;
+			goto err_free;
 		}
 
 		hwrt->data[i].hwrt_dataset = hwrt;
@@ -505,36 +496,20 @@ pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
 
 	return hwrt;
 
-err_destroy_common_fw_structure:
-	hwrt_fini_common_fw_structure(hwrt);
-
-err_destroy_kernel_structure:
-	hwrt_fini_kernel_structure(hwrt);
-
-err_common_fini:
-	pvr_object_common_fini(&hwrt->base);
-
 err_free:
-	kfree(hwrt);
+	pvr_hwrt_dataset_put(hwrt);
 
-err_out:
 	return ERR_PTR(err);
 }
 
-/**
- * pvr_hwrt_dataset_destroy() - Destroy a HWRT data set
- * @hwrt: HWRT pointer
- *
- * This should not be called directly. HWRT references should be dropped via pvr_hwrt_dataset_put().
- */
-void
-pvr_hwrt_dataset_destroy(struct pvr_hwrt_dataset *hwrt)
+static void
+pvr_hwrt_dataset_release(struct kref *ref_count)
 {
-	struct pvr_device *pvr_dev = hwrt->pvr_dev;
-	int i;
+	struct pvr_hwrt_dataset *hwrt =
+		container_of(ref_count, struct pvr_hwrt_dataset, ref_count);
 
-	for (i = ARRAY_SIZE(hwrt->data) - 1; i >= 0; i--) {
-		WARN_ON(pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_HWRTDATA,
+	for (int i = ARRAY_SIZE(hwrt->data) - 1; i >= 0; i--) {
+		WARN_ON(pvr_object_cleanup(hwrt->pvr_dev, ROGUE_FWIF_CLEANUP_HWRTDATA,
 					   hwrt->data[i].fw_obj, 0));
 		hwrt_data_fini_fw_structure(hwrt, i);
 	}
@@ -543,4 +518,35 @@ pvr_hwrt_dataset_destroy(struct pvr_hwrt_dataset *hwrt)
 	hwrt_fini_kernel_structure(hwrt);
 
 	kfree(hwrt);
+}
+
+/**
+ * pvr_destroy_hwrt_datasets_for_file: Destroy any HWRT datasets associated
+ * with the given file.
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Removes all HWRT datasets associated with @pvr_file from the device
+ * hwrt_dataset list and drops initial references. HWRT datasets will then be
+ * destroyed once all outstanding references are dropped.
+ */
+void pvr_destroy_hwrt_datasets_for_file(struct pvr_file *pvr_file)
+{
+	struct pvr_hwrt_dataset *hwrt;
+	unsigned long handle;
+
+	xa_for_each(&pvr_file->hwrt_handles, handle, hwrt) {
+		(void)hwrt;
+		pvr_hwrt_dataset_put(xa_erase(&pvr_file->hwrt_handles, handle));
+	}
+}
+
+/**
+ * pvr_hwrt_dataset_put() - Release reference on HWRT dataset
+ * @hwrt: Pointer to HWRT dataset to release reference on
+ */
+void
+pvr_hwrt_dataset_put(struct pvr_hwrt_dataset *hwrt)
+{
+	if (hwrt)
+		kref_put(&hwrt->ref_count, pvr_hwrt_dataset_release);
 }

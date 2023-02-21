@@ -85,16 +85,12 @@ free_list_create_kernel_structure(struct pvr_file *pvr_file,
 		goto err_put_free_list_obj;
 	}
 
-	free_list->base.type = PVR_OBJECT_TYPE_FREE_LIST;
 	free_list->pvr_dev = pvr_file->pvr_dev;
 	free_list->current_pages = 0;
 	free_list->max_pages = args->max_num_pages;
 	free_list->grow_pages = args->grow_num_pages;
 	free_list->grow_threshold = args->grow_threshold;
-	INIT_LIST_HEAD(&free_list->mem_block_list);
-	INIT_LIST_HEAD(&free_list->hwrt_list);
 	free_list->obj = free_list_obj;
-	mutex_init(&free_list->lock);
 
 	err = pvr_gem_object_get_pages(free_list->obj);
 	if (err < 0)
@@ -201,7 +197,7 @@ free_list_create_fw_structure(struct pvr_file *pvr_file,
 	fw_data->current_pages = args->initial_num_pages - ready_pages;
 	fw_data->grow_pages = free_list->grow_pages;
 	fw_data->ready_pages = ready_pages;
-	fw_data->freelist_id = free_list->base.fw_id;
+	fw_data->freelist_id = free_list->fw_id;
 	fw_data->grow_pending = false;
 	fw_data->current_stack_top = fw_data->current_pages - 1;
 	fw_data->freelist_dev_addr = args->free_list_gpu_addr;
@@ -396,56 +392,51 @@ pvr_free_list_create(struct pvr_file *pvr_file,
 	/* Create and fill out the kernel structure */
 	free_list = kzalloc(sizeof(*free_list), GFP_KERNEL);
 
-	if (!free_list) {
-		err = -ENOMEM;
-		goto err_out;
-	}
+	if (!free_list)
+		return ERR_PTR(-ENOMEM);
 
-	err = pvr_object_common_init(pvr_file, &free_list->base);
-	if (err < 0)
-		goto err_free;
+	kref_init(&free_list->ref_count);
+	INIT_LIST_HEAD(&free_list->mem_block_list);
+	INIT_LIST_HEAD(&free_list->hwrt_list);
+	mutex_init(&free_list->lock);
 
 	err = free_list_create_kernel_structure(pvr_file, args, free_list);
 	if (err < 0)
-		goto err_common_fini;
+		goto err_free;
+
+	/* Allocate global object ID for firmware. */
+	err = xa_alloc(&pvr_file->pvr_dev->free_list_ids,
+		       &free_list->fw_id,
+		       free_list,
+		       xa_limit_32b,
+		       GFP_KERNEL);
+	if (err)
+		goto err_free;
 
 	err = free_list_create_fw_structure(pvr_file, args, free_list);
 	if (err < 0)
-		goto err_destroy_kernel_structure;
+		goto err_free;
 
 	err = pvr_free_list_grow(free_list, args->initial_num_pages);
 	if (err < 0)
-		goto err_destroy_fw_structure;
+		goto err_free;
 
 	return free_list;
 
-err_destroy_fw_structure:
-	free_list_destroy_fw_structure(free_list);
-
-err_destroy_kernel_structure:
-	free_list_destroy_kernel_structure(free_list);
-
-err_common_fini:
-	pvr_object_common_fini(&free_list->base);
-
 err_free:
-	kfree(free_list);
+	pvr_free_list_put(free_list);
 
-err_out:
 	return ERR_PTR(err);
 }
 
-/**
- * pvr_free_list_destroy() - Destroy a free list
- * @free_list: Free list to be destroyed.
- *
- * This should not be called directly. Free list references should be dropped via
- * pvr_free_list_put().
- */
 void
-pvr_free_list_destroy(struct pvr_free_list *free_list)
+pvr_free_list_release(struct kref *ref_count)
 {
+	struct pvr_free_list *free_list =
+		container_of(ref_count, struct pvr_free_list, ref_count);
 	struct list_head *pos, *n;
+
+	xa_erase(&free_list->pvr_dev->free_list_ids, free_list->fw_id);
 
 	WARN_ON(pvr_object_cleanup(free_list->pvr_dev, ROGUE_FWIF_CLEANUP_FREELIST,
 				   free_list->fw_obj, 0));
@@ -462,7 +453,39 @@ pvr_free_list_destroy(struct pvr_free_list *free_list)
 
 	free_list_destroy_kernel_structure(free_list);
 	free_list_destroy_fw_structure(free_list);
+	mutex_destroy(&free_list->lock);
 	kfree(free_list);
+}
+
+/**
+ * pvr_destroy_free_lists_for_file: Destroy any free lists associated with the
+ * given file.
+ * @pvr_file: Pointer to pvr_file structure.
+ *
+ * Removes all free lists associated with @pvr_file from the device free_list
+ * list and drops initial references. Free lists will then be destroyed once
+ * all outstanding references are dropped.
+ */
+void pvr_destroy_free_lists_for_file(struct pvr_file *pvr_file)
+{
+	struct pvr_free_list *free_list;
+	unsigned long handle;
+
+	xa_for_each(&pvr_file->free_list_handles, handle, free_list) {
+		(void)free_list;
+		pvr_free_list_put(xa_erase(&pvr_file->free_list_handles, handle));
+	}
+}
+
+/**
+ * pvr_free_list_put() - Release reference on free list
+ * @free_list: Pointer to list to release reference on
+ */
+void
+pvr_free_list_put(struct pvr_free_list *free_list)
+{
+	if (free_list)
+		kref_put(&free_list->ref_count, pvr_free_list_release);
 }
 
 void pvr_free_list_add_hwrt(struct pvr_free_list *free_list, struct pvr_hwrt_data *hwrt_data)

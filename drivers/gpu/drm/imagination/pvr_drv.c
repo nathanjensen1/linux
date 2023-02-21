@@ -10,7 +10,6 @@
 #include "pvr_gem.h"
 #include "pvr_hwrt.h"
 #include "pvr_job.h"
-#include "pvr_object.h"
 #include "pvr_power.h"
 #include "pvr_rogue_fwif_client.h"
 #include "pvr_rogue_fwif_shared.h"
@@ -666,9 +665,9 @@ pvr_ioctl_create_free_list(struct drm_device *drm_dev, void *raw_args,
 	}
 
 	/* Allocate object handle for userspace. */
-	err = xa_alloc(&pvr_file->obj_handles,
+	err = xa_alloc(&pvr_file->free_list_handles,
 		       &args->handle,
-		       &free_list->base,
+		       free_list,
 		       xa_limit_32b,
 		       GFP_KERNEL);
 	if (err < 0)
@@ -702,19 +701,16 @@ pvr_ioctl_destroy_free_list(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_destroy_free_list_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
-	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, args->handle);
+	struct pvr_free_list *free_list;
 
 	if (args->_padding_4)
 		return -EINVAL;
 
-	if (!obj)
+	free_list = xa_erase(&pvr_file->free_list_handles, args->handle);
+	if (!free_list)
 		return -EINVAL;
 
-	if (obj->type != PVR_OBJECT_TYPE_FREE_LIST)
-		return -EINVAL;
-
-	pvr_object_put(obj);
-	xa_erase(&pvr_file->obj_handles, args->handle);
+	pvr_free_list_put(free_list);
 	return 0;
 }
 
@@ -747,9 +743,9 @@ pvr_ioctl_create_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
 	}
 
 	/* Allocate object handle for userspace. */
-	err = xa_alloc(&pvr_file->obj_handles,
+	err = xa_alloc(&pvr_file->hwrt_handles,
 		       &args->handle,
-		       &hwrt->base,
+		       hwrt,
 		       xa_limit_32b,
 		       GFP_KERNEL);
 	if (err < 0)
@@ -783,19 +779,16 @@ pvr_ioctl_destroy_hwrt_dataset(struct drm_device *drm_dev, void *raw_args,
 {
 	struct drm_pvr_ioctl_destroy_hwrt_dataset_args *args = raw_args;
 	struct pvr_file *pvr_file = to_pvr_file(file);
-	struct pvr_object *obj = xa_load(&pvr_file->obj_handles, args->handle);
+	struct pvr_hwrt_dataset *hwrt;
 
 	if (args->_padding_4)
 		return -EINVAL;
 
-	if (!obj)
+	hwrt = xa_erase(&pvr_file->hwrt_handles, args->handle);
+	if (!hwrt)
 		return -EINVAL;
 
-	if (obj->type != PVR_OBJECT_TYPE_HWRT_DATASET)
-		return -EINVAL;
-
-	pvr_object_put(obj);
-	xa_erase(&pvr_file->obj_handles, args->handle);
+	pvr_hwrt_dataset_put(hwrt);
 	return 0;
 }
 
@@ -1039,7 +1032,8 @@ pvr_drm_driver_open(struct drm_device *drm_dev, struct drm_file *file)
 	}
 
 	xa_init_flags(&pvr_file->ctx_handles, XA_FLAGS_ALLOC1);
-	xa_init_flags(&pvr_file->obj_handles, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_file->free_list_handles, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_file->hwrt_handles, XA_FLAGS_ALLOC1);
 
 	/*
 	 * Store reference to powervr-specific file private data in DRM file
@@ -1082,7 +1076,8 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 	/* clang-format on */
 
 	/* Drop references on any remaining objects. */
-	pvr_destroy_objects_for_file(pvr_file);
+	pvr_destroy_free_lists_for_file(pvr_file);
+	pvr_destroy_hwrt_datasets_for_file(pvr_file);
 
 	/* Drop references on any remaining contexts. */
 	pvr_destroy_contexts_for_file(pvr_file);
@@ -1169,7 +1164,7 @@ pvr_probe(struct platform_device *plat_dev)
 		goto err_device_fini;
 
 	xa_init_flags(&pvr_dev->ctx_ids, XA_FLAGS_ALLOC1);
-	xa_init_flags(&pvr_dev->obj_ids, XA_FLAGS_ALLOC1);
+	xa_init_flags(&pvr_dev->free_list_ids, XA_FLAGS_ALLOC1);
 	xa_init_flags(&pvr_dev->job_ids, XA_FLAGS_ALLOC1);
 
 	return 0;
@@ -1195,11 +1190,11 @@ pvr_remove(struct platform_device *plat_dev)
 	struct pvr_device *pvr_dev = to_pvr_device(drm_dev);
 
 	WARN_ON(!xa_empty(&pvr_dev->job_ids));
-	WARN_ON(!xa_empty(&pvr_dev->obj_ids));
+	WARN_ON(!xa_empty(&pvr_dev->free_list_ids));
 	WARN_ON(!xa_empty(&pvr_dev->ctx_ids));
 
 	xa_destroy(&pvr_dev->job_ids);
-	xa_destroy(&pvr_dev->obj_ids);
+	xa_destroy(&pvr_dev->free_list_ids);
 	xa_destroy(&pvr_dev->ctx_ids);
 
 	drm_dev_unregister(drm_dev);

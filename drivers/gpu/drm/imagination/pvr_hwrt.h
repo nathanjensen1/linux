@@ -12,7 +12,6 @@
 #include <uapi/drm/pvr_drm.h>
 
 #include "pvr_device.h"
-#include "pvr_object.h"
 #include "pvr_rogue_fwif_shared.h"
 
 /* Forward declaration from pvr_free_list.h. */
@@ -56,10 +55,10 @@ struct pvr_hwrt_data {
  * struct pvr_hwrt_dataset - structure representing a HWRT data set.
  */
 struct pvr_hwrt_dataset {
-	/** @base: Object base structure. */
-	struct pvr_object base;
+	/** @ref_count: Reference count of object. */
+	struct kref ref_count;
 
-	/** @pvr_dev: Pointer to owning device. */
+	/** @pvr_dev: Pointer to device that owns this object. */
 	struct pvr_device *pvr_dev;
 
 	/** @common_fw_obj: FW object representing common FW-side structure. */
@@ -79,19 +78,8 @@ struct pvr_hwrt_dataset *
 pvr_hwrt_dataset_create(struct pvr_file *pvr_file,
 			struct drm_pvr_ioctl_create_hwrt_dataset_args *args);
 
-void pvr_hwrt_dataset_destroy(struct pvr_hwrt_dataset *hwrt);
-
-static __always_inline struct pvr_object *
-from_pvr_hwrt_dataset(struct pvr_hwrt_dataset *hwrt)
-{
-	return &hwrt->base;
-};
-
-static __always_inline struct pvr_hwrt_dataset *
-to_pvr_hwrt_dataset(struct pvr_object *obj)
-{
-	return container_of(obj, struct pvr_hwrt_dataset, base);
-}
+void
+pvr_destroy_hwrt_datasets_for_file(struct pvr_file *pvr_file);
 
 /**
  * pvr_hwrt_dataset_lookup() - Lookup HWRT dataset pointer from handle
@@ -108,27 +96,21 @@ to_pvr_hwrt_dataset(struct pvr_object *obj)
 static __always_inline struct pvr_hwrt_dataset *
 pvr_hwrt_dataset_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_object *obj = pvr_object_lookup(pvr_file, handle);
+	struct pvr_hwrt_dataset *hwrt;
 
-	if (obj) {
-		if (obj->type == PVR_OBJECT_TYPE_HWRT_DATASET)
-			return to_pvr_hwrt_dataset(obj);
+	xa_lock(&pvr_file->hwrt_handles);
+	hwrt = xa_load(&pvr_file->hwrt_handles, handle);
 
-		pvr_object_put(obj);
-	}
+	if (hwrt)
+		kref_get(&hwrt->ref_count);
 
-	return NULL;
+	xa_unlock(&pvr_file->hwrt_handles);
+
+	return hwrt;
 }
 
-/**
- * pvr_hwrt_dataset_put() - Release reference on HWRT dataset
- * @hwrt: Pointer to HWRT dataset to release reference on
- */
-static __always_inline void
-pvr_hwrt_dataset_put(struct pvr_hwrt_dataset *hwrt)
-{
-	pvr_object_put(&hwrt->base);
-}
+void
+pvr_hwrt_dataset_put(struct pvr_hwrt_dataset *hwrt);
 
 /**
  * pvr_hwrt_data_lookup() - Lookup HWRT data pointer from handle and index
@@ -165,7 +147,17 @@ pvr_hwrt_data_lookup(struct pvr_file *pvr_file, u32 handle, u32 index)
 static __always_inline void
 pvr_hwrt_data_put(struct pvr_hwrt_data *hwrt)
 {
-	pvr_hwrt_dataset_put(hwrt->hwrt_dataset);
+	if (hwrt)
+		pvr_hwrt_dataset_put(hwrt->hwrt_dataset);
+}
+
+static __always_inline struct pvr_hwrt_data *
+pvr_hwrt_data_get(struct pvr_hwrt_data *hwrt)
+{
+	if (hwrt)
+		kref_get(&hwrt->hwrt_dataset->ref_count);
+
+	return hwrt;
 }
 
 #endif /* __PVR_HWRT_H__ */
