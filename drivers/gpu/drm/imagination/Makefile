@@ -21,7 +21,6 @@ powervr-y := \
 	pvr_gem.o \
 	pvr_hwrt.o \
 	pvr_job.o \
-	pvr_object.o \
 	pvr_params.o \
 	pvr_power.o \
 	pvr_stream.o \

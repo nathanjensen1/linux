@@ -4,7 +4,6 @@
 #include "pvr_free_list.h"
 #include "pvr_gem.h"
 #include "pvr_hwrt.h"
-#include "pvr_object.h"
 #include "pvr_rogue_fwif.h"
 #include "pvr_vm.h"
 
@@ -438,8 +437,8 @@ pvr_free_list_release(struct kref *ref_count)
 
 	xa_erase(&free_list->pvr_dev->free_list_ids, free_list->fw_id);
 
-	WARN_ON(pvr_object_cleanup(free_list->pvr_dev, ROGUE_FWIF_CLEANUP_FREELIST,
-				   free_list->fw_obj, 0));
+	WARN_ON(pvr_fw_structure_cleanup(free_list->pvr_dev, ROGUE_FWIF_CLEANUP_FREELIST,
+					 free_list->fw_obj, 0));
 
 	/* clang-format off */
 	list_for_each_safe(pos, n, &free_list->mem_block_list) {

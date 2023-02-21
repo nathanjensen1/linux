@@ -338,4 +338,8 @@ pvr_fw_find_mmu_segment(u32 addr, u32 size, const struct pvr_fw_layout_entry *la
 			void *fw_core_code_ptr, void *fw_core_data_ptr,
 			void **host_addr_out);
 
+int
+pvr_fw_structure_cleanup(struct pvr_device *pvr_dev, u32 type, struct pvr_fw_object *fw_obj,
+			 u32 offset);
+
 #endif /* __PVR_FW_H__ */

@@ -4,7 +4,6 @@
 #include "pvr_free_list.h"
 #include "pvr_hwrt.h"
 #include "pvr_gem.h"
-#include "pvr_object.h"
 #include "pvr_rogue_cr_defs_client.h"
 #include "pvr_rogue_fwif.h"
 
@@ -509,8 +508,8 @@ pvr_hwrt_dataset_release(struct kref *ref_count)
 		container_of(ref_count, struct pvr_hwrt_dataset, ref_count);
 
 	for (int i = ARRAY_SIZE(hwrt->data) - 1; i >= 0; i--) {
-		WARN_ON(pvr_object_cleanup(hwrt->pvr_dev, ROGUE_FWIF_CLEANUP_HWRTDATA,
-					   hwrt->data[i].fw_obj, 0));
+		WARN_ON(pvr_fw_structure_cleanup(hwrt->pvr_dev, ROGUE_FWIF_CLEANUP_HWRTDATA,
+						 hwrt->data[i].fw_obj, 0));
 		hwrt_data_fini_fw_structure(hwrt, i);
 	}
 

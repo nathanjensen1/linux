@@ -5,7 +5,7 @@
 #include "pvr_context.h"
 #include "pvr_device.h"
 #include "pvr_gem.h"
-#include "pvr_object.h"
+#include "pvr_job.h"
 #include "pvr_rogue_fwif.h"
 #include "pvr_rogue_fwif_common.h"
 #include "pvr_rogue_fwif_resetframework.h"
@@ -803,19 +803,20 @@ pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout)
 		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
 
 		do {
-			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						 ctx_render->fw_obj,
-						 offsetof(struct rogue_fwif_fwrendercontext,
-							  geom_context));
+			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						       ctx_render->fw_obj,
+						       offsetof(struct rogue_fwif_fwrendercontext,
+								geom_context));
 			if (err && err != -EBUSY)
 				goto err_out;
 
 			if (!err) {
-				err = pvr_object_cleanup(pvr_dev,
-							 ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-							 ctx_render->fw_obj,
-							 offsetof(struct rogue_fwif_fwrendercontext,
-								  frag_context));
+				const size_t offset_frag_ctx =
+					offsetof(struct rogue_fwif_fwrendercontext, frag_context);
+				err = pvr_fw_structure_cleanup(pvr_dev,
+							       ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+							       ctx_render->fw_obj,
+							       offset_frag_ctx);
 				if (err && err != -EBUSY)
 					goto err_out;
 			}
@@ -827,10 +828,10 @@ pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout)
 		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
 
 		do {
-			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						 ctx_compute->fw_obj,
-						 offsetof(struct rogue_fwif_fwcomputecontext,
-							  cdm_context));
+			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						       ctx_compute->fw_obj,
+						       offsetof(struct rogue_fwif_fwcomputecontext,
+								cdm_context));
 			if (err && err != -EBUSY)
 				goto err_out;
 			if (err)
@@ -840,10 +841,11 @@ pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout)
 		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
 
 		do {
-			err = pvr_object_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						 ctx_transfer->fw_obj,
-						 offsetof(struct rogue_fwif_fwtransfercontext,
-							  tq_context));
+			const size_t offset_tq_ctx =
+				offsetof(struct rogue_fwif_fwtransfercontext, tq_context);
+			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+						       ctx_transfer->fw_obj,
+						       offset_tq_ctx);
 			if (err && err != -EBUSY)
 				goto err_out;
 			if (err)
