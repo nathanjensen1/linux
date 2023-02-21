@@ -343,7 +343,7 @@ void pvr_job_submit(struct pvr_job *job)
 	WARN_ON(job->deps.cur && !qfence);
 	if (qfence) {
 		pvr_gem_get_fw_addr(qfence->ctx->timeline_ufo.fw_obj, &queue_ufo.addr);
-		queue_ufo.value = fence->seqno;
+		queue_ufo.value = job->deps.cur->seqno;
 		err = pvr_cccb_write_command_with_header(cccb, ROGUE_FWIF_CCB_CMD_TYPE_FENCE,
 							 sizeof(queue_ufo), &queue_ufo, 0, 0);
 		if (WARN_ON(err))
