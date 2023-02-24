@@ -192,6 +192,9 @@ struct pvr_context {
 
 	/** @job_pending: Job pending worker, used to evalulate job dependencies. */
 	struct work_struct job_pending_work;
+
+	/** @destroyed: True when the context has been destroyed. */
+	atomic_t destroyed;
 };
 
 /**
@@ -395,10 +398,6 @@ pvr_context_queue_fence_ctx_from_fence(struct dma_fence *fence);
 void pvr_context_put(struct pvr_context *ctx);
 
 int pvr_context_destroy(struct pvr_file *pvr_file, u32 handle);
-
-int pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout);
-
-bool pvr_context_fail_fences(struct pvr_context *ctx, int err);
 
 void pvr_destroy_contexts_for_file(struct pvr_file *pvr_file);
 

@@ -1155,23 +1155,14 @@ pvr_drm_driver_postclose(__always_unused struct drm_device *drm_dev,
 			 struct drm_file *file)
 {
 	struct pvr_file *pvr_file = to_pvr_file(file);
-	struct pvr_context *ctx;
-	unsigned long handle;
 
-	/* clang-format off */
-	xa_for_each(&pvr_file->ctx_handles, handle, ctx) {
-		WARN_ON(pvr_context_wait_idle(ctx, HZ));
-		WARN_ON(pvr_context_fail_fences(ctx, -ENODEV));
-	}
-	/* clang-format on */
+	/* Kill remaining contexts. */
+	pvr_destroy_contexts_for_file(pvr_file);
 
 	/* Drop references on any remaining objects. */
 	pvr_destroy_free_lists_for_file(pvr_file);
 	pvr_destroy_hwrt_datasets_for_file(pvr_file);
 	pvr_destroy_vm_contexts_for_file(pvr_file);
-
-	/* Drop references on any remaining contexts. */
-	pvr_destroy_contexts_for_file(pvr_file);
 
 	kfree(pvr_file);
 	file->driver_priv = NULL;

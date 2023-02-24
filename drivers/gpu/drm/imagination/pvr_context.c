@@ -30,6 +30,174 @@
 #define CTX_GEOM_CCCB_SIZE_LOG2 15
 #define CTX_TRANSFER_CCCB_SIZE_LOG2 15
 
+static struct pvr_context *
+queue_to_ctx(struct pvr_context_queue *queue)
+{
+	switch (queue->fence_ctx->type) {
+	case PVR_CONTEXT_QUEUE_TYPE_GEOMETRY:
+		return &container_of(queue, struct pvr_context_render, ctx_geom.queue)->base;
+
+	case PVR_CONTEXT_QUEUE_TYPE_FRAGMENT:
+		return &container_of(queue, struct pvr_context_render, ctx_frag.queue)->base;
+
+	case PVR_CONTEXT_QUEUE_TYPE_COMPUTE:
+		return &container_of(queue, struct pvr_context_compute, queue)->base;
+
+	case PVR_CONTEXT_QUEUE_TYPE_TRANSFER:
+		return &container_of(queue, struct pvr_context_transfer, queue)->base;
+
+	default:
+		return NULL;
+	}
+}
+
+static void
+pvr_context_queue_cancel_pending_jobs(struct pvr_context_queue *queue)
+{
+	struct pvr_job *job, *tmp_job;
+	LIST_HEAD(cancel_jobs);
+
+	spin_lock(&queue->jobs.lock);
+	list_for_each_entry_safe(job, tmp_job, &queue->jobs.pending, node)
+		list_move_tail(&job->node, &cancel_jobs);
+	spin_unlock(&queue->jobs.lock);
+
+	list_for_each_entry_safe(job, tmp_job, &cancel_jobs, node) {
+		list_del(&job->node);
+		dma_fence_set_error(job->done_fence, -ECANCELED);
+		dma_fence_signal(job->done_fence);
+		pvr_job_put(job);
+	}
+}
+
+static void
+pvr_context_queue_cancel_inflight_jobs(struct pvr_context_queue *queue)
+{
+	/* Signal in_flight job fences. We keep the jobs around to retain the
+	 * context until the FW object backing this context is idle and ready
+	 * for cleanup.
+	 */
+	while (true) {
+		struct dma_fence *done_fence = NULL;
+		struct pvr_job *job;
+		unsigned long flags;
+
+		spin_lock(&queue->jobs.lock);
+		list_for_each_entry_reverse(job, &queue->jobs.in_flight, node) {
+			/* Grab the fence, so it doesn't disappear after we released the lock. */
+			if (!dma_fence_is_signaled(job->done_fence)) {
+				done_fence = dma_fence_get(job->done_fence);
+				break;
+			}
+		}
+		spin_unlock(&queue->jobs.lock);
+
+		if (!done_fence)
+			break;
+
+		spin_lock_irqsave(done_fence->lock, flags);
+
+		/* pvr_context_queue_collect_done_jobs() might have signaled the fence
+		 * when we get there, hence the is_signaled() check.:
+		 */
+		if (!dma_fence_is_signaled_locked(done_fence)) {
+			dma_fence_set_error(done_fence, -ECANCELED);
+			dma_fence_signal_locked(done_fence);
+		}
+		spin_unlock_irqrestore(done_fence->lock, flags);
+
+		dma_fence_put(done_fence);
+	}
+}
+
+static void
+pvr_context_cancel_inflight_jobs(struct pvr_context *ctx)
+{
+	switch (ctx->type) {
+	case DRM_PVR_CTX_TYPE_RENDER:
+		pvr_context_queue_cancel_inflight_jobs(&to_pvr_context_render(ctx)->ctx_geom.queue);
+		pvr_context_queue_cancel_inflight_jobs(&to_pvr_context_render(ctx)->ctx_frag.queue);
+		break;
+
+	case DRM_PVR_CTX_TYPE_COMPUTE:
+		pvr_context_queue_cancel_inflight_jobs(&to_pvr_context_compute(ctx)->queue);
+		break;
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG:
+		pvr_context_queue_cancel_inflight_jobs(&to_pvr_context_transfer_frag(ctx)->queue);
+		break;
+
+	default:
+		break;
+	}
+}
+
+static int
+pvr_context_queue_fw_cleanup(struct pvr_context_queue *queue)
+{
+	struct pvr_context *ctx = queue_to_ctx(queue);
+	struct pvr_fw_object *fw_obj;
+	u32 fw_obj_offset;
+
+	switch (queue->fence_ctx->type) {
+	case PVR_CONTEXT_QUEUE_TYPE_GEOMETRY:
+		fw_obj = to_pvr_context_render(ctx)->fw_obj;
+		fw_obj_offset = offsetof(struct rogue_fwif_fwrendercontext, geom_context);
+		break;
+
+	case PVR_CONTEXT_QUEUE_TYPE_FRAGMENT:
+		fw_obj = to_pvr_context_render(ctx)->fw_obj;
+		fw_obj_offset = offsetof(struct rogue_fwif_fwrendercontext, frag_context);
+		break;
+
+	case PVR_CONTEXT_QUEUE_TYPE_COMPUTE:
+		fw_obj = to_pvr_context_compute(ctx)->fw_obj;
+		fw_obj_offset = offsetof(struct rogue_fwif_fwcomputecontext, cdm_context);
+		break;
+
+	case PVR_CONTEXT_QUEUE_TYPE_TRANSFER:
+		fw_obj = to_pvr_context_transfer_frag(ctx)->fw_obj;
+		fw_obj_offset = offsetof(struct rogue_fwif_fwtransfercontext, tq_context);
+		break;
+
+	default:
+		return -EINVAL;
+	}
+
+	return pvr_fw_structure_cleanup(ctx->pvr_dev,
+					ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
+					fw_obj, fw_obj_offset);
+}
+
+static int
+pvr_context_fw_cleanup(struct pvr_context *ctx)
+{
+	struct pvr_context_render *render_ctx;
+	int err;
+
+	switch (ctx->type) {
+	case DRM_PVR_CTX_TYPE_RENDER:
+		render_ctx = to_pvr_context_render(ctx);
+
+		err = pvr_context_queue_fw_cleanup(&render_ctx->ctx_geom.queue);
+		if (err)
+			pvr_context_queue_fw_cleanup(&render_ctx->ctx_frag.queue);
+		else
+			err = pvr_context_queue_fw_cleanup(&render_ctx->ctx_frag.queue);
+
+		return err;
+
+	case DRM_PVR_CTX_TYPE_COMPUTE:
+		return pvr_context_queue_fw_cleanup(&to_pvr_context_compute(ctx)->queue);
+
+	case DRM_PVR_CTX_TYPE_TRANSFER_FRAG:
+		return pvr_context_queue_fw_cleanup(&to_pvr_context_transfer_frag(ctx)->queue);
+
+	default:
+		return -EINVAL;
+	}
+}
+
 /**
  * pvr_context_queue_check_pending_jobs() - Check if any pending job can be submitted
  * @queue: Queue to check.
@@ -42,7 +210,10 @@
 static void
 pvr_context_queue_check_pending_jobs(struct pvr_context_queue *queue)
 {
-	while (true) {
+	struct pvr_context *ctx = queue_to_ctx(queue);
+	LIST_HEAD(cancel_jobs);
+
+	while (!atomic_read(&ctx->destroyed)) {
 		struct pvr_job *job;
 
 		spin_lock(&queue->jobs.lock);
@@ -68,6 +239,9 @@ pvr_context_queue_check_pending_jobs(struct pvr_context_queue *queue)
 		pvr_job_submit(job);
 		pvr_job_put(job);
 	}
+
+	if (atomic_read(&ctx->destroyed))
+		pvr_context_queue_cancel_pending_jobs(queue);
 }
 
 /**
@@ -1022,7 +1196,13 @@ pvr_release_context(struct kref *ref_count)
 		container_of(ref_count, struct pvr_context, ref_count);
 	struct pvr_device *pvr_dev = ctx->pvr_dev;
 
-	WARN_ON(pvr_context_wait_idle(ctx, 0));
+	WARN_ON(pvr_context_fw_cleanup(ctx));
+
+	if (WARN_ON(!list_empty(&ctx->active_node))) {
+		spin_lock(&pvr_dev->active_contexts.lock);
+		list_del_init(&ctx->active_node);
+		spin_unlock(&pvr_dev->active_contexts.lock);
+	}
 
 	xa_erase(&pvr_dev->ctx_ids, ctx->ctx_id);
 
@@ -1080,6 +1260,18 @@ pvr_context_destroy(struct pvr_file *pvr_file, u32 handle)
 	if (!ctx)
 		return -EINVAL;
 
+	/* Flag as destroyed so no jobs are submitted. */
+	atomic_set(&ctx->destroyed, 1);
+
+	/* Cancel in-flight jobs. This is not actually cancelling the jobs, just
+	 * signaling done fences attached to them.
+	 */
+	pvr_context_cancel_inflight_jobs(ctx);
+
+	/* Trigger pending job processing to cancel all pending jobs. */
+	pvr_context_pending_job_event(ctx);
+
+	/* Release the reference held by the handle set. */
 	pvr_context_put(ctx);
 
 	return 0;
@@ -1097,155 +1289,8 @@ void pvr_destroy_contexts_for_file(struct pvr_file *pvr_file)
 	struct pvr_context *ctx;
 	unsigned long handle;
 
-	xa_for_each(&pvr_file->ctx_handles, handle, ctx) {
-		xa_erase(&pvr_file->ctx_handles, handle);
-		pvr_context_put(ctx);
-	}
-}
-
-/**
- * pvr_context_wait_idle() - Wait for context to go idle
- * @ctx: Target context.
- * @timeout: Timeout, in jiffies
- *
- * Return:
- *  * 0 on success, or
- *  * -ETIMEDOUT on timeout.
- */
-int
-pvr_context_wait_idle(struct pvr_context *ctx, u32 timeout)
-{
-	struct pvr_device *pvr_dev = ctx->pvr_dev;
-	u32 jiffies_start = jiffies;
-	int err = 0;
-
-	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
-		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
-
-		do {
-			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						       ctx_render->fw_obj,
-						       offsetof(struct rogue_fwif_fwrendercontext,
-								geom_context));
-			if (err && err != -EBUSY)
-				goto err_out;
-
-			if (!err) {
-				const size_t offset_frag_ctx =
-					offsetof(struct rogue_fwif_fwrendercontext, frag_context);
-				err = pvr_fw_structure_cleanup(pvr_dev,
-							       ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-							       ctx_render->fw_obj,
-							       offset_frag_ctx);
-				if (err && err != -EBUSY)
-					goto err_out;
-			}
-
-			if (err)
-				msleep(CLEANUP_SLEEP_TIME_MS);
-		} while (err && (jiffies - jiffies_start) < timeout);
-	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
-		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
-
-		do {
-			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						       ctx_compute->fw_obj,
-						       offsetof(struct rogue_fwif_fwcomputecontext,
-								cdm_context));
-			if (err && err != -EBUSY)
-				goto err_out;
-			if (err)
-				msleep(CLEANUP_SLEEP_TIME_MS);
-		} while (err && (jiffies - jiffies_start) < timeout);
-	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
-		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
-
-		do {
-			const size_t offset_tq_ctx =
-				offsetof(struct rogue_fwif_fwtransfercontext, tq_context);
-			err = pvr_fw_structure_cleanup(pvr_dev, ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT,
-						       ctx_transfer->fw_obj,
-						       offset_tq_ctx);
-			if (err && err != -EBUSY)
-				goto err_out;
-			if (err)
-				msleep(CLEANUP_SLEEP_TIME_MS);
-		} while (err && (jiffies - jiffies_start) < timeout);
-	}
-
-	if (err)
-		err = -ETIMEDOUT;
-
-err_out:
-	return err;
-}
-
-/**
- * pvr_context_queue_fail_jobs() - Fail all outstanding jobs associated with a context queue
- * @queue: Target PowerVR queue.
- * @err: Error code.
- *
- * Returns:
- *  * %true if any jobs were failed, or
- *  * %false if there were no outstanding jobs.
- */
-static bool
-pvr_context_queue_fail_jobs(struct pvr_context_queue *queue, int err)
-{
-	struct pvr_job *job, *tmp_job;
-	LIST_HEAD(failed_jobs);
-
-	spin_lock(&queue->jobs.lock);
-	list_for_each_entry_safe(job, tmp_job, &queue->jobs.in_flight, node)
-		list_move_tail(&job->node, &failed_jobs);
-
-	list_for_each_entry_safe(job, tmp_job, &queue->jobs.pending, node)
-		list_move_tail(&job->node, &failed_jobs);
-	spin_unlock(&queue->jobs.lock);
-
-	if (list_empty(&failed_jobs))
-		return false;
-
-	list_for_each_entry_safe(job, tmp_job, &failed_jobs, node) {
-		list_del(&job->node);
-		dma_fence_set_error(job->done_fence, err);
-		dma_fence_signal(job->done_fence);
-		pvr_job_put(job);
-	}
-
-	return true;
-}
-
-/**
- * pvr_context_fail_fences() - Fail all outstanding fences associated with a context
- * @ctx: Target PowerVR context.
- * @err: Error code.
- *
- * Returns:
- *  * %true if any fences were failed, or
- *  * %false if there were no outstanding fences.
- */
-bool
-pvr_context_fail_fences(struct pvr_context *ctx, int err)
-{
-	bool ret = false;
-
-	if (ctx->type == DRM_PVR_CTX_TYPE_RENDER) {
-		struct pvr_context_render *ctx_render = to_pvr_context_render(ctx);
-
-		ret = pvr_context_queue_fail_jobs(&ctx_render->ctx_geom.queue, err);
-		ret |= pvr_context_queue_fail_jobs(&ctx_render->ctx_frag.queue, err);
-	} else if (ctx->type == DRM_PVR_CTX_TYPE_COMPUTE) {
-		struct pvr_context_compute *ctx_compute = to_pvr_context_compute(ctx);
-
-		ret = pvr_context_queue_fail_jobs(&ctx_compute->queue, err);
-	} else if (ctx->type == DRM_PVR_CTX_TYPE_TRANSFER_FRAG) {
-		struct pvr_context_transfer *ctx_transfer = to_pvr_context_transfer_frag(ctx);
-
-		ret = pvr_context_queue_fail_jobs(&ctx_transfer->queue, err);
-	}
-
-	return ret;
+	xa_for_each(&pvr_file->ctx_handles, handle, ctx)
+		pvr_context_destroy(pvr_file, handle);
 }
 
 /**
