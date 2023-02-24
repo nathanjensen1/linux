@@ -157,7 +157,15 @@ pvr_free_list_lookup_id(struct pvr_device *pvr_dev, u32 id)
 	struct pvr_free_list *free_list;
 
 	xa_lock(&pvr_dev->free_list_ids);
-	free_list = pvr_free_list_get(xa_load(&pvr_dev->free_list_ids, id));
+
+	/* Contexts are removed from the ctx_ids set in the context release path,
+	 * meaning the ref_count reached zero before they get removed. We need
+	 * to make sure we're not trying to acquire a context that's being
+	 * destroyed.
+	 */
+	free_list = xa_load(&pvr_dev->free_list_ids, id);
+	if (!kref_get_unless_zero(&free_list->ref_count))
+		free_list = NULL;
 	xa_unlock(&pvr_dev->free_list_ids);
 
 	return free_list;
