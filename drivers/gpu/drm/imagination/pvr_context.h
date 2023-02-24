@@ -314,6 +314,25 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
 }
 
 /**
+ * pvr_context_get() - Take additional reference on context.
+ * @ctx: Context pointer.
+ *
+ * Call pvr_context_put() to release.
+ *
+ * Returns:
+ *  * The requested context on success, or
+ *  * %NULL if no context pointer passed.
+ */
+static __always_inline struct pvr_context *
+pvr_context_get(struct pvr_context *ctx)
+{
+	if (ctx)
+		kref_get(&ctx->ref_count);
+
+	return ctx;
+}
+
+/**
  * pvr_context_lookup() - Lookup context pointer from handle and file.
  * @pvr_file: Pointer to pvr_file structure.
  * @handle: Context handle.
@@ -327,15 +346,14 @@ to_pvr_context_transfer_frag(struct pvr_context *ctx)
 static __always_inline struct pvr_context *
 pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_context *ctx = xa_load(&pvr_file->ctx_handles, handle);
+	struct pvr_context *ctx;
 
-	if (ctx) {
-		kref_get(&ctx->ref_count);
+	/* Take the array lock to protect against context removal.  */
+	xa_lock(&pvr_file->ctx_handles);
+	ctx = pvr_context_get(xa_load(&pvr_file->ctx_handles, handle));
+	xa_unlock(&pvr_file->ctx_handles);
 
-		return ctx;
-	}
-
-	return NULL;
+	return ctx;
 }
 
 /**
@@ -352,32 +370,21 @@ pvr_context_lookup(struct pvr_file *pvr_file, u32 handle)
 static __always_inline struct pvr_context *
 pvr_context_lookup_id(struct pvr_device *pvr_dev, u32 id)
 {
-	struct pvr_context *ctx = xa_load(&pvr_dev->ctx_ids, id);
+	struct pvr_context *ctx;
 
-	if (ctx) {
-		kref_get(&ctx->ref_count);
+	/* Take the array lock to protect against context removal.  */
+	xa_lock(&pvr_dev->ctx_ids);
 
-		return ctx;
-	}
+	/* Contexts are removed from the ctx_ids set in the context release path,
+	 * meaning the ref_count reached zero before they get removed. We need
+	 * to make sure we're not trying to acquire a context that's being
+	 * destroyed.
+	 */
+	ctx = xa_load(&pvr_dev->ctx_ids, id);
+	if (!kref_get_unless_zero(&ctx->ref_count))
+		ctx = NULL;
 
-	return NULL;
-}
-
-/**
- * pvr_context_get() - Take additional reference on context.
- * @ctx: Context pointer.
- *
- * Call pvr_context_put() to release.
- *
- * Returns:
- *  * The requested context on success, or
- *  * %NULL if no context pointer passed.
- */
-static __always_inline struct pvr_context *
-pvr_context_get(struct pvr_context *ctx)
-{
-	if (ctx)
-		kref_get(&ctx->ref_count);
+	xa_unlock(&pvr_dev->ctx_ids);
 
 	return ctx;
 }

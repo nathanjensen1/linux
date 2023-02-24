@@ -1075,12 +1075,11 @@ pvr_context_put(struct pvr_context *ctx)
 int
 pvr_context_destroy(struct pvr_file *pvr_file, u32 handle)
 {
-	struct pvr_context *ctx = xa_load(&pvr_file->ctx_handles, handle);
+	struct pvr_context *ctx = xa_erase(&pvr_file->ctx_handles, handle);
 
 	if (!ctx)
 		return -EINVAL;
 
-	xa_erase(&pvr_file->ctx_handles, handle);
 	pvr_context_put(ctx);
 
 	return 0;
