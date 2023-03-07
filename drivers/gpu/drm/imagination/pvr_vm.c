@@ -1306,32 +1306,30 @@ pvr_page_table_l0_entry_is_valid(struct pvr_page_table_l0 *table, u16 idx)
 /**
  * pvr_page_table_l2_insert() - Insert an entry referring to a level 1 page
  *                              table into a level 2 page table.
- * @table: Target level 2 page table.
- * @idx: Index of the entry to write.
+ * @ptr: Page table pointer pointing to the entry to insert the L1 page table into.
  * @child_table: Target level 1 page table to be referenced by the new entry.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The values of @ptr are not checked here; it is the callers responsibility to
+ * ensure @ptr points to a valid L2 entry.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is not already a valid entry at @idx in @table.
+ * there is not already a valid entry at @ptr.
  */
 static void
-pvr_page_table_l2_insert(struct pvr_page_table_l2 *table, u16 idx,
+pvr_page_table_l2_insert(struct pvr_page_table_ptr *ptr,
 			 struct pvr_page_table_l1 *child_table)
 {
 	struct pvr_page_table_l2_entry_raw *entry_raw =
-		pvr_page_table_l2_get_entry_raw(table, idx);
+		pvr_page_table_l2_get_entry_raw(ptr->l2_table, ptr->l2_idx);
 
 	pvr_page_table_l2_entry_raw_set(entry_raw,
 					child_table->backing_page.dma_addr);
 
-	child_table->parent = table;
-	child_table->parent_idx = idx;
-
-	table->entries[idx] = child_table;
-	++table->entry_count;
+	child_table->parent = ptr->l2_table;
+	child_table->parent_idx = ptr->l2_idx;
+	ptr->l2_table->entries[ptr->l2_idx] = child_table;
+	++ptr->l2_table->entry_count;
+	ptr->l1_table = child_table;
 }
 
 /**
@@ -1369,32 +1367,30 @@ pvr_page_table_l2_remove(struct pvr_page_table_ptr *ptr)
 /**
  * pvr_page_table_l1_insert() - Insert an entry referring to a level 0 page
  *                              table into a level 1 page table.
- * @table: Target level 1 page table.
- * @idx: Index of the entry to write.
- * @child_table: Target level 0 page table to be referenced by the new entry.
+ * @ptr: Page table pointer pointing to the entry to insert the L0 page table into.
+ * @child_table: L0 page table to insert.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The value of @ptr is not checked here; it is the callers responsibility to
+ * ensure @ptr points to valid L1 entry before calling this function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is not already a valid entry at @idx in @table.
+ * there is not already a valid entry at @ptr.
  */
 static void
-pvr_page_table_l1_insert(struct pvr_page_table_l1 *table, u16 idx,
+pvr_page_table_l1_insert(struct pvr_page_table_ptr *ptr,
 			 struct pvr_page_table_l0 *child_table)
 {
 	struct pvr_page_table_l1_entry_raw *entry_raw =
-		pvr_page_table_l1_get_entry_raw(table, idx);
+		pvr_page_table_l1_get_entry_raw(ptr->l1_table, ptr->l1_idx);
 
 	pvr_page_table_l1_entry_raw_set(entry_raw,
 					child_table->backing_page.dma_addr);
 
-	child_table->parent = table;
-	child_table->parent_idx = idx;
-
-	table->entries[idx] = child_table;
-	++table->entry_count;
+	child_table->parent = ptr->l1_table;
+	child_table->parent_idx = ptr->l1_idx;
+	ptr->l1_table->entries[ptr->l1_idx] = child_table;
+	++ptr->l1_table->entry_count;
+	ptr->l0_table = child_table;
 }
 
 /**
@@ -1439,25 +1435,23 @@ pvr_page_table_l1_remove(struct pvr_page_table_ptr *ptr)
 
 /**
  * pvr_page_table_l0_insert() - Insert an entry referring to a physical page
- *                              into a level 2 page table.
- * @table: Target level 0 page table.
- * @idx: Index of the entry to write.
+ *                              into a level 0 page table.
+ * @ptr: Page table pointer pointing to the L0 entry to insert.
  * @dma_addr: Target DMA address to be referenced by the new entry.
  * @flags: Page options to be stored in the new entry.
  *
- * The value of @idx is not checked here; it is the callers responsibility to
- * ensure @idx refers to a valid index within @table before calling this
- * function.
+ * The values of @ptr are not checked here; it is the callers responsibility to
+ * ensure @ptr points to a valid L0 entry before calling this function.
  *
  * This function is unchecked. Do not call it unless you're absolutely sure
- * there is not already a valid entry at @idx in @table.
+ * there is not already a valid entry in the L0 table @ptr points to.
  */
 static void
-pvr_page_table_l0_insert(struct pvr_page_table_l0 *table, u16 idx,
+pvr_page_table_l0_insert(struct pvr_page_table_ptr *ptr,
 			 dma_addr_t dma_addr, struct pvr_page_flags_raw flags)
 {
 	struct pvr_page_table_l0_entry_raw *entry_raw =
-		pvr_page_table_l0_get_entry_raw(table, idx);
+		pvr_page_table_l0_get_entry_raw(ptr->l0_table, ptr->l0_idx);
 
 	pvr_page_table_l0_entry_raw_set(entry_raw, dma_addr, flags);
 
@@ -1466,7 +1460,7 @@ pvr_page_table_l0_insert(struct pvr_page_table_l0 *table, u16 idx,
 	 * individual pages.
 	 */
 
-	++table->entry_count;
+	++ptr->l0_table->entry_count;
 }
 
 /**
@@ -1609,57 +1603,44 @@ pvr_page_table_l0_idx(u64 device_addr)
  * pvr_page_table_l1_create_unchecked() - Create a level 1 page table and
  *                                        insert it into a level 2 page table.
  * @pvr_dev: Target PowerVR device.
- * @parent_table: Target level 2 page table.
- * @idx: Index into @parent_table at which to insert the created level 1 page
- * table.
+ * @ptr: Page table pointer pointing to the entry to insert the L1 page table into.
  *
- * This function is unchecked. By using it, the caller is asserting that @idx
- * indexes a valid slot in @parent_table, and that slot does not contain a
- * valid entry.
+ * This function is unchecked. By using it, the caller is asserting that @ptr
+ * points to a valid L2 slot, and that this slot does not contain a valid entry.
  *
  * Return:
- *  * The newly-minted level 1 page table on success,
+ *  * 0 on success,
  *  * -%ENOMEM if allocation of a &struct pvr_page_table_l1 fails, or
  *  * Any error encountered while initializing the new level 1 page table with
  *    pvr_page_table_l1_init().
  */
-static struct pvr_page_table_l1 *
-pvr_page_table_l1_create_unchecked(struct pvr_device *pvr_dev,
-				   struct pvr_page_table_l2 *parent_table,
-				   u16 idx)
+static int
+pvr_page_table_l1_create_unchecked(struct pvr_page_table_ptr *ptr)
 {
 	struct pvr_page_table_l1 *table;
 	int err;
 
 	table = kzalloc(sizeof(*table), GFP_KERNEL);
-	if (!table) {
-		err = -ENOMEM;
-		goto err_out;
-	}
+	if (!table)
+		return -ENOMEM;
 
-	err = pvr_page_table_l1_init(table, pvr_dev);
+	err = pvr_page_table_l1_init(table, ptr->pvr_dev);
 	if (err)
 		goto err_free_table;
 
-	pvr_page_table_l2_insert(parent_table, idx, table);
-
-	return table;
+	pvr_page_table_l2_insert(ptr, table);
+	return 0;
 
 err_free_table:
 	kfree(table);
-
-err_out:
-	return ERR_PTR(err);
+	return err;
 }
 
 /**
  * pvr_page_table_l1_get_or_create() - Retrieves (optionally creating if
  *                                     necessary) a level 1 page table from the
  *                                     specified level 2 page table entry.
- * @pvr_dev: [IN] Target PowerVR device.
- * @parent_table: [IN] Level 2 page table which contains the target level 1
- *                page table.
- * @idx: [IN] Index into @parent_table of the entry to fetch.
+ * @ptr: [IN] Page table pointer.
  * @should_create: [IN] Specifies whether new page tables should be created
  *                 when empty page table entries are encountered during
  *                 traversal.
@@ -1668,7 +1649,7 @@ err_out:
  *              In any other case, the value will not be modified.
  *
  * Return:
- *  * The selected level 1 page table on success, or
+ *  * 0 on success, or
  *
  *    If @should_create is %false:
  *     * -%ENXIO if a level 1 page table would have been created.
@@ -1677,82 +1658,69 @@ err_out:
  *     * Any error encountered while creating the level 1 page table with
  *       pvr_page_table_l1_create_unchecked() if one needs to be created.
  */
-static struct pvr_page_table_l1 *
-pvr_page_table_l1_get_or_create(struct pvr_device *pvr_dev,
-				struct pvr_page_table_l2 *parent_table, u16 idx,
+static int
+pvr_page_table_l1_get_or_create(struct pvr_page_table_ptr *ptr,
 				bool should_create, bool *did_create)
 {
-	struct pvr_page_table_l1 *table;
+	int err;
 
-	if (pvr_page_table_l2_entry_is_valid(parent_table, idx))
-		return parent_table->entries[idx];
+	if (pvr_page_table_l2_entry_is_valid(ptr->l2_table, ptr->l2_idx)) {
+		ptr->l1_table = ptr->l2_table->entries[ptr->l2_idx];
+		return 0;
+	}
 
 	if (!should_create)
-		return ERR_PTR(-ENXIO);
+		return -ENXIO;
 
 	/* Safe, because we just verified the entry does not exist yet. */
-	table = pvr_page_table_l1_create_unchecked(pvr_dev, parent_table, idx);
-	if (!IS_ERR(table) && did_create)
+	err = pvr_page_table_l1_create_unchecked(ptr);
+	if (!err && did_create)
 		*did_create = true;
 
-	return table;
+	return err;
 }
 
 /**
  * pvr_page_table_l0_create_unchecked() - Create a level 0 page table and
  *                                        insert it into a level 1 page table.
- * @pvr_dev: Target PowerVR device.
- * @parent_table: Target level 1 page table.
- * @idx: Index into @parent_table at which to insert the created level 0 page
- * table.
+ * @ptr: Page table pointer pointing to the L1 entry to insert the L0 page table into.
  *
- * This function is unchecked. By using it, the caller is asserting that @idx
- * indexes a valid slot in @parent_table, and that slot does not contain a
- * valid entry.
+ * This function is unchecked. By using it, the caller is asserting that @ptr
+ * points to a valid L1 slot, and that slot does not contain a valid entry.
  *
  * Return:
- *  * The newly-minted level 0 page table on success,
+ *  * 0 on success,
  *  * -%ENOMEM if allocation of a &struct pvr_page_table_l0 fails, or
  *  * Any error encountered while initializing the new level 0 page table with
  *    pvr_page_table_l1_init().
  */
-static struct pvr_page_table_l0 *
-pvr_page_table_l0_create_unchecked(struct pvr_device *pvr_dev,
-				   struct pvr_page_table_l1 *parent_table,
-				   u16 idx)
+static int
+pvr_page_table_l0_create_unchecked(struct pvr_page_table_ptr *ptr)
 {
 	struct pvr_page_table_l0 *table;
 	int err;
 
 	table = kzalloc(sizeof(*table), GFP_KERNEL);
-	if (!table) {
-		err = -ENOMEM;
-		goto err_out;
-	}
+	if (!table)
+		return -ENOMEM;
 
-	err = pvr_page_table_l0_init(table, pvr_dev);
+	err = pvr_page_table_l0_init(table, ptr->pvr_dev);
 	if (err)
 		goto err_free_table;
 
-	pvr_page_table_l1_insert(parent_table, idx, table);
-
-	return table;
+	pvr_page_table_l1_insert(ptr, table);
+	return 0;
 
 err_free_table:
 	kfree(table);
-
-err_out:
-	return ERR_PTR(err);
+	return err;
 }
 
 /**
  * pvr_page_table_l0_get_or_create() - Retrieves (optionally creating if
  *                                     necessary) a level 0 page table from the
  *                                     specified level 1 page table entry.
- * @pvr_dev: [IN] Target PowerVR device.
- * @parent_table: [IN] Level 1 page table which contains the target level 0
- *                page table.
- * @idx: [IN] Index into @parent_table of the entry to fetch.
+ * @ptr: [IN] Page table pointer.
  * @should_create: [IN] Specifies whether new page tables should be created
  *                 when empty page table entries are encountered during
  *                 traversal.
@@ -1761,31 +1729,32 @@ err_out:
  *              In any other case, the value will not be modified.
  *
  * Return:
- *  * The selected level 0 page table on success,
+ *  * 0 on success,
  *  * -%ENXIO if @should_create is %false and a level 0 page table would have
  *    been created, or
  *  * Any error returned by pvr_page_table_l1_create_unchecked() if
  *    @should_create is %true and a new level 0 page table needs to be created.
  */
-static struct pvr_page_table_l0 *
-pvr_page_table_l0_get_or_create(struct pvr_device *pvr_dev,
-				struct pvr_page_table_l1 *parent_table, u16 idx,
+static int
+pvr_page_table_l0_get_or_create(struct pvr_page_table_ptr *ptr,
 				bool should_create, bool *did_create)
 {
-	struct pvr_page_table_l0 *table;
+	int err;
 
-	if (pvr_page_table_l1_entry_is_valid(parent_table, idx))
-		return parent_table->entries[idx];
+	if (pvr_page_table_l1_entry_is_valid(ptr->l1_table, ptr->l1_idx)) {
+		ptr->l0_table = ptr->l1_table->entries[ptr->l1_idx];
+		return 0;
+	}
 
 	if (!should_create)
-		return ERR_PTR(-ENXIO);
+		return -ENXIO;
 
 	/* Safe, because we just verified the entry does not exist yet. */
-	table = pvr_page_table_l0_create_unchecked(pvr_dev, parent_table, idx);
-	if (!IS_ERR(table) && did_create)
+	err = pvr_page_table_l0_create_unchecked(ptr);
+	if (!err && did_create)
 		*did_create = true;
 
-	return table;
+	return err;
 }
 
 /**
@@ -1946,15 +1915,8 @@ pvr_page_table_ptr_load_tables(struct pvr_page_table_ptr *ptr,
 
 	/* Get or create L1 page table. */
 	if (load_level_required >= 1) {
-		ptr->l1_table = pvr_page_table_l1_get_or_create(ptr->pvr_dev,
-								ptr->l2_table,
-								ptr->l2_idx,
-								should_create,
-								&did_create_l1);
-		if (IS_ERR(ptr->l1_table)) {
-			err = PTR_ERR(ptr->l1_table);
-			ptr->l1_table = NULL;
-
+		err = pvr_page_table_l1_get_or_create(ptr, should_create, &did_create_l1);
+		if (err) {
 			/*
 			 * If @should_create is %false and no L1 page table was
 			 * found, return early but without an error. Since
@@ -1971,15 +1933,8 @@ pvr_page_table_ptr_load_tables(struct pvr_page_table_ptr *ptr,
 
 	/* Get or create L0 page table. */
 	if (load_level_required >= 0) {
-		ptr->l0_table = pvr_page_table_l0_get_or_create(ptr->pvr_dev,
-								ptr->l1_table,
-								ptr->l1_idx,
-								should_create,
-								&did_create_l0);
-		if (IS_ERR(ptr->l0_table)) {
-			err = PTR_ERR(ptr->l0_table);
-			ptr->l0_table = NULL;
-
+		err = pvr_page_table_l0_get_or_create(ptr, should_create, &did_create_l0);
+		if (err) {
 			/*
 			 * If @should_create is %false and no L0 page table was
 			 * found, return early but without an error. Since
@@ -2226,7 +2181,7 @@ pvr_page_create(struct pvr_page_table_ptr *ptr, dma_addr_t dma_addr,
 	if (pvr_page_table_l0_entry_is_valid(ptr->l0_table, ptr->l0_idx))
 		return -EEXIST;
 
-	pvr_page_table_l0_insert(ptr->l0_table, ptr->l0_idx, dma_addr, flags);
+	pvr_page_table_l0_insert(ptr, dma_addr, flags);
 
 	pvr_page_table_ptr_require_sync(ptr, 0);
 
