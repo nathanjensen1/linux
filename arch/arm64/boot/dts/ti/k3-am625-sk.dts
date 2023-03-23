@@ -491,3 +491,11 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&main_usb1_pins_default>;
 };
+
+&gpu {
+	status = "okay";
+};
+
+&dss {
+	status = "okay";
+};
