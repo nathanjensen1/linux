@@ -736,6 +736,15 @@
 		dss_ports: ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			/* VP2: DPI Output */
+			port@1 {
+				reg = <1>;
+
+				dpi1_out: endpoint {
+					remote-endpoint = <&sii9022_in>;
+				};
+			};
 		};
 	};
 
@@ -828,6 +837,23 @@
 		clocks = <&epwm_tbclk 2>, <&k3_clks 88 0>;
 		clock-names = "tbclk", "fck";
 		status = "disabled";
+	};
+
+	hdmi_mstrclk: hdmi-mstrclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12288000>;
+	};
+
+	hdmi: connector {
+		compatible = "hdmi-connector";
+		label = "hdmi";
+		type = "a";
+		port {
+			hdmi_connector_in: endpoint {
+				remote-endpoint = <&sii9022_out>;
+			};
+		};
 	};
 
 	gpu: gpu@fd00000 {
