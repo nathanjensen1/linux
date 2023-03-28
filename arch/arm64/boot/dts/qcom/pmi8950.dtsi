@@ -4,6 +4,7 @@
 #include <dt-bindings/iio/qcom,spmi-vadc.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/spmi/spmi.h>
+#include <dt-bindings/input/qcom,spmi-haptics.h>
 
 &spmi_bus {
 	pmic@2 {
@@ -197,6 +198,17 @@
 			interrupts = <0x3 0xd8 0x02 IRQ_TYPE_EDGE_RISING>;
 			interrupt-names = "short";
 			label = "backlight";
+
+			status = "disabled";
+		};
+
+		pmi8998_haptics: haptics@c000 {
+			compatible = "qcom,pmi8950-haptics", "qcom,spmi-haptics";
+			reg = <0xc000>;
+
+			interrupts = <0x3 0xc0 0x0 IRQ_TYPE_EDGE_BOTH>,
+				<0x3 0xc0 0x1 IRQ_TYPE_EDGE_BOTH>;
+			interrupt-names = "short", "play";
 
 			status = "disabled";
 		};
