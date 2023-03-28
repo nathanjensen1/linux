@@ -219,6 +219,10 @@
 	status = "okay";
 };
 
+&pmi8998_haptics {
+	status = "okay";
+};
+
 &pronto {
 	vddpx-supply = <&pm8953_l5>;
 	status = "okay";
