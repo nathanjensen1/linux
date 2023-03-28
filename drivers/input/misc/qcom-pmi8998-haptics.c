@@ -157,12 +157,53 @@
 #define HAP_AUTO_RES_ZXD_EOP		4
 // clang-format on
 
-static const uint8_t default_brake_pattern[] = {
-	0x3, 0x3, 0x3, 0x3, 0x3,
+static const uint8_t pmi8998_brake_pattern[] = {
+	0x3, 0x3, 0x3, 0x3,
 };
 
-static const uint8_t wave_sample_pattern[] = {
-	0x7e, 0x7e, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28,
+struct spmi_haptics_vibrator {
+	uint8_t actuator_type;
+	uint8_t wave_shape;
+	uint8_t play_mode;
+	uint32_t vmax;
+	uint32_t current_limit;
+	uint32_t play_wave_rate;
+	const uint8_t* brake_pattern;
+	const uint8_t* wave_sample_pattern;
+};
+
+static const uint8_t pmi8998_wave_sample_pattern[] = {
+	0x7e, 0x7e, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28
+};
+
+static const struct spmi_haptics_vibrator pmi8998_vibrator = {
+	.actuator_type = HAP_TYPE_LRA,
+	.wave_shape = HAP_WAVE_SINE,
+	.play_mode = HAP_PLAY_DIRECT,
+	.vmax = 3000,
+	.current_limit = HAP_ILIM_400_MA,
+	.play_wave_rate = 20475,
+	.brake_pattern = pmi8998_brake_pattern,
+	.wave_sample_pattern = pmi8998_wave_sample_pattern
+};
+
+static const uint8_t pmi8950_brake_pattern[] = {
+	0x3, 0x3, 0x0, 0x0
+};
+
+static const uint8_t pmi8950_wave_sample_pattern[] = {
+	0x3e, 0x3e, 0x3e, 0x3e, 0x3e, 0x3e, 0x3e, 0x3e
+};
+
+static const struct spmi_haptics_vibrator pmi8950_vibrator = {
+	.actuator_type = HAP_TYPE_ERM,
+	.wave_shape = HAP_WAVE_SQUARE,
+	.play_mode = HAP_PLAY_DIRECT,
+	.vmax = 3000,
+	.current_limit = HAP_ILIM_800_MA,
+	.play_wave_rate = 5263,
+	.brake_pattern = pmi8950_brake_pattern,
+	.wave_sample_pattern = pmi8950_wave_sample_pattern
 };
 
 /**
@@ -204,6 +245,9 @@ struct spmi_haptics {
 	uint32_t current_limit;
 	uint32_t play_wave_rate;
 	struct mutex play_lock;
+
+	const uint8_t* brake_pattern;
+	const uint8_t* wave_sample_pattern;
 };
 
 static int haptics_write_vmax(struct spmi_haptics *haptics)
@@ -459,22 +503,24 @@ static int haptics_init(struct spmi_haptics *haptics)
 	 * see qpnp_haptics_lra_auto_res_config downstream
 	 * This is greatly simplified.
 	 */
-	val = FIELD_PREP(LRA_RES_CAL_MASK, ilog2(32 / HAP_RES_CAL_PERIOD_MIN)) |
-	      FIELD_PREP(LRA_AUTO_RES_MODE_MASK, HAP_AUTO_RES_ZXD_EOP) |
-	      FIELD_PREP(LRA_HIGH_Z_MASK, 1);
-	mask = LRA_AUTO_RES_MODE_MASK | LRA_HIGH_Z_MASK | LRA_RES_CAL_MASK;
+	if (haptics->actuator_type == HAP_TYPE_LRA) {
+		val = FIELD_PREP(LRA_RES_CAL_MASK, ilog2(32 / HAP_RES_CAL_PERIOD_MIN)) |
+		FIELD_PREP(LRA_AUTO_RES_MODE_MASK, HAP_AUTO_RES_ZXD_EOP) |
+		FIELD_PREP(LRA_HIGH_Z_MASK, 1);
+		mask = LRA_AUTO_RES_MODE_MASK | LRA_HIGH_Z_MASK | LRA_RES_CAL_MASK;
 
-	ret = regmap_update_bits(haptics->regmap,
-				 haptics->base + HAP_LRA_AUTO_RES_REG, mask,
-				 val);
-	if (ret)
-		return ret;
+		ret = regmap_update_bits(haptics->regmap,
+					haptics->base + HAP_LRA_AUTO_RES_REG, mask,
+					val);
+		if (ret)
+			return ret;
 
-	val = FIELD_PREP(HAP_WF_SOURCE_MASK, haptics->play_mode);
-	ret = regmap_update_bits(haptics->regmap, haptics->base + HAP_SEL_REG,
-				 HAP_WF_SOURCE_MASK, val);
-	if (ret)
-		return ret;
+		val = FIELD_PREP(HAP_WF_SOURCE_MASK, haptics->play_mode);
+		ret = regmap_update_bits(haptics->regmap, haptics->base + HAP_SEL_REG,
+					HAP_WF_SOURCE_MASK, val);
+		if (ret)
+			return ret;
+	}
 
 	ret = regmap_update_bits(haptics->regmap,
 				 haptics->base + HAP_ILIM_CFG_REG,
@@ -512,25 +558,8 @@ static int haptics_init(struct spmi_haptics *haptics)
 	if (ret)
 		return ret;
 
-	ret = haptics_write_brake_pattern(haptics, default_brake_pattern);
-	if (ret)
-		return ret;
-
-	/* Currently this is the only supported play mode */
-	if (haptics->play_mode == HAP_PLAY_BUFFER) {
-		/* zero repeats and zero sample repeats */
-		val = FIELD_PREP(WF_REPEAT_MASK, 0) |
-		      FIELD_PREP(WF_S_REPEAT_MASK, 0);
-		ret = regmap_update_bits(haptics->regmap,
-					 haptics->base + HAP_WF_REPEAT_REG,
-					 WF_REPEAT_MASK | WF_S_REPEAT_MASK,
-					 val);
-		if (ret)
-			return ret;
-
-		ret = regmap_bulk_write(haptics->regmap,
-					haptics->base + HAP_WF_S1_REG,
-					wave_sample_pattern, HAP_WAVE_SAMP_LEN);
+	if (haptics->actuator_type == HAP_TYPE_LRA) {
+		ret = haptics_write_brake_pattern(haptics, haptics->brake_pattern);
 		if (ret)
 			return ret;
 	}
@@ -540,6 +569,7 @@ static int haptics_init(struct spmi_haptics *haptics)
 
 static int spmi_haptics_probe(struct platform_device *pdev)
 {
+	const struct spmi_haptics_vibrator *vib_data;
 	struct spmi_haptics *haptics;
 	struct input_dev *input_dev;
 	int ret, irq;
@@ -564,10 +594,15 @@ static int spmi_haptics_probe(struct platform_device *pdev)
 	/* This is the only currently supported configuration, these values
 	 * are left to allow future additions
 	 */
-	haptics->actuator_type = HAP_TYPE_LRA;
-	haptics->play_mode = HAP_PLAY_BUFFER;
-	haptics->wave_shape = HAP_WAVE_SINE;
-	haptics->current_limit = HAP_ILIM_400_MA;
+	vib_data = of_device_get_match_data(&pdev->dev);
+	haptics->actuator_type = vib_data->actuator_type;
+	haptics->play_mode = vib_data->play_mode;
+	haptics->wave_shape = vib_data->wave_shape;
+	haptics->vmax = vib_data->vmax;
+	haptics->play_wave_rate = vib_data->play_wave_rate;
+	haptics->current_limit = vib_data->current_limit;
+	haptics->wave_sample_pattern = vib_data->wave_sample_pattern;
+	haptics->brake_pattern = vib_data->brake_pattern;
 
 	ret = device_property_read_u32(haptics->dev, "qcom,wave-play-rate-us",
 				       &haptics->play_wave_rate);
@@ -668,7 +703,8 @@ static void spmi_haptics_shutdown(struct platform_device *pdev)
 }
 
 static const struct of_device_id spmi_haptics_match_table[] = {
-	{ .compatible = "qcom,pmi8998-haptics" },
+	{ .compatible = "qcom,pmi8998-haptics", .data = &pmi8998_vibrator },
+	{ .compatible = "qcom,pmi8950-haptics", .data = &pmi8950_vibrator },
 	{}
 };
 MODULE_DEVICE_TABLE(of, spmi_haptics_match_table);
